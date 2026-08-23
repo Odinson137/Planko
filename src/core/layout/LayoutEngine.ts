@@ -482,43 +482,67 @@ export class LayoutEngine {
                   const b1 = ptsB[b];
                   const b2 = ptsB[(b + 1) % nB];
 
-                  const d1 = Math.hypot(a1.x - b2.x, a1.y - b2.y) + Math.hypot(a2.x - b1.x, a2.y - b1.y);
-                  const d2 = Math.hypot(a1.x - b1.x, a1.y - b1.y) + Math.hypot(a2.x - b2.x, a2.y - b2.y);
-                  if (d1 < 1.5 || d2 < 1.5) {
-                    const worldP1: Point2D = {
-                      x: Math.round((currentX + a1.x) * 10) / 10,
-                      y: Math.round((currentY + a1.y) * 10) / 10,
-                    };
-                    const worldP2: Point2D = {
-                      x: Math.round((currentX + a2.x) * 10) / 10,
-                      y: Math.round((currentY + a2.y) * 10) / 10,
-                    };
+                  // Проверяем перекрытие отрезков (коллинеарность + пересечение интервалов)
+                  const dxB = b2.x - b1.x;
+                  const dyB = b2.y - b1.y;
+                  const lenB = Math.hypot(dxB, dyB);
+                  if (lenB < 1e-3) continue;
 
-                    const edgeLen = Math.round(Math.hypot(worldP2.x - worldP1.x, worldP2.y - worldP1.y) * 10) / 10;
-                    if (edgeLen > 5) {
-                      const cutJointId = `edge-cut-${columnIndex}-${segmentIndex}-${subA.id}-${subB.id}`;
-                      const customJointCfg = wall.customJoints[cutJointId];
-                      const isCutLED = customJointCfg?.isLED ?? false;
-                      const jWidth = customJointCfg?.width ?? 8;
+                  const ux = dxB / lenB;
+                  const uy = dyB / lenB;
 
-                      const isPureVert = Math.abs(worldP1.x - worldP2.x) < 0.5;
-                      const isPureHoriz = Math.abs(worldP1.y - worldP2.y) < 0.5;
+                  // Перпендикулярное расстояние от точек a1 и a2 до прямой b1-b2
+                  const distA1 = Math.abs((a1.x - b1.x) * uy - (a1.y - b1.y) * ux);
+                  const distA2 = Math.abs((a2.x - b1.x) * uy - (a2.y - b1.y) * ux);
 
-                      rawJoints.push({
-                        id: cutJointId,
-                        name: `Стык раскроя (${subA.partLabel || 'A'} / ${subB.partLabel || 'B'})`,
-                        x: Math.min(worldP1.x, worldP2.x),
-                        y: Math.min(worldP1.y, worldP2.y),
-                        width: jWidth,
-                        length: edgeLen,
-                        orientation: isPureVert ? 'VERTICAL' : (isPureHoriz ? 'HORIZONTAL' : 'DIAGONAL'),
-                        p1: worldP1,
-                        p2: worldP2,
-                        isLED: isCutLED,
-                        isOuterEdge: false,
-                        columnIndex,
-                        segmentIndex,
-                      });
+                  if (distA1 <= 2.5 && distA2 <= 2.5) {
+                    // Проекции точек a1 и a2 на направляющую b1-b2
+                    const tA1 = (a1.x - b1.x) * ux + (a1.y - b1.y) * uy;
+                    const tA2 = (a2.x - b1.x) * ux + (a2.y - b1.y) * uy;
+
+                    const minA = Math.min(tA1, tA2);
+                    const maxA = Math.max(tA1, tA2);
+
+                    const tStart = Math.max(0, minA);
+                    const tEnd = Math.min(lenB, maxA);
+                    const overlapLen = tEnd - tStart;
+
+                    if (overlapLen > 4.0) {
+                      const worldP1: Point2D = {
+                        x: Math.round((currentX + (b1.x + ux * tStart)) * 10) / 10,
+                        y: Math.round((currentY + (b1.y + uy * tStart)) * 10) / 10,
+                      };
+                      const worldP2: Point2D = {
+                        x: Math.round((currentX + (b1.x + ux * tEnd)) * 10) / 10,
+                        y: Math.round((currentY + (b1.y + uy * tEnd)) * 10) / 10,
+                      };
+
+                      const edgeLen = Math.round(Math.hypot(worldP2.x - worldP1.x, worldP2.y - worldP1.y) * 10) / 10;
+                      if (edgeLen > 5) {
+                        const cutJointId = `edge-cut-${columnIndex}-${segmentIndex}-${subA.id}-${subB.id}`;
+                        const customJointCfg = wall.customJoints[cutJointId];
+                        const isCutLED = customJointCfg?.isLED ?? false;
+                        const jWidth = customJointCfg?.width ?? 8;
+
+                        const isPureVert = Math.abs(worldP1.x - worldP2.x) < 0.5;
+                        const isPureHoriz = Math.abs(worldP1.y - worldP2.y) < 0.5;
+
+                        rawJoints.push({
+                          id: cutJointId,
+                          name: `Стык раскроя (${subA.partLabel || 'A'} / ${subB.partLabel || 'B'})`,
+                          x: Math.min(worldP1.x, worldP2.x),
+                          y: Math.min(worldP1.y, worldP2.y),
+                          width: jWidth,
+                          length: edgeLen,
+                          orientation: isPureVert ? 'VERTICAL' : (isPureHoriz ? 'HORIZONTAL' : 'DIAGONAL'),
+                          p1: worldP1,
+                          p2: worldP2,
+                          isLED: isCutLED,
+                          isOuterEdge: false,
+                          columnIndex,
+                          segmentIndex,
+                        });
+                      }
                     }
                   }
                 }
