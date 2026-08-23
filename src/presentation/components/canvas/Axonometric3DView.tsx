@@ -58,6 +58,142 @@ export const Axonometric3DView: React.FC = () => {
     [angleDeg, elevationDeg, panOffset]
   );
 
+  // Отрисовка фотореалистичных текстур материалов на 3D-гранях панелей
+  const draw3DMaterialTexture = (
+    ctx: CanvasRenderingContext2D,
+    category: string,
+    p0: Point2D,
+    p1: Point2D,
+    p2: Point2D,
+    p3: Point2D
+  ) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.lineTo(p3.x, p3.y);
+    ctx.closePath();
+    ctx.clip();
+
+    switch (category) {
+      case 'WOOD': {
+        // Натуральные 3D волокна древесины от нижнего ребра к верхнему
+        const numFibers = 7;
+        for (let f = 1; f < numFibers; f++) {
+          const u = f / numFibers;
+          const bX = p0.x + (p1.x - p0.x) * u;
+          const bY = p0.y + (p1.y - p0.y) * u;
+          const tX = p3.x + (p2.x - p3.x) * u;
+          const tY = p3.y + (p2.y - p3.y) * u;
+
+          const wave = Math.sin(u * Math.PI * 3) * 2;
+          ctx.strokeStyle = f % 3 === 0 ? 'rgba(0, 0, 0, 0.12)' : 'rgba(0, 0, 0, 0.06)';
+          ctx.lineWidth = f % 3 === 0 ? 1.2 : 0.7;
+          ctx.beginPath();
+          ctx.moveTo(bX, bY);
+          ctx.bezierCurveTo(
+            bX * 0.65 + tX * 0.35 + wave,
+            bY * 0.65 + tY * 0.35,
+            bX * 0.35 + tX * 0.65 - wave,
+            bY * 0.35 + tY * 0.65,
+            tX,
+            tY
+          );
+          ctx.stroke();
+
+          // Светлый блик волокна
+          if (f % 2 === 0) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(bX + 1.2, bY);
+            ctx.lineTo(tX + 1.2, tY);
+            ctx.stroke();
+          }
+        }
+        break;
+      }
+
+      case 'FABRIC': {
+        // 3D переплетение нитей
+        const lines = 10;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+        ctx.lineWidth = 0.8;
+        for (let l = 1; l < lines; l++) {
+          const u = l / lines;
+          ctx.beginPath();
+          ctx.moveTo(p0.x + (p1.x - p0.x) * u, p0.y + (p1.y - p0.y) * u);
+          ctx.lineTo(p3.x + (p2.x - p3.x) * u, p3.y + (p2.y - p3.y) * u);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+        for (let l = 1; l < lines; l++) {
+          const v = l / lines;
+          ctx.beginPath();
+          ctx.moveTo(p0.x + (p3.x - p0.x) * v, p0.y + (p3.y - p0.y) * v);
+          ctx.lineTo(p1.x + (p2.x - p1.x) * v, p1.y + (p2.y - p1.y) * v);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case 'MARBLE_HQ':
+      case 'GOLD_HQ': {
+        // Мраморные и золотые жилы в 3D
+        const isGold = category === 'GOLD_HQ';
+        ctx.strokeStyle = isGold ? 'rgba(218, 165, 32, 0.45)' : 'rgba(40, 40, 45, 0.22)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(p0.x * 0.8 + p1.x * 0.2, p0.y * 0.8 + p1.y * 0.2);
+        ctx.bezierCurveTo(
+          p0.x * 0.4 + p3.x * 0.4 + p1.x * 0.2,
+          p0.y * 0.4 + p3.y * 0.4 + p1.y * 0.2,
+          p1.x * 0.4 + p2.x * 0.4 + p0.x * 0.2,
+          p1.y * 0.4 + p2.y * 0.4 + p0.y * 0.2,
+          p3.x * 0.2 + p2.x * 0.8,
+          p3.y * 0.2 + p2.y * 0.8
+        );
+        ctx.stroke();
+        break;
+      }
+
+      case 'MIRROR': {
+        // 3D зеркальный блик на всю грань панели
+        const minX = Math.min(p0.x, p1.x, p2.x, p3.x);
+        const minY = Math.min(p0.y, p1.y, p2.y, p3.y);
+        const maxX = Math.max(p0.x, p1.x, p2.x, p3.x);
+        const maxY = Math.max(p0.y, p1.y, p2.y, p3.y);
+        const grad = ctx.createLinearGradient(p0.x, p0.y, p2.x, p2.y);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.01)');
+        grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.14)');
+        grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.32)');
+        grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.14)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0.08)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+        break;
+      }
+
+      case 'METAL': {
+        // 3D брашинг
+        const numLines = 12;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 0.7;
+        for (let l = 1; l < numLines; l++) {
+          const u = l / numLines;
+          ctx.beginPath();
+          ctx.moveTo(p0.x + (p1.x - p0.x) * u, p0.y + (p1.y - p0.y) * u);
+          ctx.lineTo(p3.x + (p2.x - p3.x) * u, p3.y + (p2.y - p3.y) * u);
+          ctx.stroke();
+        }
+        break;
+      }
+    }
+
+    ctx.restore();
+  };
+
   // Отрисовка всей монолитной 3D-сцены
   const renderScene = useCallback(() => {
     const canvas = canvasRef.current;
@@ -448,6 +584,10 @@ export const Axonometric3DView: React.FC = () => {
           ctx.fill();
           ctx.stroke();
 
+          if (!isVoid) {
+            draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+          }
+
           // Верхний торец рейки
           const pt0 = p3;
           const pt1 = p2;
@@ -516,6 +656,10 @@ export const Axonometric3DView: React.FC = () => {
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
+
+          if (!isVoid) {
+            draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+          }
 
           // Верхний торец панели
           const pt0 = p3;

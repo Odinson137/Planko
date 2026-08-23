@@ -21,8 +21,8 @@ export class TextureRegistry {
     const cached = this.canvasCache.get(cacheKey);
     if (cached) return cached;
 
-    const width = 256;
-    const height = 256;
+    const width = 512;
+    const height = 1024;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -34,7 +34,7 @@ export class TextureRegistry {
     ctx.fillStyle = baseColor;
     ctx.fillRect(0, 0, width, height);
 
-    // 2. Наложение микротекстуры материала
+    // 2. Наложение непрерывной текстуры материала во всю высоту панели
     this.drawMicroTexture(ctx, category, width, height);
 
     // 3. Наложение 3D светотеневого рельефа (для реек GW90, GW30, STEP)
@@ -67,7 +67,7 @@ export class TextureRegistry {
   }
 
   /**
-   * Отрисовка микроструктуры материала
+   * Отрисовка непрерывной текстуры материала на всю панель
    */
   private static drawMicroTexture(
     ctx: CanvasRenderingContext2D,
@@ -79,25 +79,25 @@ export class TextureRegistry {
 
     switch (category) {
       case 'FABRIC': {
-        // Ткань / Лен / Рогожка: многослойное переплетение нитей с объемом
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        // Ткань / Лен / Рогожка: тонкое переплетение нитей
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
         ctx.lineWidth = 1;
-        for (let x = 0; x < w; x += 4) {
+        for (let x = 0; x < w; x += 5) {
           ctx.beginPath();
           ctx.moveTo(x, 0);
           ctx.lineTo(x, h);
           ctx.stroke();
         }
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.14)';
-        for (let y = 0; y < h; y += 4) {
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+        for (let y = 0; y < h; y += 5) {
           ctx.beginPath();
           ctx.moveTo(0, y);
           ctx.lineTo(w, y);
           ctx.stroke();
         }
-        // Диагональная глубина плетения
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
-        for (let i = -w; i < w + h; i += 8) {
+        // Мягкая диагональная глубина
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.04)';
+        for (let i = -h; i < w + h; i += 12) {
           ctx.beginPath();
           ctx.moveTo(i, 0);
           ctx.lineTo(i + h, h);
@@ -107,62 +107,71 @@ export class TextureRegistry {
       }
 
       case 'WOOD': {
-        // Натуральные вертикальные волокна древесины (дуб / ясень / орех)
-        // 1. Основные вертикальные органические волокна с плавным естественным изгибом
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.10)';
+        // Натуральные вертикальные древесные волокна (дуб / ясень / бук / орех)
+        // 1. Основные вертикальные органические волокна с плавным течением
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.09)';
         for (let x = 0; x < w; x += 4) {
-          const wave = Math.sin((x / w) * Math.PI * 3);
-          const curveOffset = wave * 5;
+          const wavePhase = (x / w) * Math.PI * 3.5;
+          const curveOffset = Math.sin(wavePhase) * 6;
           ctx.lineWidth = x % 16 === 0 ? 2 : (x % 8 === 0 ? 1.2 : 0.6);
           ctx.beginPath();
           ctx.moveTo(x + curveOffset, 0);
           ctx.bezierCurveTo(
-            x - curveOffset * 1.2,
-            h * 0.35,
-            x + curveOffset * 1.2,
-            h * 0.7,
+            x - curveOffset * 1.5,
+            h * 0.3,
+            x + curveOffset * 1.8,
+            h * 0.68,
             x + curveOffset * 0.4,
             h
           );
           ctx.stroke();
         }
 
-        // 2. Тонкие микропоры и капилляры спила дерева
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.07)';
+        // 2. Годовые кольца спила (органические овальные кольца волокон)
+        const knotCenters = [
+          { x: w * 0.35, y: h * 0.32, rx: 18, ry: 60 },
+          { x: w * 0.72, y: h * 0.76, rx: 22, ry: 75 },
+        ];
+
+        knotCenters.forEach((knot) => {
+          for (let r = 1; r <= 4; r++) {
+            ctx.strokeStyle = `rgba(0, 0, 0, ${0.08 - r * 0.015})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.ellipse(knot.x, knot.y, knot.rx * r * 0.4, knot.ry * r * 0.4, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        });
+
+        // 3. Капиллярные поры древесины
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)';
         ctx.lineWidth = 0.6;
-        for (let i = 0; i < 60; i++) {
-          const rx = (i * 19) % w;
-          const ry = (i * 31) % h;
-          const len = 12 + ((i * 11) % 28);
+        for (let i = 0; i < 90; i++) {
+          const rx = (i * 23) % w;
+          const ry = (i * 37) % h;
+          const len = 15 + ((i * 13) % 35);
           ctx.beginPath();
           ctx.moveTo(rx, ry);
-          ctx.lineTo(rx + Math.sin(ry * 0.08) * 1.5, ry + len);
+          ctx.lineTo(rx + Math.sin(ry * 0.05) * 2, ry + len);
           ctx.stroke();
         }
 
-        // 3. Светлые блики волокон (эффект шелковистого шпона)
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
-        for (let x = 3; x < w; x += 10) {
-          ctx.lineWidth = 0.9;
+        // 4. Светлые блики волокон (эффект натурального шпона)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        for (let x = 3; x < w; x += 12) {
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(x, 0);
-          ctx.bezierCurveTo(
-            x + 3,
-            h * 0.4,
-            x - 3,
-            h * 0.65,
-            x + 1.5,
-            h
-          );
+          ctx.bezierCurveTo(x + 4, h * 0.38, x - 4, h * 0.62, x + 2, h);
           ctx.stroke();
         }
 
-        // 4. Мягкая продольная игра полутонов древесного спила
+        // 5. Мягкая продольная игра полутонов древесного спила
         const woodGrad = ctx.createLinearGradient(0, 0, w, 0);
         woodGrad.addColorStop(0, 'rgba(0, 0, 0, 0.03)');
-        woodGrad.addColorStop(0.25, 'rgba(255, 255, 255, 0.04)');
-        woodGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.05)');
-        woodGrad.addColorStop(0.75, 'rgba(255, 255, 255, 0.03)');
+        woodGrad.addColorStop(0.2, 'rgba(255, 255, 255, 0.04)');
+        woodGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.04)');
+        woodGrad.addColorStop(0.8, 'rgba(255, 255, 255, 0.03)');
         woodGrad.addColorStop(1, 'rgba(0, 0, 0, 0.04)');
         ctx.fillStyle = woodGrad;
         ctx.fillRect(0, 0, w, h);
@@ -170,8 +179,8 @@ export class TextureRegistry {
       }
 
       case 'STONE': {
-        // Микрозернистость камня / бетона + тонкие прожилки
-        const numDots = 1800;
+        // Микрозернистость камня / бетона + натуральные прожилки
+        const numDots = 2500;
         for (let i = 0; i < numDots; i++) {
           const x = Math.random() * w;
           const y = Math.random() * h;
@@ -180,23 +189,23 @@ export class TextureRegistry {
           ctx.fillRect(x, y, 1.5, 1.5);
         }
 
-        // Легкие минеральные прожилки
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-        ctx.lineWidth = 1.2;
+        // Минеральные прожилки на всю высоту
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.09)';
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         ctx.moveTo(0, h * 0.2);
-        ctx.bezierCurveTo(w * 0.3, h * 0.4, w * 0.7, h * 0.3, w, h * 0.7);
+        ctx.bezierCurveTo(w * 0.4, h * 0.35, w * 0.6, h * 0.55, w, h * 0.78);
         ctx.stroke();
         break;
       }
 
       case 'MIRROR': {
-        // Диагональный зеркальный градиентный блик
+        // Единый плавный зеркальный глянцевый блик на всю панель (БЕЗ разбиения на квадраты)
         const grad = ctx.createLinearGradient(0, 0, w, h);
         grad.addColorStop(0, 'rgba(255, 255, 255, 0.02)');
-        grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.15)');
-        grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.35)');
-        grad.addColorStop(0.65, 'rgba(255, 255, 255, 0.15)');
+        grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.12)');
+        grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.32)');
+        grad.addColorStop(0.65, 'rgba(255, 255, 255, 0.12)');
         grad.addColorStop(1, 'rgba(0, 0, 0, 0.08)');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, w, h);
@@ -204,8 +213,8 @@ export class TextureRegistry {
       }
 
       case 'METAL': {
-        // Тонкий брашинг (вертикальные царапины шлифованного металла)
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+        // Тонкий вертикальный брашинг шлифованного металла на всю высоту панели
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
         for (let x = 0; x < w; x += 2) {
           ctx.lineWidth = 0.8;
           ctx.beginPath();
@@ -213,7 +222,7 @@ export class TextureRegistry {
           ctx.lineTo(x, h);
           ctx.stroke();
         }
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.07)';
         for (let x = 1; x < w; x += 3) {
           ctx.lineWidth = 0.6;
           ctx.beginPath();
@@ -226,20 +235,20 @@ export class TextureRegistry {
 
       case 'MARBLE_HQ':
       case 'GOLD_HQ': {
-        // Роскошные мраморные жилы и золотые нити
+        // Мраморные жилы и золотые нити на всю высоту плиты
         const isGold = category === 'GOLD_HQ';
         ctx.strokeStyle = isGold ? 'rgba(218, 165, 32, 0.55)' : 'rgba(50, 50, 55, 0.28)';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3.5;
         ctx.beginPath();
         ctx.moveTo(0, h * 0.15);
-        ctx.bezierCurveTo(w * 0.35, h * 0.2, w * 0.55, h * 0.7, w, h * 0.85);
+        ctx.bezierCurveTo(w * 0.35, h * 0.22, w * 0.55, h * 0.68, w, h * 0.88);
         ctx.stroke();
 
         ctx.strokeStyle = isGold ? 'rgba(255, 215, 0, 0.45)' : 'rgba(255, 255, 255, 0.40)';
-        ctx.lineWidth = 1.4;
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
         ctx.moveTo(0, h * 0.18);
-        ctx.bezierCurveTo(w * 0.33, h * 0.23, w * 0.57, h * 0.67, w, h * 0.82);
+        ctx.bezierCurveTo(w * 0.33, h * 0.25, w * 0.57, h * 0.65, w, h * 0.85);
         ctx.stroke();
         break;
       }

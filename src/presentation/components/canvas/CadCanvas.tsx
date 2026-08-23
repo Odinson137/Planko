@@ -236,7 +236,15 @@ export const CadCanvas: React.FC = () => {
                     height={panel.height}
                     fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
                     fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
-                    fillPatternRepeat="repeat"
+                    fillPatternScale={
+                      patternCanvas
+                        ? {
+                            x: panel.width / patternCanvas.width,
+                            y: panel.height / patternCanvas.height,
+                          }
+                        : undefined
+                    }
+                    fillPatternRepeat="no-repeat"
                     stroke={
                       isPanelSelected
                         ? '#40C057'
