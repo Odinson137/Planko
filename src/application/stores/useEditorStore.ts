@@ -2,8 +2,11 @@ import { create } from 'zustand';
 
 export type ActiveTool = 'SELECT' | 'PAN' | 'ADD_DOOR' | 'ADD_WINDOW' | 'ADD_TV_ZONE' | 'ADD_NICHE';
 
+export type ViewMode = '2D' | '3D';
+
 interface EditorState {
   activeTool: ActiveTool;
+  viewMode: ViewMode;
   zoom: number;
   panX: number;
   panY: number;
@@ -12,6 +15,8 @@ interface EditorState {
   showProfiles: boolean;
 
   setActiveTool: (tool: ActiveTool) => void;
+  setViewMode: (mode: ViewMode) => void;
+  toggleViewMode: () => void;
   setZoom: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
   toggleGrid: () => void;
@@ -22,6 +27,7 @@ interface EditorState {
 
 export const useEditorStore = create<EditorState>((set) => ({
   activeTool: 'SELECT',
+  viewMode: '2D',
   zoom: 1,
   panX: 0,
   panY: 0,
@@ -30,6 +36,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   showProfiles: true,
 
   setActiveTool: (tool: ActiveTool) => set({ activeTool: tool }),
+  setViewMode: (viewMode: ViewMode) => set({ viewMode }),
+  toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === '2D' ? '3D' : '2D' })),
   setZoom: (zoom: number) => set({ zoom: Math.max(0.1, Math.min(zoom, 5)) }),
   setPan: (panX: number, panY: number) => set({ panX, panY }),
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),

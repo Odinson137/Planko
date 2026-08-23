@@ -71,6 +71,7 @@ export const RightSidebar: React.FC = () => {
     splitPanelHorizontally,
     splitColumnVertically,
     resetPanelConfig,
+    setPanelRadiusConfig,
   } = useProjectStore();
 
   const selectedWallId = project.selectedWallId;
@@ -895,11 +896,177 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </div>
 
+            {/* НАСТРОЙКА ФОРМЫ (ПЛОСКАЯ / РАДИУСНАЯ) */}
+            {(() => {
+              const radiusConfig = selectedCustomPanel?.radiusConfig;
+              const isRadius = Boolean(radiusConfig);
+
+              return (
+                <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: isRadius ? '#228be6' : '#2C2E33' }}>
+                  <Stack gap="xs">
+                    <Group justify="space-between">
+                      <div>
+                        <Text size="xs" fw={600} c={isRadius ? 'blue.4' : 'dimmed'}>
+                          Форма элемента:
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {isRadius ? 'Криволинейный изгиб / арка' : 'Стандартная плоская панель'}
+                        </Text>
+                      </div>
+                      <SegmentedControl
+                        size="xs"
+                        value={isRadius ? 'RADIUS' : 'FLAT'}
+                        onChange={(val) => {
+                          if (val === 'RADIUS') {
+                            setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
+                              type: 'OUTER_CORNER',
+                              radius: 300,
+                              angleDeg: 90,
+                            });
+                          } else {
+                            setPanelRadiusConfig(currentWall.id, selectedColumnIndex, undefined);
+                          }
+                        }}
+                        data={[
+                          { label: '█ Плоская', value: 'FLAT' },
+                          { label: '⌒ Радиус', value: 'RADIUS' },
+                        ]}
+                      />
+                    </Group>
+
+                    {isRadius && radiusConfig && (
+                      <>
+                        <Divider color="#2C2E33" />
+
+                        <div>
+                          <Text size="xs" mb={4} c="dimmed">
+                            Тип криволинейности:
+                          </Text>
+                          <SegmentedControl
+                            size="xs"
+                            fullWidth
+                            value={radiusConfig.type}
+                            onChange={(val: any) =>
+                              setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
+                                ...radiusConfig,
+                                type: val,
+                                angleDeg: val === 'ARCH_VAULT' ? (radiusConfig.angleDeg ?? 180) : (radiusConfig.angleDeg ?? 90),
+                              })
+                            }
+                            data={[
+                              { label: '⌒ Внешний', value: 'OUTER_CORNER' },
+                              { label: '╭ Внутр', value: 'INNER_CORNER' },
+                              { label: '🏛️ Свод', value: 'ARCH_VAULT' },
+                            ]}
+                          />
+                        </div>
+
+                        <Group grow>
+                          <NumberInput
+                            size="xs"
+                            label="Радиус R (мм)"
+                            description="Радиус скругления"
+                            value={radiusConfig.radius}
+                            clampBehavior="blur"
+                            allowNegative={false}
+                            allowDecimal={false}
+                            min={50}
+                            max={5000}
+                            step={50}
+                            onChange={(val) =>
+                              setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
+                                ...radiusConfig,
+                                radius: typeof val === 'number' ? Math.max(10, val) : 300,
+                              })
+                            }
+                          />
+                          <NumberInput
+                            size="xs"
+                            label="Угол охвата (°)"
+                            description="Градусы дуги"
+                            value={radiusConfig.angleDeg ?? (radiusConfig.type === 'ARCH_VAULT' ? 180 : 90)}
+                            clampBehavior="blur"
+                            allowNegative={false}
+                            allowDecimal={false}
+                            min={10}
+                            max={360}
+                            step={15}
+                            onChange={(val) =>
+                              setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
+                                ...radiusConfig,
+                                angleDeg: typeof val === 'number' ? Math.max(1, val) : 90,
+                              })
+                            }
+                          />
+                        </Group>
+
+                        {/* Интерактивная векторная мини-схема сечения сверху */}
+                        <Paper p="xs" withBorder style={{ backgroundColor: '#141517', borderColor: '#2C2E33' }}>
+                          <Text size="xs" fw={600} mb={6} c="dimmed">
+                            Схема сечения (Вид сверху):
+                          </Text>
+                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 75 }}>
+                            <svg width="220" height="65" viewBox="0 0 220 65">
+                              {radiusConfig.type === 'ARCH_VAULT' ? (
+                                <g>
+                                  <path d="M 40 55 L 40 32 A 70 70 0 0 1 180 32 L 180 55" fill="none" stroke="#228be6" strokeWidth="4" strokeLinecap="round" />
+                                  <line x1="40" y1="58" x2="180" y2="58" stroke="#868e96" strokeWidth="1" strokeDasharray="3 3" />
+                                  <text x="110" y="22" fill="#74c0fc" fontSize="11" textAnchor="middle" fontFamily="JetBrains Mono" fontWeight="bold">
+                                    ⌒ Свод R={radiusConfig.radius} ({radiusConfig.angleDeg ?? 180}°)
+                                  </text>
+                                  <text x="110" y="52" fill="#ced4da" fontSize="10" textAnchor="middle" fontFamily="JetBrains Mono">
+                                    Развертка L = {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 180)) / 180)} мм
+                                  </text>
+                                </g>
+                              ) : radiusConfig.type === 'INNER_CORNER' ? (
+                                <g>
+                                  <path d="M 30 15 L 80 15 A 50 50 0 0 1 130 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="round" />
+                                  <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                                    ╭ Внутр R={radiusConfig.radius}
+                                  </text>
+                                  <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                                    L = {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180)} мм
+                                  </text>
+                                </g>
+                              ) : (
+                                <g>
+                                  <path d="M 30 50 L 80 50 A 50 50 0 0 0 130 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="round" />
+                                  <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                                    ⌒ Внешн R={radiusConfig.radius}
+                                  </text>
+                                  <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                                    L = {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180)} мм
+                                  </text>
+                                </g>
+                              )}
+                            </svg>
+                          </div>
+                        </Paper>
+
+                        <Alert color="blue" variant="light" p="xs">
+                          <Text size="xs">
+                            📐 <b>Развертка в заготовке:</b> {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180)} × {Math.round(selectedPanelHeight)} мм
+                            {selectedPanelMaterialId.includes('slat') && (
+                              <span style={{ display: 'block', marginTop: 4 }}>
+                                🪵 Количество ламелей: <b>{Math.ceil(Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180) / 145)} шт</b> по 145 мм
+                              </span>
+                            )}
+                          </Text>
+                        </Alert>
+                      </>
+                    )}
+                  </Stack>
+                </Paper>
+              );
+            })()}
+
             {/* Размеры выбранной ячейки */}
             <Group grow>
               <NumberInput
                 size="xs"
                 label="Ширина (мм)"
+                description={selectedCustomPanel?.radiusConfig ? "Авторасчет по радиусу" : undefined}
+                disabled={Boolean(selectedCustomPanel?.radiusConfig)}
                 value={selectedPanelWidth || ''}
                 clampBehavior="blur"
                 allowNegative={false}

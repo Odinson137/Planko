@@ -9,6 +9,7 @@ import {
   Divider,
   Text,
   Menu,
+  SegmentedControl,
 } from '@mantine/core';
 import {
   MousePointer,
@@ -30,6 +31,8 @@ export const TopToolbar: React.FC = () => {
   const {
     activeTool,
     setActiveTool,
+    viewMode,
+    setViewMode,
     zoom,
     setZoom,
     resetView,
@@ -39,7 +42,7 @@ export const TopToolbar: React.FC = () => {
     toggleDimensions,
   } = useEditorStore();
 
-  const { project, addOpening, applyGridPreset } = useProjectStore();
+  const { project, addOpening, applyGridPreset, addRadiusColumn } = useProjectStore();
   const selectedWallId = project.selectedWallId;
 
   const handleAddOpening = (type: 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE') => {
@@ -48,10 +51,16 @@ export const TopToolbar: React.FC = () => {
     }
   };
 
+  const handleAddRadius = (type: 'OUTER_CORNER' | 'INNER_CORNER' | 'ARCH_VAULT', radius: number, angleDeg?: number) => {
+    if (selectedWallId) {
+      addRadiusColumn(selectedWallId, type, radius, angleDeg);
+    }
+  };
+
   return (
     <Group justify="space-between" px="md" py={6} style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#1A1B1E' }}>
-      {/* Логотип и проект */}
-      <Group gap="xs">
+      {/* Логотип и переключатель 2D / 3D */}
+      <Group gap="sm">
         <Title order={4} style={{ color: '#E9ECEF', letterSpacing: '0.5px' }}>
           PLANKO
         </Title>
@@ -59,9 +68,15 @@ export const TopToolbar: React.FC = () => {
           v0.1 CAD
         </Badge>
         <Divider orientation="vertical" />
-        <Text size="xs" c="dimmed">
-          {project.name}
-        </Text>
+        <SegmentedControl
+          size="xs"
+          value={viewMode}
+          onChange={(val: any) => setViewMode(val)}
+          data={[
+            { label: '📐 2D Чертёж', value: '2D' },
+            { label: '🧊 3D Вид (30°)', value: '3D' },
+          ]}
+        />
       </Group>
 
       {/* Инструменты добавления сетки, проемов и курсор */}
@@ -105,6 +120,38 @@ export const TopToolbar: React.FC = () => {
             </Menu.Item>
             <Menu.Item onClick={() => selectedWallId && applyGridPreset(selectedWallId, 'CENTER_TV_NICHE')}>
               📺 ТВ по центру (Пустота + Рейки по бокам)
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+
+        {/* Меню добавления радиусных элементов и арок */}
+        <Menu shadow="md" width={270} position="bottom-start">
+          <Menu.Target>
+            <Button
+              size="xs"
+              variant="light"
+              color="cyan"
+              leftSection={<Text size="xs" fw={700} style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
+              disabled={!selectedWallId}
+            >
+              + Радиус / Арка
+            </Button>
+          </Menu.Target>
+
+          <Menu.Dropdown>
+            <Menu.Label>Криволинейные элементы</Menu.Label>
+            <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 300, 90)}>
+              ⌒ Внешний угол 90° (R = 300 мм)
+            </Menu.Item>
+            <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 500, 90)}>
+              ⌒ Внешний угол 90° (R = 500 мм)
+            </Menu.Item>
+            <Menu.Item onClick={() => handleAddRadius('INNER_CORNER', 300, 90)}>
+              ╭ Внутренний угол 90° (R = 300 мм)
+            </Menu.Item>
+            <Menu.Divider />
+            <Menu.Item onClick={() => handleAddRadius('ARCH_VAULT', 800, 180)}>
+              🏛️ Арочный свод 180° (R = 800 мм)
             </Menu.Item>
           </Menu.Dropdown>
         </Menu>

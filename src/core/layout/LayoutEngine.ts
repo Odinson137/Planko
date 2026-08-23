@@ -1,4 +1,4 @@
-import { Wall } from '../models/Wall';
+import { Wall, RadiusConfig } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
 
 export interface CalculatedPanelPiece {
@@ -15,6 +15,8 @@ export interface CalculatedPanelPiece {
   materialColor: string;
   materialType: string;
   partLabel: string;  // метка '1.1', '1.2' или 'ПУСТО'
+  radiusConfig?: RadiusConfig; // параметры радиуса/скругления если задано
+  arcLength?: number;          // длина развертки дуги в мм
 }
 
 export interface CalculatedJointLine {
@@ -203,7 +205,18 @@ export class LayoutEngine {
         (customConfig?.customMaterialId && materialsMap.get(customConfig.customMaterialId)) ||
         defaultMaterial;
 
-      const baseWidth = customConfig?.customWidth ?? (columnMaterial.isVoid ? 1220 : columnMaterial.width);
+      let baseWidth = columnMaterial.isVoid ? 1220 : columnMaterial.width;
+      let arcLength: number | undefined = undefined;
+
+      if (customConfig?.radiusConfig) {
+        const rad = customConfig.radiusConfig.radius;
+        const angle = customConfig.radiusConfig.angleDeg ?? (customConfig.radiusConfig.type === 'ARCH_VAULT' ? 180 : 90);
+        arcLength = Math.round((Math.PI * rad * angle) / 180);
+        baseWidth = arcLength;
+      } else if (customConfig?.customWidth !== undefined) {
+        baseWidth = customConfig.customWidth;
+      }
+
       const panelWidth = Math.min(baseWidth, Math.max(0, maxX - currentX));
 
       if (panelWidth <= 0.5) {
@@ -271,12 +284,20 @@ export class LayoutEngine {
           materialPiecesCount++;
         }
 
+        const radiusLabel = customConfig?.radiusConfig
+          ? (customConfig.radiusConfig.type === 'ARCH_VAULT'
+              ? `СВОД R=${customConfig.radiusConfig.radius}`
+              : customConfig.radiusConfig.type === 'INNER_CORNER'
+              ? `ВНУТР R=${customConfig.radiusConfig.radius}`
+              : `ВНЕШН R=${customConfig.radiusConfig.radius}`)
+          : null;
+
         const defaultLabel = isVoid
           ? 'ПУСТО'
           : segConfig?.partLabel ||
             (segmentsConfig.length > 1
-              ? `1.${columnIndex + 1}.${segmentIndex + 1}`
-              : `1.${columnIndex + 1}`);
+              ? `1.${columnIndex + 1}.${segmentIndex + 1}${radiusLabel ? ` ⌒ ${radiusLabel}` : ''}`
+              : `1.${columnIndex + 1}${radiusLabel ? ` ⌒ ${radiusLabel}` : ''}`);
 
         panels.push({
           id: `panel-${columnIndex}-${segmentIndex}`,
@@ -292,6 +313,8 @@ export class LayoutEngine {
           materialColor: isVoid ? 'rgba(30, 31, 35, 0.45)' : segMaterial.color,
           materialType: segMaterial.type,
           partLabel: defaultLabel,
+          radiusConfig: customConfig?.radiusConfig,
+          arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
         });
 
         currentY += segmentHeight + (isHorizInner ? horizJointWidth : 0);

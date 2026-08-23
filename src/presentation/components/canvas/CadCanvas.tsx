@@ -237,6 +237,67 @@ export const CadCanvas: React.FC = () => {
                     shadowOpacity={0.85}
                   />
 
+                  {/* Отрисовка цилиндрической светотени и бейджа для радиусных панелей */}
+                  {panel.radiusConfig && !isVoid && (
+                    <Group listening={false}>
+                      {/* Светотеневой объемный градиент */}
+                      <Rect
+                        x={panelX}
+                        y={panelY}
+                        width={panel.width}
+                        height={panel.height}
+                        fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                        fillLinearGradientEndPoint={{ x: panel.width, y: 0 }}
+                        fillLinearGradientColorStops={
+                          panel.radiusConfig.type === 'INNER_CORNER'
+                            ? [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)']
+                            : [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)']
+                        }
+                        opacity={0.9}
+                      />
+
+                      {/* Пунктирные направляющие линий сгиба (керф-бендинг) */}
+                      {Array.from({ length: Math.min(8, Math.max(3, Math.floor(panel.width / 50))) }).map((_, bIdx, arr) => {
+                        const stepX = panelX + ((bIdx + 1) * panel.width) / (arr.length + 1);
+                        return (
+                          <Line
+                            key={`bend-line-${panel.id}-${bIdx}`}
+                            points={[stepX, panelY, stepX, panelY + panel.height]}
+                            stroke="rgba(255, 255, 255, 0.22)"
+                            dash={[6, 6]}
+                            strokeWidth={1 / zoom}
+                          />
+                        );
+                      })}
+
+                      {/* Бейдж радиуса */}
+                      {panel.width >= 100 && (
+                        <Group x={panelX + Math.max(8, (panel.width - 150) / 2)} y={panelY + 10}>
+                          <Rect
+                            width={150}
+                            height={22}
+                            fill="#101113"
+                            stroke="#4dabf7"
+                            strokeWidth={1.5 / zoom}
+                            cornerRadius={4}
+                            shadowColor="#4dabf7"
+                            shadowBlur={10}
+                            shadowOpacity={0.5}
+                          />
+                          <Text
+                            x={8}
+                            y={5}
+                            text={`⌒ ${panel.radiusConfig.type === 'ARCH_VAULT' ? 'СВОД' : panel.radiusConfig.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${panel.radiusConfig.radius}`}
+                            fontSize={10}
+                            fontFamily="JetBrains Mono"
+                            fontStyle="bold"
+                            fill="#74c0fc"
+                          />
+                        </Group>
+                      )}
+                    </Group>
+                  )}
+
                   {/* Отрисовка ламелей реек */}
                   {isSlat && (
                     <Group listening={false}>
@@ -258,7 +319,7 @@ export const CadCanvas: React.FC = () => {
 
                   {/* Текстовые метки ячейки (деталь и размеры) */}
                   {panel.width > 70 && panel.height > 40 && (
-                    <Group x={panelX + 10} y={panelY + 10} listening={false}>
+                    <Group x={panelX + 10} y={panelY + (panel.radiusConfig ? 38 : 10)} listening={false}>
                       <Text
                         text={isVoid ? '⭕ ПУСТОТА' : (isSlat ? `🪵 [${panel.partLabel}]` : `[${panel.partLabel}]`)}
                         fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
@@ -268,7 +329,7 @@ export const CadCanvas: React.FC = () => {
                       />
                       <Text
                         y={Math.max(14, 18 / Math.max(0.5, zoom))}
-                        text={`${Math.round(panel.width)} × ${Math.round(panel.height)}`}
+                        text={`${Math.round(panel.width)} × ${Math.round(panel.height)} мм${panel.radiusConfig ? ` (⌒ R${panel.radiusConfig.radius})` : ''}`}
                         fontSize={Math.max(10, 12 / Math.max(0.5, zoom))}
                         fill={isVoid ? '#5C5F66' : '#2C2E33'}
                         fontFamily="JetBrains Mono"

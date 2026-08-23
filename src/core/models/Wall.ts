@@ -10,11 +10,20 @@ export interface PanelSegmentConfig {
   partLabel?: string;          // метка детали (например '1.1', '1.2' или 'ПУСТО')
 }
 
+export type RadiusType = 'OUTER_CORNER' | 'INNER_CORNER' | 'ARCH_VAULT';
+
+export interface RadiusConfig {
+  type: RadiusType;
+  radius: number;                  // радиус скругления в мм (например 300)
+  angleDeg?: number;               // угол дуги в градусах (по умолчанию 90° для угла, 180° для арки)
+}
+
 export interface CustomPanelConfig {
   columnIndex: number;
   customWidth?: number;            // ширина всей колонки в мм
   customMaterialId?: string;       // материал по умолчанию для колонки
   segments?: PanelSegmentConfig[]; // вертикальные ячейки в этой колонке
+  radiusConfig?: RadiusConfig;     // параметры радиуса/изгиба (если колонка радиусная)
 }
 
 export interface JointEdgeConfig {

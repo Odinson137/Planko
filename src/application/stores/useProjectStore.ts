@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
-import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig } from '../../core/models/Wall';
+import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType } from '../../core/models/Profile';
 import { MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
@@ -76,6 +76,10 @@ interface ProjectState {
   splitColumnVertically: (wallId: string, columnIndex: number, firstWidth: number) => void;
   resetPanelConfig: (wallId: string, columnIndex: number) => void;
   applyGridPreset: (wallId: string, preset: GridPresetType) => void;
+
+  // Управление радиусными элементами (изгибы, углы, своды)
+  addRadiusColumn: (wallId: string, type?: RadiusType, radius?: number, angleDeg?: number) => void;
+  setPanelRadiusConfig: (wallId: string, columnIndex: number, config: RadiusConfig | undefined) => void;
 
   // Управление проемами
   addOpening: (wallId: string, type: OpeningType) => void;
@@ -1478,6 +1482,72 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               return { ...w, customPanels, customJoints };
             }
           }
+        }),
+      },
+    })),
+
+  addRadiusColumn: (wallId: string, type: RadiusType = 'OUTER_CORNER', radius: number = 300, angleDeg?: number) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      const targetCol = state.selectedColumnIndex !== null ? state.selectedColumnIndex : 0;
+      const actualAngle = angleDeg ?? (type === 'ARCH_VAULT' ? 180 : 90);
+      const radiusConfig: RadiusConfig = {
+        type,
+        radius,
+        angleDeg: actualAngle,
+      };
+
+      const currentCustom = wall.customPanels[targetCol] || { columnIndex: targetCol };
+      const nextCustomPanels = {
+        ...wall.customPanels,
+        [targetCol]: {
+          ...currentCustom,
+          radiusConfig,
+          customWidth: undefined, // ширина теперь рассчитывается по формуле дуги
+        },
+      };
+
+      return {
+        selectedColumnIndex: targetCol,
+        selectedSegmentIndex: 0,
+        selectedCellKeys: [`${targetCol}-0`],
+        selectedPieceIds: [`panel-${targetCol}-0`],
+        selectedJointId: null,
+        selectedJointIds: [],
+        project: {
+          ...state.project,
+          selectedOpeningId: null,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+          ),
+        },
+      };
+    }),
+
+  setPanelRadiusConfig: (wallId: string, columnIndex: number, config: RadiusConfig | undefined) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const currentCustom = w.customPanels[columnIndex] || { columnIndex };
+          const nextCustomPanels = { ...w.customPanels };
+          if (!config) {
+            const { radiusConfig: _, ...rest } = currentCustom;
+            nextCustomPanels[columnIndex] = rest;
+          } else {
+            nextCustomPanels[columnIndex] = {
+              ...currentCustom,
+              radiusConfig: config,
+              customWidth: undefined,
+            };
+          }
+          return {
+            ...w,
+            customPanels: nextCustomPanels,
+          };
         }),
       },
     })),
