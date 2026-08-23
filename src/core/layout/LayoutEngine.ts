@@ -213,9 +213,9 @@ export class LayoutEngine {
         const rad = customConfig.radiusConfig.radius;
         const angle = customConfig.radiusConfig.angleDeg ?? (customConfig.radiusConfig.type === 'ARCH_VAULT' ? 180 : 90);
         arcLength = Math.round((Math.PI * rad * angle) / 180);
-        baseWidth = arcLength;
+        baseWidth = Math.min(arcLength, columnMaterial.width);
       } else if (customConfig?.customWidth !== undefined) {
-        baseWidth = customConfig.customWidth;
+        baseWidth = Math.min(customConfig.customWidth, columnMaterial.width);
       }
 
       const panelWidth = Math.min(baseWidth, Math.max(0, maxX - currentX));
@@ -253,7 +253,9 @@ export class LayoutEngine {
           columnMaterial;
 
         const isVoid = segMaterial.id === MATERIAL_NONE_ID || segMaterial.isVoid === true;
-        const rawHeight = segConfig?.height ?? Math.min(segMaterial.height, maxY - currentY);
+        const rawHeight = segConfig?.height !== undefined
+          ? Math.min(segConfig.height, segMaterial.height, maxY - currentY)
+          : Math.min(segMaterial.height, maxY - currentY);
         const segmentHeight = Math.min(rawHeight, Math.max(0, maxY - currentY));
 
         if (segmentHeight <= 0.5) {

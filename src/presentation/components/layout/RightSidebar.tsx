@@ -1158,40 +1158,55 @@ export const RightSidebar: React.FC = () => {
 
 
             {/* Размеры выбранной ячейки */}
-            <Group grow>
-              <NumberInput
-                size="xs"
-                label="Ширина (мм)"
-                value={selectedPanelWidth || ''}
-                clampBehavior="blur"
-                allowNegative={false}
-                allowDecimal={false}
-                min={10}
-                max={25000}
-                step={10}
-                onChange={(val) =>
-                  updatePanelConfig(currentWall.id, selectedColumnIndex, {
-                    customWidth: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                  })
-                }
-              />
-              <NumberInput
-                size="xs"
-                label="Высота (мм)"
-                value={selectedPanelHeight || ''}
-                clampBehavior="blur"
-                allowNegative={false}
-                allowDecimal={false}
-                min={10}
-                max={10000}
-                step={10}
-                onChange={(val) =>
-                  updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                    height: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                  })
-                }
-              />
-            </Group>
+            {(() => {
+              const cellMaterial = project.materials.find((m) => m.id === selectedPanelMaterialId) || currentMaterial;
+              const maxCellW = cellMaterial?.width || 1220;
+              const maxCellH = cellMaterial?.height || 2800;
+
+              return (
+                <Stack gap="xs">
+                  <Group grow>
+                    <NumberInput
+                      size="xs"
+                      label="Ширина (мм)"
+                      description={`Лист до ${maxCellW} мм`}
+                      value={selectedPanelWidth || ''}
+                      clampBehavior="blur"
+                      allowNegative={false}
+                      allowDecimal={false}
+                      min={10}
+                      max={25000}
+                      step={10}
+                      onChange={(val) =>
+                        updatePanelConfig(currentWall.id, selectedColumnIndex, {
+                          customWidth: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
+                        })
+                      }
+                    />
+                    <NumberInput
+                      size="xs"
+                      label="Высота (мм)"
+                      description={`Лист до ${maxCellH} мм`}
+                      value={selectedPanelHeight || ''}
+                      clampBehavior="blur"
+                      allowNegative={false}
+                      allowDecimal={false}
+                      min={10}
+                      max={10000}
+                      step={10}
+                      onChange={(val) =>
+                        updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                          height: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
+                        })
+                      }
+                    />
+                  </Group>
+                  <Text size="xs" c="dimmed" style={{ lineHeight: 1.3 }}>
+                    💡 При вводе размера больше габарита листа ({maxCellW}×{maxCellH} мм) автоматически создаются дополнительные листы со швами.
+                  </Text>
+                </Stack>
+              );
+            })()}
 
             <Divider color="#2C2E33" />
 

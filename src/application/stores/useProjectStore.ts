@@ -159,6 +159,122 @@ function splitColumnIntoSlats(
   return result;
 }
 
+/**
+ * Автоматически разделяет слишком широкую колонку на несколько колонок стандартной ширины листа (<= maxSheetWidth)
+ */
+function splitOversizedColumn(
+  customPanels: Record<number, CustomPanelConfig>,
+  columnIndex: number,
+  requestedWidth: number,
+  maxSheetWidth: number = 1220,
+  jointGap: number = 8
+): Record<number, CustomPanelConfig> {
+  const result: Record<number, CustomPanelConfig> = {};
+
+  // 1. Копируем все колонки левее выбранной
+  for (let i = 0; i < columnIndex; i++) {
+    if (customPanels[i]) {
+      result[i] = { ...customPanels[i], columnIndex: i };
+    }
+  }
+
+  // 2. Рассчитываем количество и ширины листов
+  const sheetColumns: CustomPanelConfig[] = [];
+  let remainingW = requestedWidth;
+  const origCustom = customPanels[columnIndex] || { columnIndex };
+
+  while (remainingW > 0.5) {
+    const w = Math.min(maxSheetWidth, remainingW);
+    sheetColumns.push({
+      ...origCustom,
+      columnIndex: 0,
+      customWidth: Math.round(w),
+      segments: origCustom.segments ? [...origCustom.segments] : undefined,
+    });
+    remainingW -= w + (remainingW > maxSheetWidth ? jointGap : 0);
+  }
+
+  if (sheetColumns.length === 0) {
+    sheetColumns.push({
+      ...origCustom,
+      columnIndex: 0,
+      customWidth: maxSheetWidth,
+    });
+  }
+
+  sheetColumns.forEach((col, idx) => {
+    result[columnIndex + idx] = {
+      ...col,
+      columnIndex: columnIndex + idx,
+    };
+  });
+
+  // 3. Сдвигаем все последующие колонки вправо на shiftAmount
+  const shiftAmount = Math.max(0, sheetColumns.length - 1);
+  const oldCols = Object.keys(customPanels)
+    .map(Number)
+    .filter((k) => k > columnIndex)
+    .sort((a, b) => a - b);
+
+  for (const oldIdx of oldCols) {
+    result[oldIdx + shiftAmount] = {
+      ...customPanels[oldIdx],
+      columnIndex: oldIdx + shiftAmount,
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Автоматически разделяет слишком высокий сегмент на несколько рядов (<= maxSheetHeight)
+ */
+function splitOversizedSegment(
+  segments: PanelSegmentConfig[],
+  segmentIndex: number,
+  requestedHeight: number,
+  maxSheetHeight: number = 2800,
+  jointGap: number = 8
+): PanelSegmentConfig[] {
+  const result: PanelSegmentConfig[] = [];
+
+  // 1. Копируем все сегменты ниже выбранного
+  for (let i = 0; i < segmentIndex; i++) {
+    if (segments[i]) {
+      result.push(segments[i]);
+    }
+  }
+
+  // 2. Рассчитываем высоты новых сегментов
+  const newHeights: number[] = [];
+  let remainingH = requestedHeight;
+  while (remainingH > 0.5) {
+    const h = Math.min(maxSheetHeight, remainingH);
+    newHeights.push(Math.round(h));
+    remainingH -= h + (remainingH > maxSheetHeight ? jointGap : 0);
+  }
+
+  const origSeg = segments[segmentIndex] || { id: `seg-${Date.now()}-0` };
+
+  // 3. Вставляем новые сегменты
+  newHeights.forEach((h, offset) => {
+    result.push({
+      ...origSeg,
+      id: offset === 0 ? origSeg.id : `seg-${Date.now()}-${segmentIndex + offset}`,
+      height: h,
+    });
+  });
+
+  // 4. Добавляем последующие сегменты выше выбранного
+  for (let i = segmentIndex + 1; i < segments.length; i++) {
+    if (segments[i]) {
+      result.push(segments[i]);
+    }
+  }
+
+  return result;
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   project: createDefaultProject(),
   selectedColumnIndex: null,
@@ -1280,25 +1396,41 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })),
 
   updatePanelConfig: (wallId: string, columnIndex: number, config: Partial<CustomPanelConfig>) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
-          if (w.id !== wallId) return w;
-          const currentCustom = w.customPanels[columnIndex] || { columnIndex };
-          return {
-            ...w,
-            customPanels: {
-              ...w.customPanels,
-              [columnIndex]: {
-                ...currentCustom,
-                ...config,
-              },
-            },
-          };
-        }),
-      },
-    })),
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      const currentCustom = wall.customPanels[columnIndex] || { columnIndex };
+      const colMaterialId = config.customMaterialId || currentCustom.customMaterialId || wall.zone.materialId || 'mat-sheet-1220';
+      const material = state.project.materials.find((m) => m.id === colMaterialId);
+      const maxSheetWidth = material?.width || 1220;
+
+      let nextCustomPanels = { ...wall.customPanels };
+
+      if (config.customWidth !== undefined && config.customWidth > maxSheetWidth) {
+        nextCustomPanels = splitOversizedColumn(
+          wall.customPanels,
+          columnIndex,
+          config.customWidth,
+          maxSheetWidth,
+          8
+        );
+      } else {
+        nextCustomPanels[columnIndex] = {
+          ...currentCustom,
+          ...config,
+        };
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+          ),
+        },
+      };
+    }),
 
   updatePanelSegment: (
     wallId: string,
@@ -1306,39 +1438,67 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     segmentIndex: number,
     config: Partial<PanelSegmentConfig>
   ) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
-          if (w.id !== wallId) return w;
-          const currentCustom = w.customPanels[columnIndex] || { columnIndex, segments: [] };
-          const segments = [...(currentCustom.segments || [])];
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
 
-          while (segments.length <= segmentIndex) {
-            segments.push({
-              id: `seg-${Date.now()}-${segments.length}`,
-              height: undefined,
-            });
-          }
+      const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
+      const segments = [...(currentCustom.segments || [])];
 
-          segments[segmentIndex] = {
-            ...segments[segmentIndex],
-            ...config,
-          };
+      while (segments.length <= segmentIndex) {
+        segments.push({
+          id: `seg-${Date.now()}-${segments.length}`,
+          height: undefined,
+        });
+      }
 
-          return {
-            ...w,
-            customPanels: {
-              ...w.customPanels,
-              [columnIndex]: {
-                ...currentCustom,
-                segments,
-              },
-            },
-          };
-        }),
-      },
-    })),
+      const segMaterialId =
+        config.customMaterialId ||
+        segments[segmentIndex]?.customMaterialId ||
+        currentCustom.customMaterialId ||
+        wall.zone.materialId ||
+        'mat-sheet-1220';
+      const material = state.project.materials.find((m) => m.id === segMaterialId);
+      const maxSheetHeight = material?.height || 2800;
+
+      let nextSegments: PanelSegmentConfig[];
+
+      if (config.height !== undefined && config.height > maxSheetHeight) {
+        nextSegments = splitOversizedSegment(
+          segments,
+          segmentIndex,
+          config.height,
+          maxSheetHeight,
+          8
+        );
+      } else {
+        segments[segmentIndex] = {
+          ...segments[segmentIndex],
+          ...config,
+        };
+        nextSegments = segments;
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  customPanels: {
+                    ...w.customPanels,
+                    [columnIndex]: {
+                      ...currentCustom,
+                      segments: nextSegments,
+                    },
+                  },
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   splitPanelHorizontally: (
     wallId: string,
