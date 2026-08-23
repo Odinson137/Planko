@@ -3,7 +3,7 @@ import { Project, createDefaultProject } from '../../core/models/Project';
 import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType } from '../../core/models/Profile';
-import { MATERIAL_NONE_ID } from '../../core/models/Material';
+import { MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
@@ -81,6 +81,73 @@ interface ProjectState {
   addOpening: (wallId: string, type: OpeningType) => void;
   updateOpening: (wallId: string, opening: Partial<Opening> & { id: string }) => void;
   removeOpening: (wallId: string, openingId: string) => void;
+}
+
+/**
+ * Разделяет широкую колонку на отдельные колонки-рейки заданной ширины (по умолчанию 145 мм).
+ */
+function splitColumnIntoSlats(
+  customPanels: Record<number, CustomPanelConfig>,
+  columnIndex: number,
+  columnWidth: number,
+  slatMaterialId: string,
+  slatWidth: number = 145,
+  jointGap: number = 8
+): Record<number, CustomPanelConfig> {
+  const result: Record<number, CustomPanelConfig> = {};
+
+  // 1. Копируем все колонки левее выбранной
+  for (let i = 0; i < columnIndex; i++) {
+    if (customPanels[i]) {
+      result[i] = { ...customPanels[i], columnIndex: i };
+    }
+  }
+
+  // 2. Рассчитываем количество и ширины реек, помещающихся в ширину исходной колонки
+  const slatColumns: CustomPanelConfig[] = [];
+  let remainingW = columnWidth;
+  while (remainingW > 0.5) {
+    const w = Math.min(slatWidth, remainingW);
+    slatColumns.push({
+      columnIndex: 0,
+      customWidth: Math.round(w),
+      customMaterialId: slatMaterialId,
+      segments: [],
+    });
+    remainingW -= w + (remainingW > slatWidth ? jointGap : 0);
+  }
+
+  if (slatColumns.length === 0) {
+    slatColumns.push({
+      columnIndex: 0,
+      customWidth: slatWidth,
+      customMaterialId: slatMaterialId,
+      segments: [],
+    });
+  }
+
+  slatColumns.forEach((col, idx) => {
+    result[columnIndex + idx] = {
+      ...col,
+      columnIndex: columnIndex + idx,
+    };
+  });
+
+  // 3. Сдвигаем все колонки правее выбранной
+  const shiftAmount = Math.max(0, slatColumns.length - 1);
+  const oldCols = Object.keys(customPanels)
+    .map(Number)
+    .filter((k) => k > columnIndex)
+    .sort((a, b) => a - b);
+
+  for (const oldIdx of oldCols) {
+    result[oldIdx + shiftAmount] = {
+      ...customPanels[oldIdx],
+      columnIndex: oldIdx + shiftAmount,
+    };
+  }
+
+  return result;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -787,7 +854,52 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall || state.selectedCellKeys.length === 0) return state;
 
-      const nextCustomPanels = { ...wall.customPanels };
+      const targetMaterial = state.project.materials.find((m) => m.id === materialId);
+      const wallMaterial =
+        state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
+
+      let nextCustomPanels = { ...wall.customPanels };
+
+      if (targetMaterial?.type === 'SLAT') {
+        const selectedColIndices = Array.from(
+          new Set(state.selectedCellKeys.map((k) => Number(k.split('-')[0])))
+        ).sort((a, b) => b - a); // Справа налево, чтобы сдвиги не сбивали индексы
+
+        selectedColIndices.forEach((colIdx) => {
+          const currentCustom = nextCustomPanels[colIdx];
+          const currentWidth =
+            currentCustom?.customWidth ?? (wallMaterial.isVoid ? 1220 : wallMaterial.width);
+
+          if (currentWidth > 150) {
+            nextCustomPanels = splitColumnIntoSlats(
+              nextCustomPanels,
+              colIdx,
+              currentWidth,
+              materialId,
+              targetMaterial.width,
+              8
+            );
+          } else {
+            nextCustomPanels[colIdx] = {
+              ...(currentCustom || { columnIndex: colIdx }),
+              customMaterialId: materialId,
+            };
+          }
+        });
+
+        return {
+          selectedCellKeys: [],
+          selectedPieceIds: [],
+          selectedColumnIndex: null,
+          selectedSegmentIndex: null,
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+            ),
+          },
+        };
+      }
 
       state.selectedCellKeys.forEach((key) => {
         const [cIdx, sIdx] = key.split('-').map(Number);
@@ -862,10 +974,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setWallMaterial: (wallId: string, materialId: string) =>
     set((state) => ({
+      selectedColumnIndex: null,
+      selectedSegmentIndex: null,
+      selectedCellKeys: [],
+      selectedPieceIds: [],
+      selectedJointId: null,
+      selectedJointIds: [],
       project: {
         ...state.project,
         walls: state.project.walls.map((w) =>
-          w.id === wallId ? { ...w, zone: { ...w.zone, materialId } } : w
+          w.id === wallId
+            ? {
+                ...w,
+                customPanels: {},
+                customJoints: {},
+                zone: { ...w.zone, materialId },
+              }
+            : w
         ),
       },
     })),
@@ -1017,39 +1142,78 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })),
 
   setCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number, materialId: string) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
-          if (w.id !== wallId) return w;
-          const currentCustom = w.customPanels[columnIndex] || { columnIndex, segments: [] };
-          const segments = [...(currentCustom.segments || [])];
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
 
-          while (segments.length <= segmentIndex) {
-            segments.push({
-              id: `seg-${Date.now()}-${segments.length}`,
-              height: undefined,
-            });
-          }
+      const targetMaterial = state.project.materials.find((m) => m.id === materialId);
+      const wallMaterial =
+        state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
+      const currentCustom = wall.customPanels[columnIndex];
+      const currentWidth =
+        currentCustom?.customWidth ?? (wallMaterial.isVoid ? 1220 : wallMaterial.width);
 
-          segments[segmentIndex] = {
-            ...segments[segmentIndex],
-            customMaterialId: materialId,
-          };
+      // Если выбран реечный материал, а колонка широкая (> 150 мм) — разделяем колонку на отдельные рейки по 145 мм
+      if (targetMaterial?.type === 'SLAT' && currentWidth > 150) {
+        const nextCustomPanels = splitColumnIntoSlats(
+          wall.customPanels,
+          columnIndex,
+          currentWidth,
+          materialId,
+          targetMaterial.width,
+          8
+        );
 
-          return {
-            ...w,
-            customPanels: {
-              ...w.customPanels,
-              [columnIndex]: {
-                ...currentCustom,
-                segments,
-              },
-            },
-          };
-        }),
-      },
-    })),
+        return {
+          selectedColumnIndex: columnIndex,
+          selectedSegmentIndex: 0,
+          selectedCellKeys: [`${columnIndex}-0`],
+          selectedPieceIds: [`panel-${columnIndex}-0`],
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+            ),
+          },
+        };
+      }
+
+      // Обычная установка материала
+      const segments = [...(currentCustom?.segments || [])];
+      while (segments.length <= segmentIndex) {
+        segments.push({
+          id: `seg-${Date.now()}-${segments.length}`,
+          height: undefined,
+        });
+      }
+
+      segments[segmentIndex] = {
+        ...segments[segmentIndex],
+        customMaterialId: materialId,
+      };
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  customPanels: {
+                    ...w.customPanels,
+                    [columnIndex]: {
+                      ...(currentCustom || { columnIndex }),
+                      customMaterialId: materialId,
+                      segments,
+                    },
+                  },
+                }
+              : w
+          ),
+        },
+      };
+    }),
+
 
   clearCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number) =>
     set((state) => ({
