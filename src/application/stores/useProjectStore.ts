@@ -61,7 +61,6 @@ interface ProjectState {
   updateWallDimensions: (wallId: string, width: number, height: number) => void;
   setWallMaterial: (wallId: string, materialId: string) => void;
   setWallJointProfile: (wallId: string, profileType: ProfileType) => void;
-  setWallStartOffset: (wallId: string, offset: number) => void;
 
   // Управление кликабельными стыками и краями
   setJointWidth: (wallId: string, jointId: string, width: number) => void;
@@ -881,15 +880,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       },
     })),
 
-  setWallStartOffset: (wallId: string, offset: number) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) =>
-          w.id === wallId ? { ...w, zone: { ...w.zone, startOffsetX: offset } } : w
-        ),
-      },
-    })),
 
   setJointWidth: (wallId: string, jointId: string, width: number) =>
     set((state) => ({

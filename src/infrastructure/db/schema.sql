@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS walls (
     height REAL NOT NULL,
     material_id TEXT NOT NULL,
     joint_profile_type TEXT DEFAULT 'H_JOINT',
-    start_offset_x REAL DEFAULT 0,
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
     FOREIGN KEY(material_id) REFERENCES materials(id)
 );

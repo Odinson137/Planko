@@ -29,7 +29,6 @@ export interface WallZone {
   id: string;
   materialId: string;
   orientation: LayoutOrientation;
-  startOffsetX: number;            // смещение первого шва от левого края (мм)
   jointProfileType: ProfileType;   // тип шва по умолчанию (8 мм)
 }
 
@@ -57,8 +56,8 @@ export function createDefaultWall(id: string, name: string = 'Стена 1'): Wa
       id: `zone-${id}`,
       materialId: 'mat-sheet-1220',
       orientation: 'VERTICAL',
-      startOffsetX: 0,
       jointProfileType: 'JOINT_8',
     },
   };
 }
+

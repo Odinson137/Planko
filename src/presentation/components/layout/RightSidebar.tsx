@@ -51,7 +51,6 @@ export const RightSidebar: React.FC = () => {
     updateWallDimensions,
     setWallMaterial,
     setWallJointProfile,
-    setWallStartOffset,
     updateOpening,
     removeOpening,
     mergeSelectedCells,
@@ -1114,24 +1113,6 @@ export const RightSidebar: React.FC = () => {
               ]}
             />
           </div>
-
-          <NumberInput
-            size="xs"
-            label="Смещение первого шва (мм)"
-            value={currentWall.zone.startOffsetX ?? 0}
-            clampBehavior="blur"
-            allowNegative={false}
-            allowDecimal={false}
-            min={0}
-            max={currentMaterial?.width || 1220}
-            step={10}
-            onChange={(val) =>
-              setWallStartOffset(
-                currentWall.id,
-                typeof val === 'number' ? val : (val === '' ? 0 : Number(val))
-              )
-            }
-          />
 
           <Divider color="#2C2E33" />
 

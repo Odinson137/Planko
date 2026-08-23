@@ -94,7 +94,7 @@ export class LayoutEngine {
     const topEdgeConfig = wall.customJoints['edge-h-top'];
     const topEdgeWidth = topEdgeConfig?.width ?? 0;
 
-    let currentX = wall.zone.startOffsetX + leftEdgeWidth;
+    let currentX = leftEdgeWidth;
     const maxX = Math.max(currentX, wall.width - rightEdgeWidth);
     const maxY = Math.max(botEdgeWidth, wall.height - topEdgeWidth);
 
