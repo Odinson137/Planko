@@ -588,7 +588,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   toggleCellSelection: (panelId: string, columnIndex: number, segmentIndex: number, isShift: boolean) =>
     set((state) => {
-      const key = `${columnIndex}-${segmentIndex}`;
       let effectiveSubPieceId: string | null = null;
       if (panelId && panelId.startsWith('panel-')) {
         const parts = panelId.split('-');
@@ -596,6 +595,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           effectiveSubPieceId = parts.slice(3).join('-');
         }
       }
+
+      const key = `${columnIndex}-${segmentIndex}`;
 
       if (!isShift) {
         return {
@@ -620,17 +621,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ? state.selectedPieceIds.filter((p) => p !== panelId)
         : [...state.selectedPieceIds, panelId];
 
-      const isKeyAlreadySelected = state.selectedCellKeys.includes(key);
-      const nextKeys = isKeyAlreadySelected
-        ? state.selectedCellKeys.filter((k) => k !== key)
-        : [...state.selectedCellKeys, key];
+      // Вычисляем задействованные cellKeys на основе всех оставшихся pieceIds
+      const nextKeysSet = new Set<string>();
+      nextPieceIds.forEach((pid) => {
+        if (pid.startsWith('panel-')) {
+          const parts = pid.split('-');
+          if (parts.length >= 3) {
+            nextKeysSet.add(`${parts[1]}-${parts[2]}`);
+          }
+        }
+      });
+      const nextKeys = Array.from(nextKeysSet);
+
+      let nextSubPieceId: string | null = null;
+      if (nextPieceIds.length === 1) {
+        const parts = nextPieceIds[0].split('-');
+        if (parts.length >= 4) {
+          nextSubPieceId = parts.slice(3).join('-');
+        }
+      }
 
       return {
         selectedCellKeys: nextKeys,
         selectedPieceIds: nextPieceIds,
-        selectedColumnIndex: nextKeys.length === 1 ? columnIndex : state.selectedColumnIndex,
-        selectedSegmentIndex: nextKeys.length === 1 ? segmentIndex : state.selectedSegmentIndex,
-        selectedSubPieceId: nextPieceIds.length === 1 ? effectiveSubPieceId : null,
+        selectedColumnIndex: nextKeys.length === 1 ? Number(nextKeys[0].split('-')[0]) : null,
+        selectedSegmentIndex: nextKeys.length === 1 ? Number(nextKeys[0].split('-')[1]) : null,
+        selectedSubPieceId: nextSubPieceId,
+        selectedJointId: null,
+        selectedJointIds: [],
+        selectedWallBendId: null,
       };
     }),
 
@@ -1029,6 +1048,113 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!wall || (state.selectedCellKeys.length < 2 && state.selectedPieceIds.length < 2)) return state;
 
       const standardSeam = 8;
+
+      // 0. ПРОВЕРЯЕМ, ВЫБРАНЫ ЛИ РАЗРЕЗАННЫЕ ДЕТАЛИ (subPieces)
+      const selectedSubPieceIds = state.selectedPieceIds.filter(
+        (pid) => pid.startsWith('panel-') && pid.split('-').length >= 4
+      );
+
+      if (selectedSubPieceIds.length >= 2 || (selectedSubPieceIds.length >= 1 && state.selectedPieceIds.length >= 2)) {
+        // Группируем выбранные subPieces по ячейкам [columnIndex, segmentIndex]
+        const cellMap = new Map<string, { colIdx: number; segIdx: number; subIds: string[] }>();
+        selectedSubPieceIds.forEach((pid) => {
+          const parts = pid.split('-');
+          const cIdx = Number(parts[1]);
+          const sIdx = Number(parts[2]);
+          const subId = parts.slice(3).join('-');
+          const key = `${cIdx}-${sIdx}`;
+          if (!cellMap.has(key)) {
+            cellMap.set(key, { colIdx: cIdx, segIdx: sIdx, subIds: [] });
+          }
+          cellMap.get(key)!.subIds.push(subId);
+        });
+
+        let didMergeAnySubs = false;
+        const nextCustomPanels = { ...wall.customPanels };
+        const nextCustomJoints = { ...wall.customJoints };
+
+        cellMap.forEach(({ colIdx, segIdx, subIds }) => {
+          const colConfig = nextCustomPanels[colIdx] || { columnIndex: colIdx, segments: [] };
+          const segConfig = colConfig.segments?.[segIdx];
+          const currentSubs = (segConfig?.subPieces || colConfig.subPieces || []);
+
+          if (currentSubs.length > 0 && subIds.length >= 2) {
+            didMergeAnySubs = true;
+            // Если выбраны ВСЕ subPieces этой ячейки (или их осталось 0 после слияния) -> сбрасываем subPieces полностью!
+            const remainingSubs = currentSubs.filter((s) => !subIds.includes(s.id));
+
+            // Определяем материал/декор объединяемых деталей
+            const mergingSubs = currentSubs.filter((s) => subIds.includes(s.id));
+            const firstMatId = mergingSubs[0]?.materialId || colConfig.customMaterialId || wall.zone.materialId || MATERIAL_NONE_ID;
+            const allSameMat = mergingSubs.every((s) => s.materialId === firstMatId && !s.isVoid);
+
+            if (remainingSubs.length === 0) {
+              // Полный сброс ячейки к монолитной панели
+              if (colConfig.segments && colConfig.segments[segIdx]) {
+                const nextSegs = [...colConfig.segments];
+                nextSegs[segIdx] = {
+                  ...nextSegs[segIdx],
+                  subPieces: undefined,
+                  customMaterialId: allSameMat ? firstMatId : nextSegs[segIdx].customMaterialId,
+                  customColor: allSameMat ? mergingSubs[0]?.color : nextSegs[segIdx].customColor,
+                  customDecorCode: allSameMat ? mergingSubs[0]?.decorCode : nextSegs[segIdx].customDecorCode,
+                };
+                nextCustomPanels[colIdx] = { ...colConfig, segments: nextSegs };
+              } else {
+                nextCustomPanels[colIdx] = {
+                  ...colConfig,
+                  subPieces: undefined,
+                  customMaterialId: allSameMat ? firstMatId : colConfig.customMaterialId,
+                  customColor: allSameMat ? mergingSubs[0]?.color : colConfig.customColor,
+                  customDecorCode: allSameMat ? mergingSubs[0]?.decorCode : colConfig.customDecorCode,
+                };
+              }
+            } else {
+              // Если выбрана часть subPieces
+              if (colConfig.segments && colConfig.segments[segIdx]) {
+                const nextSegs = [...colConfig.segments];
+                nextSegs[segIdx] = {
+                  ...nextSegs[segIdx],
+                  subPieces: remainingSubs.length > 0 ? remainingSubs : undefined,
+                };
+                nextCustomPanels[colIdx] = { ...colConfig, segments: nextSegs };
+              } else {
+                nextCustomPanels[colIdx] = {
+                  ...colConfig,
+                  subPieces: remainingSubs.length > 0 ? remainingSubs : undefined,
+                };
+              }
+            }
+
+            // Удаляем все стыки раскроя между объединяемыми деталями
+            Object.keys(nextCustomJoints).forEach((jKey) => {
+              if (jKey.startsWith(`edge-cut-${colIdx}-${segIdx}-`)) {
+                delete nextCustomJoints[jKey];
+              }
+            });
+          }
+        });
+
+        if (didMergeAnySubs) {
+          const firstKey = Array.from(cellMap.keys())[0] || '0-0';
+          const [c, s] = firstKey.split('-').map(Number);
+          return {
+            selectedSubPieceId: null,
+            selectedColumnIndex: c,
+            selectedSegmentIndex: s,
+            selectedCellKeys: [firstKey],
+            selectedPieceIds: [`panel-${c}-${s}`],
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints }
+                  : w
+              ),
+            },
+          };
+        }
+      }
 
       // 1. Парсим координаты всех выбранных ячеек
       const coords: SelectedCellCoord[] = state.selectedCellKeys.map((k) => {

@@ -56,6 +56,7 @@ export const RightSidebar: React.FC = () => {
     selectedColumnIndex,
     selectedSegmentIndex,
     selectedCellKeys,
+    selectedPieceIds,
     selectedJointId,
     selectedJointIds,
     selectedWallBendId,
@@ -1306,7 +1307,8 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   // РЕЖИМ 3.1: Выбрано НЕСКОЛЬКО блоков через Shift (Мульти-выбор & Объединение)
   // =========================================================================
-  if (selectedCellKeys.length > 1) {
+  if (selectedCellKeys.length > 1 || selectedPieceIds.length > 1) {
+    const totalSelectedCount = selectedPieceIds.length > 0 ? selectedPieceIds.length : selectedCellKeys.length;
     return (
       <Stack
         h="100%"
@@ -1324,7 +1326,7 @@ export const RightSidebar: React.FC = () => {
             <Group justify="space-between" align="center">
               <div>
                 <Title order={6} c="teal.4">
-                  ВЫБРАНО БЛОКОВ: {selectedCellKeys.length} шт
+                  ВЫБРАНО ЭЛЕМЕНТОВ: {totalSelectedCount} шт
                 </Title>
                 <Text size="xs" c="dimmed">
                   Групповые операции (через Shift)

@@ -225,3 +225,25 @@ CREATE TABLE openings (
 2. **Экспорт чертежей и спецификаций в PDF/DXF:**
    * Формирование сборочного чертежа для монтажников с точными привязками LED-линий и стыков.
    * Формирование карт раскроя для распиловочного цеха.
+
+---
+
+## 6. Стандарты кодовой базы и модульности (Frontend Code Quality)
+
+* **Стандарт размера файлов:** В промышленной разработке хорошим тоном считается размер файлов в пределах **150–350 строк**. Файлы свыше 500–1000 строк являются антипаттерном («God Object / God Component») и подлежат декомпозиции.
+* **Дорожная карта модульного рефакторинга:**
+  1. **Декомпозиция хранилища (`useProjectStore.ts`):** Разделение монолитного Store на независимые Zustand Slices:
+     * `wallSlice.ts` — управление стенами, геометрией и глобальными параметрами.
+     * `panelSlice.ts` — колонки, вертикальные сегменты, материалы и толщины.
+     * `slicingSlice.ts` — полигональный CAD-раскрой, `subPieces`, слияние и объединение деталей.
+     * `jointSlice.ts` — расчет и слияние межпанельных швов и LED-линий.
+     * `openingSlice.ts` — двери, окна, ниши, ТВ-зоны и вырезы.
+     * `selectionSlice.ts` — мульти-выбор элементов через Shift и управление активными объектами.
+  2. **Декомпозиция инспектора (`RightSidebar.tsx`):** Разделение на компактные изолированные инспекторы (до 200 строк):
+     * `WallInspector.tsx`
+     * `PanelInspector.tsx` (+ `SubPieceInspector.tsx`, `DecorPalette.tsx`, `PatternAngleControl.tsx`)
+     * `JointInspector.tsx`
+     * `OpeningInspector.tsx`
+     * `BendInspector.tsx`
+  3. **Декомпозиция холста (`CadCanvas.tsx` & `Axonometric3DView.tsx`):** Выделение изолированных слоёв рендеринга (`CanvasGridLayer`, `CanvasPanelsLayer`, `CanvasJointsLayer`, `CanvasDimensionsLayer`).
+

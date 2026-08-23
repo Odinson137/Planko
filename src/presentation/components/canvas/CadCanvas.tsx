@@ -248,10 +248,12 @@ export const CadCanvas: React.FC = () => {
                   listening={isPanelsMode}
                   onClick={(e) => {
                     e.cancelBubble = true;
-                    if (panel.subPieceId) {
+                    if (e.evt.shiftKey) {
+                      toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, true);
+                    } else if (panel.subPieceId) {
                       selectPanel(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, panel.subPieceId);
                     } else {
-                      toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, !!e.evt.shiftKey);
+                      toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, false);
                     }
                   }}
                 >
