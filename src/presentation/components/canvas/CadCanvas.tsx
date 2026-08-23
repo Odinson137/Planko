@@ -279,10 +279,10 @@ export const CadCanvas: React.FC = () => {
                       <Line
                         points={polyLinePoints}
                         closed
-                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (patternCanvas ? undefined : (panel.materialColor || '#d6cbbe'))}
-                        fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
-                        fillPatternX={panelX}
-                        fillPatternY={panelY}
+                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (panel.materialColor || '#d6cbbe')}
+                        fillPatternImage={isVoid || !patternCanvas ? undefined : (patternCanvas as any)}
+                        fillPatternX={patternCanvas ? panelX : undefined}
+                        fillPatternY={patternCanvas ? panelY : undefined}
                         fillPatternScale={
                           patternCanvas
                             ? {
@@ -291,7 +291,7 @@ export const CadCanvas: React.FC = () => {
                               }
                             : undefined
                         }
-                        fillPatternRepeat="repeat"
+                        fillPatternRepeat={patternCanvas ? 'repeat' : undefined}
                         opacity={isVoid ? 0.75 : 0.98}
                       />
                     ) : (
@@ -300,8 +300,8 @@ export const CadCanvas: React.FC = () => {
                         y={panelY}
                         width={panel.width}
                         height={panel.height}
-                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
-                        fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
+                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (panel.materialColor || '#d6cbbe')}
+                        fillPatternImage={isVoid || !patternCanvas ? undefined : (patternCanvas as any)}
                         fillPatternScale={
                           patternCanvas
                             ? {
@@ -310,7 +310,7 @@ export const CadCanvas: React.FC = () => {
                               }
                             : undefined
                         }
-                        fillPatternRepeat="no-repeat"
+                        fillPatternRepeat={patternCanvas ? 'no-repeat' : undefined}
                         opacity={isVoid ? 0.75 : 0.98}
                       />
                     )}
