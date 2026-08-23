@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge } from '@mantine/core';
-import { Camera, ZoomIn, ZoomOut, RotateCw, Download } from 'lucide-react';
+import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack } from '@mantine/core';
+import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
@@ -633,10 +633,22 @@ export const Axonometric3DView: React.FC = () => {
     const dy = e.clientY - dragStart.y;
 
     if (e.shiftKey || e.buttons === 4) {
+      // Панорамирование при зажатом Shift или колесе мыши
       setPanOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
     } else {
-      setAngleDeg((prev) => Math.max(-80, Math.min(85, prev + dx * 0.4)));
-      setElevationDeg((prev) => Math.max(5, Math.min(75, prev - dy * 0.3)));
+      // Полное свободное вращение вокруг объекта 360° без ограничений
+      setAngleDeg((prev) => {
+        let newAngle = prev + dx * 0.5;
+        // Нормализация угла в удобный диапазон [-180, 180]
+        while (newAngle > 180) newAngle -= 360;
+        while (newAngle < -180) newAngle += 360;
+        return Math.round(newAngle * 10) / 10;
+      });
+      // Полный наклон камеры от вида снизу (-89°) до вида сверху (+89°)
+      setElevationDeg((prev) => {
+        const newElev = prev - dy * 0.4;
+        return Math.max(-89, Math.min(89, Math.round(newElev * 10) / 10));
+      });
     }
     setDragStart({ x: e.clientX, y: e.clientY });
   };
@@ -646,14 +658,14 @@ export const Axonometric3DView: React.FC = () => {
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    setZoomScale((prev) => Math.max(0.05, Math.min(1.5, prev * factor)));
+    setZoomScale((prev) => Math.max(0.05, Math.min(2.5, prev * factor)));
   };
 
   const handleExportPNG = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = `${project.name || 'Planko'}_3D_Render_30deg.png`;
+    link.download = `${project.name || 'Planko'}_3D_Render_${Math.round(angleDeg)}deg.png`;
     link.href = canvas.toDataURL('image/png', 1.0);
     link.click();
   };
@@ -677,7 +689,7 @@ export const Axonometric3DView: React.FC = () => {
     >
       <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
 
-      {/* Верхняя панель инфо */}
+      {/* Верхняя информационная панель */}
       <Paper
         p="xs"
         style={{
@@ -692,78 +704,176 @@ export const Axonometric3DView: React.FC = () => {
       >
         <Group gap="xs">
           <Badge color="blue" variant="light" leftSection={<Camera size={12} />}>
-            3D Аксонометрия 30°
+            3D Обзор
           </Badge>
           <Text size="xs" c="dimmed">
-            Угол {Math.round(angleDeg)}° / наклон {Math.round(elevationDeg)}°
+            Поворот: <strong style={{ color: '#E9ECEF' }}>{Math.round(angleDeg)}°</strong> | Наклон: <strong style={{ color: '#E9ECEF' }}>{Math.round(elevationDeg)}°</strong>
           </Text>
         </Group>
       </Paper>
 
-      {/* Плавающая панель управления 3D камерой и экспортом */}
+      {/* Панель ручного ввода углов и быстрого переключения пресетов */}
       <Paper
-        p="xs"
+        p="sm"
         style={{
           position: 'absolute',
           bottom: 20,
           right: 20,
-          backgroundColor: 'rgba(26, 27, 30, 0.9)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid #2C2E33',
+          backgroundColor: 'rgba(26, 27, 30, 0.95)',
+          backdropFilter: 'blur(12px)',
+          border: '1px solid #373A40',
+          borderRadius: 8,
           zIndex: 10,
-          width: 240,
+          width: 320,
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
         }}
       >
-        <Group justify="space-between" mb={6}>
-          <Text size="xs" fw={600} c="dimmed">
-            Угол обзора 3D:
-          </Text>
-          <Tooltip label="Сбросить на 30°">
-            <ActionIcon
-              size="xs"
-              variant="subtle"
-              color="gray"
-              onClick={() => {
-                setAngleDeg(34);
-                setElevationDeg(26);
-                setPanOffset({ x: 0, y: 0 });
-              }}
-            >
-              <RotateCw size={12} />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
-
-        <Slider
-          size="xs"
-          min={-60}
-          max={80}
-          value={Math.round(angleDeg)}
-          onChange={setAngleDeg}
-          label={(v) => `${v}°`}
-          mb="xs"
-        />
-
-        <Group justify="space-between" mt="xs">
-          <Group gap={4}>
-            <ActionIcon size="sm" variant="default" onClick={() => setZoomScale((z) => Math.max(0.05, z - 0.05))}>
-              <ZoomOut size={14} />
-            </ActionIcon>
-            <ActionIcon size="sm" variant="default" onClick={() => setZoomScale((z) => Math.min(1.5, z + 0.05))}>
-              <ZoomIn size={14} />
-            </ActionIcon>
+        <Stack gap="xs">
+          <Group justify="space-between">
+            <Group gap={6}>
+              <Compass size={14} color="#74C0FC" />
+              <Text size="xs" fw={700} c="bright">
+                Управление 3D ракурсом
+              </Text>
+            </Group>
+            <Tooltip label="Сбросить к ракурсу 30°">
+              <ActionIcon
+                size="xs"
+                variant="subtle"
+                color="gray"
+                onClick={() => {
+                  setAngleDeg(34);
+                  setElevationDeg(26);
+                  setPanOffset({ x: 0, y: 0 });
+                }}
+              >
+                <RotateCw size={12} />
+              </ActionIcon>
+            </Tooltip>
           </Group>
 
-          <Button
-            size="xs"
-            variant="filled"
-            color="teal"
-            leftSection={<Download size={14} />}
-            onClick={handleExportPNG}
-          >
-            Экспорт PNG
-          </Button>
-        </Group>
+          {/* Ручной ввод параметров угла и наклона */}
+          <SimpleGrid cols={2} spacing="xs">
+            <NumberInput
+              size="xs"
+              label="Поворот (°)"
+              value={Math.round(angleDeg)}
+              onChange={(val) => typeof val === 'number' && setAngleDeg(val)}
+              min={-360}
+              max={360}
+              step={5}
+              suffix="°"
+            />
+            <NumberInput
+              size="xs"
+              label="Наклон (°)"
+              value={Math.round(elevationDeg)}
+              onChange={(val) => typeof val === 'number' && setElevationDeg(val)}
+              min={-89}
+              max={89}
+              step={5}
+              suffix="°"
+            />
+          </SimpleGrid>
+
+          {/* Ползунок плавного поворота */}
+          <Box>
+            <Text size="10px" c="dimmed" mb={2}>
+              Ползунок поворота (-180° ... +180°):
+            </Text>
+            <Slider
+              size="xs"
+              min={-180}
+              max={180}
+              value={Math.round(angleDeg)}
+              onChange={setAngleDeg}
+              label={(v) => `${v}°`}
+            />
+          </Box>
+
+          {/* Быстрые пресеты видов */}
+          <Box>
+            <Text size="10px" c="dimmed" mb={4}>
+              Готовые ракурсы:
+            </Text>
+            <Group gap={4}>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={() => {
+                  setAngleDeg(30);
+                  setElevationDeg(25);
+                }}
+              >
+                30° Аксоно
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={() => {
+                  setAngleDeg(45);
+                  setElevationDeg(35);
+                }}
+              >
+                45° Изо
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={() => {
+                  setAngleDeg(0);
+                  setElevationDeg(0);
+                }}
+              >
+                0° Фасад
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={() => {
+                  setAngleDeg(90);
+                  setElevationDeg(0);
+                }}
+              >
+                90° Сбоку
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={() => {
+                  setAngleDeg(0);
+                  setElevationDeg(85);
+                }}
+              >
+                🔝 План
+              </Button>
+            </Group>
+          </Box>
+
+          <Divider color="#2C2E33" />
+
+          {/* Зум и Экспорт */}
+          <Group justify="space-between">
+            <Group gap={4}>
+              <ActionIcon size="sm" variant="default" onClick={() => setZoomScale((z) => Math.max(0.05, z - 0.05))}>
+                <ZoomOut size={14} />
+              </ActionIcon>
+              <ActionIcon size="sm" variant="default" onClick={() => setZoomScale((z) => Math.min(2.5, z + 0.05))}>
+                <ZoomIn size={14} />
+              </ActionIcon>
+            </Group>
+
+            <Button
+              size="xs"
+              variant="filled"
+              color="teal"
+              leftSection={<Download size={14} />}
+              onClick={handleExportPNG}
+            >
+              Экспорт PNG
+            </Button>
+          </Group>
+        </Stack>
       </Paper>
     </Box>
   );
