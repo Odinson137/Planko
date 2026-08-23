@@ -1174,7 +1174,7 @@ export const RightSidebar: React.FC = () => {
                       clampBehavior="blur"
                       allowNegative={false}
                       allowDecimal={false}
-                      min={10}
+                      min={100}
                       max={25000}
                       step={10}
                       onChange={(val) =>
@@ -1191,7 +1191,7 @@ export const RightSidebar: React.FC = () => {
                       clampBehavior="blur"
                       allowNegative={false}
                       allowDecimal={false}
-                      min={10}
+                      min={100}
                       max={10000}
                       step={10}
                       onChange={(val) =>

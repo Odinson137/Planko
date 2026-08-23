@@ -160,14 +160,15 @@ function splitColumnIntoSlats(
 }
 
 /**
- * Автоматически разделяет слишком широкую колонку на несколько колонок стандартной ширины листа (<= maxSheetWidth)
+ * Автоматически разделяет слишком широкую колонку на несколько колонок стандартной ширины листа (100 мм <= W <= maxSheetWidth)
  */
 function splitOversizedColumn(
   customPanels: Record<number, CustomPanelConfig>,
   columnIndex: number,
   requestedWidth: number,
   maxSheetWidth: number = 1220,
-  jointGap: number = 8
+  jointGap: number = 8,
+  minPieceWidth: number = 100
 ): Record<number, CustomPanelConfig> {
   const result: Record<number, CustomPanelConfig> = {};
 
@@ -178,29 +179,38 @@ function splitOversizedColumn(
     }
   }
 
-  // 2. Рассчитываем количество и ширины листов
+  // 2. Рассчитываем количество и ширины листов с гарантией мин. размера >= 100 мм
+  const totalW = Math.max(minPieceWidth, requestedWidth);
   const sheetColumns: CustomPanelConfig[] = [];
-  let remainingW = requestedWidth;
   const origCustom = customPanels[columnIndex] || { columnIndex };
 
-  while (remainingW > 0.5) {
-    const w = Math.min(maxSheetWidth, remainingW);
-    sheetColumns.push({
-      ...origCustom,
-      columnIndex: 0,
-      customWidth: Math.round(w),
-      segments: origCustom.segments ? [...origCustom.segments] : undefined,
-    });
-    remainingW -= w + (remainingW > maxSheetWidth ? jointGap : 0);
+  let numPieces = Math.ceil((totalW + jointGap) / (maxSheetWidth + jointGap));
+  if (numPieces < 1) numPieces = 1;
+
+  let remainingW = totalW;
+  const pieceWidths: number[] = [];
+
+  for (let p = 0; p < numPieces; p++) {
+    const piecesLeft = numPieces - p;
+    if (piecesLeft === 1) {
+      pieceWidths.push(Math.max(minPieceWidth, Math.round(remainingW)));
+    } else {
+      const minNeededForRest = (piecesLeft - 1) * (minPieceWidth + jointGap);
+      let w = Math.min(maxSheetWidth, remainingW - minNeededForRest);
+      w = Math.max(minPieceWidth, Math.round(w));
+      pieceWidths.push(w);
+      remainingW -= w + jointGap;
+    }
   }
 
-  if (sheetColumns.length === 0) {
+  pieceWidths.forEach((w) => {
     sheetColumns.push({
       ...origCustom,
       columnIndex: 0,
-      customWidth: maxSheetWidth,
+      customWidth: w,
+      segments: origCustom.segments ? [...origCustom.segments] : undefined,
     });
-  }
+  });
 
   sheetColumns.forEach((col, idx) => {
     result[columnIndex + idx] = {
@@ -227,14 +237,15 @@ function splitOversizedColumn(
 }
 
 /**
- * Автоматически разделяет слишком высокий сегмент на несколько рядов (<= maxSheetHeight)
+ * Автоматически разделяет слишком высокий сегмент на несколько рядов (100 мм <= H <= maxSheetHeight)
  */
 function splitOversizedSegment(
   segments: PanelSegmentConfig[],
   segmentIndex: number,
   requestedHeight: number,
   maxSheetHeight: number = 2800,
-  jointGap: number = 8
+  jointGap: number = 8,
+  minPieceHeight: number = 100
 ): PanelSegmentConfig[] {
   const result: PanelSegmentConfig[] = [];
 
@@ -245,19 +256,31 @@ function splitOversizedSegment(
     }
   }
 
-  // 2. Рассчитываем высоты новых сегментов
-  const newHeights: number[] = [];
-  let remainingH = requestedHeight;
-  while (remainingH > 0.5) {
-    const h = Math.min(maxSheetHeight, remainingH);
-    newHeights.push(Math.round(h));
-    remainingH -= h + (remainingH > maxSheetHeight ? jointGap : 0);
+  // 2. Рассчитываем высоты новых сегментов с гарантией мин. размера >= 100 мм
+  const totalH = Math.max(minPieceHeight, requestedHeight);
+  let numPieces = Math.ceil((totalH + jointGap) / (maxSheetHeight + jointGap));
+  if (numPieces < 1) numPieces = 1;
+
+  let remainingH = totalH;
+  const pieceHeights: number[] = [];
+
+  for (let p = 0; p < numPieces; p++) {
+    const piecesLeft = numPieces - p;
+    if (piecesLeft === 1) {
+      pieceHeights.push(Math.max(minPieceHeight, Math.round(remainingH)));
+    } else {
+      const minNeededForRest = (piecesLeft - 1) * (minPieceHeight + jointGap);
+      let h = Math.min(maxSheetHeight, remainingH - minNeededForRest);
+      h = Math.max(minPieceHeight, Math.round(h));
+      pieceHeights.push(h);
+      remainingH -= h + jointGap;
+    }
   }
 
   const origSeg = segments[segmentIndex] || { id: `seg-${Date.now()}-0` };
 
   // 3. Вставляем новые сегменты
-  newHeights.forEach((h, offset) => {
+  pieceHeights.forEach((h, offset) => {
     result.push({
       ...origSeg,
       id: offset === 0 ? origSeg.id : `seg-${Date.now()}-${segmentIndex + offset}`,
