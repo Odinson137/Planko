@@ -1405,23 +1405,51 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (state.selectedSubPieceId) {
         const subId = state.selectedSubPieceId;
         const nextCustomPanels = { ...wall.customPanels };
-        const updateSubs = (subs?: PolygonSubPiece[]) =>
-          subs?.map((s) =>
-            s.id === subId
-              ? {
-                  ...s,
-                  materialId,
-                  isVoid: isVoidMat,
-                  color: targetMaterial?.color || s.color,
-                  decorCode: targetMaterial?.decorCode || s.decorCode,
-                  decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
-                  thickness: targetMaterial?.thickness || s.thickness,
-                  textureCategory: (targetMaterial?.textureCategory as any) || s.textureCategory,
-                  reliefType: (targetMaterial?.reliefType as any) || s.reliefType,
-                  partLabel: isVoidMat ? 'ПУСТО' : s.partLabel,
+        const updateSubs = (subs?: PolygonSubPiece[]) => {
+          if (!subs) return subs;
+          const result: PolygonSubPiece[] = [];
+          subs.forEach((s) => {
+            const isMatch =
+              (subId && s.id === subId) ||
+              state.selectedPieceIds.some((pId) => pId.includes(s.id));
+
+            if (isMatch) {
+              const updatedSub: PolygonSubPiece = {
+                ...s,
+                materialId,
+                isVoid: isVoidMat,
+                color: targetMaterial?.color || s.color,
+                decorCode: targetMaterial?.decorCode || s.decorCode,
+                decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+                thickness: targetMaterial?.thickness || s.thickness,
+                textureCategory: (targetMaterial?.textureCategory as any) || s.textureCategory,
+                reliefType: (targetMaterial?.reliefType as any) || s.reliefType,
+                partLabel: isVoidMat ? 'ПУСТО' : s.partLabel,
+              };
+
+              // Если ширина фигуры превышает ширину рейки (например, треугольник 1000 мм и рейка 158 мм) — нарезаем на вертикальные ламели!
+              if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+                const xs = updatedSub.points.map((p) => p.x);
+                const subWidth = Math.max(...xs) - Math.min(...xs);
+                if (subWidth > targetMaterial.width + 10) {
+                  const strips = PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+                    updatedSub.points,
+                    targetMaterial.width,
+                    updatedSub,
+                    s.partLabel || '1.1'
+                  );
+                  result.push(...strips);
+                  return;
                 }
-              : s
-          );
+              }
+
+              result.push(updatedSub);
+            } else {
+              result.push(s);
+            }
+          });
+          return result;
+        };
 
         state.selectedCellKeys.forEach((key) => {
           const [cIdx, sIdx] = key.split('-').map(Number);
@@ -1758,23 +1786,47 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (state.selectedSubPieceId) {
         const subId = state.selectedSubPieceId;
         const nextCustomPanels = { ...wall.customPanels };
-        const updateSubs = (subs?: PolygonSubPiece[]) =>
-          subs?.map((s) =>
-            s.id === subId
-              ? {
-                  ...s,
-                  materialId,
-                  isVoid: isVoidMat,
-                  color: targetMaterial?.color || s.color,
-                  decorCode: targetMaterial?.decorCode || s.decorCode,
-                  decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
-                  thickness: targetMaterial?.thickness || s.thickness,
-                  textureCategory: (targetMaterial?.textureCategory as any) || s.textureCategory,
-                  reliefType: (targetMaterial?.reliefType as any) || s.reliefType,
-                  partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
+        const updateSubs = (subs?: PolygonSubPiece[]) => {
+          if (!subs) return subs;
+          const result: PolygonSubPiece[] = [];
+          subs.forEach((s) => {
+            if (s.id === subId) {
+              const updatedSub: PolygonSubPiece = {
+                ...s,
+                materialId,
+                isVoid: isVoidMat,
+                color: targetMaterial?.color || s.color,
+                decorCode: targetMaterial?.decorCode || s.decorCode,
+                decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+                thickness: targetMaterial?.thickness || s.thickness,
+                textureCategory: (targetMaterial?.textureCategory as any) || s.textureCategory,
+                reliefType: (targetMaterial?.reliefType as any) || s.reliefType,
+                partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
+              };
+
+              // Если ширина фигуры превышает ширину рейки (например, треугольник 1000 мм и рейка 158 мм) — нарезаем на вертикальные ламели!
+              if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+                const xs = updatedSub.points.map((p) => p.x);
+                const subWidth = Math.max(...xs) - Math.min(...xs);
+                if (subWidth > targetMaterial.width + 10) {
+                  const strips = PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+                    updatedSub.points,
+                    targetMaterial.width,
+                    updatedSub,
+                    s.partLabel || `1.${columnIndex + 1}.${segmentIndex + 1}`
+                  );
+                  result.push(...strips);
+                  return;
                 }
-              : s
-          );
+              }
+
+              result.push(updatedSub);
+            } else {
+              result.push(s);
+            }
+          });
+          return result;
+        };
 
         const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
         if (currentCustom.segments && currentCustom.segments[segmentIndex]) {
@@ -1945,25 +1997,49 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const nextCustomPanels = { ...wall.customPanels };
         const isVoidMat = properties.materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
 
-        const updateSubs = (subs?: PolygonSubPiece[]) =>
-          subs?.map((s) =>
-            s.id === subId
-              ? {
-                  ...s,
-                  ...(properties.materialId ? {
-                    materialId: properties.materialId,
-                    isVoid: isVoidMat,
-                    decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
-                    partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
-                  } : {}),
-                  ...(properties.customColor !== undefined ? { color: properties.customColor } : (targetMaterial?.color ? { color: targetMaterial.color } : {})),
-                  ...(properties.customDecorCode !== undefined ? { decorCode: properties.customDecorCode } : (targetMaterial?.decorCode ? { decorCode: targetMaterial.decorCode } : {})),
-                  ...(properties.customThickness !== undefined ? { thickness: properties.customThickness } : (targetMaterial?.thickness ? { thickness: targetMaterial.thickness } : {})),
-                  ...(properties.customTextureCategory !== undefined ? { textureCategory: properties.customTextureCategory as any } : (targetMaterial?.textureCategory ? { textureCategory: targetMaterial.textureCategory as any } : {})),
-                  ...(properties.customReliefType !== undefined ? { reliefType: properties.customReliefType as any } : (targetMaterial?.reliefType ? { reliefType: targetMaterial.reliefType as any } : {})),
+        const updateSubs = (subs?: PolygonSubPiece[]) => {
+          if (!subs) return subs;
+          const result: PolygonSubPiece[] = [];
+          subs.forEach((s) => {
+            if (s.id === subId) {
+              const updatedSub: PolygonSubPiece = {
+                ...s,
+                ...(properties.materialId ? {
+                  materialId: properties.materialId,
+                  isVoid: isVoidMat,
+                  decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+                  partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
+                } : {}),
+                ...(properties.customColor !== undefined ? { color: properties.customColor } : (targetMaterial?.color ? { color: targetMaterial.color } : {})),
+                ...(properties.customDecorCode !== undefined ? { decorCode: properties.customDecorCode } : (targetMaterial?.decorCode ? { decorCode: targetMaterial.decorCode } : {})),
+                ...(properties.customThickness !== undefined ? { thickness: properties.customThickness } : (targetMaterial?.thickness ? { thickness: targetMaterial.thickness } : {})),
+                ...(properties.customTextureCategory !== undefined ? { textureCategory: properties.customTextureCategory as any } : (targetMaterial?.textureCategory ? { textureCategory: targetMaterial.textureCategory as any } : {})),
+                ...(properties.customReliefType !== undefined ? { reliefType: properties.customReliefType as any } : (targetMaterial?.reliefType ? { reliefType: targetMaterial.reliefType as any } : {})),
+              };
+
+              // Если ширина фигуры превышает ширину рейки (например, треугольник 1000 мм и рейка 158 мм) — нарезаем на вертикальные ламели!
+              if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+                const xs = updatedSub.points.map((p) => p.x);
+                const subWidth = Math.max(...xs) - Math.min(...xs);
+                if (subWidth > targetMaterial.width + 10) {
+                  const strips = PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+                    updatedSub.points,
+                    targetMaterial.width,
+                    updatedSub,
+                    s.partLabel || `1.${columnIndex + 1}.${segmentIndex + 1}`
+                  );
+                  result.push(...strips);
+                  return;
                 }
-              : s
-          );
+              }
+
+              result.push(updatedSub);
+            } else {
+              result.push(s);
+            }
+          });
+          return result;
+        };
 
         const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
         if (currentCustom.segments && currentCustom.segments[segmentIndex]) {

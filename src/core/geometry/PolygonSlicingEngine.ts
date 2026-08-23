@@ -249,6 +249,88 @@ export class PolygonSlicingEngine {
   }
 
   /**
+   * Автоматическое разбиение полигона на вертикальные ламели/полосы заданной ширины (например, ширина рейки 158 мм или листа 1220 мм)
+   */
+  public static slicePolygonIntoVerticalStrips(
+    polygon: Point2D[],
+    stripWidth: number,
+    baseSubPiece: PolygonSubPiece,
+    baseLabel: string = '1.1',
+    seamGap: number = 0
+  ): PolygonSubPiece[] {
+    if (!polygon || polygon.length < 3 || stripWidth <= 0) {
+      return [baseSubPiece];
+    }
+
+    const xs = polygon.map((p) => p.x);
+    const ys = polygon.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys) - 100;
+    const maxY = Math.max(...ys) + 100;
+    const totalW = maxX - minX;
+
+    if (totalW <= stripWidth + 5) {
+      return [baseSubPiece];
+    }
+
+    // Собираем координаты вертикальных линий реза
+    const cutXs: number[] = [];
+    let curX = minX + stripWidth;
+    while (curX < maxX - 5) {
+      cutXs.push(curX);
+      curX += stripWidth;
+    }
+
+    let pieces: PolygonSubPiece[] = [{ ...baseSubPiece, points: polygon }];
+
+    cutXs.forEach((cutX) => {
+      const nextPieces: PolygonSubPiece[] = [];
+      const p1: Point2D = { x: cutX, y: minY };
+      const p2: Point2D = { x: cutX, y: maxY };
+
+      pieces.forEach((piece) => {
+        const split = this.splitPolygonByLine(piece.points, p1, p2, seamGap);
+        if (split) {
+          nextPieces.push({
+            ...piece,
+            id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            points: split.pieceA,
+          });
+          nextPieces.push({
+            ...piece,
+            id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            points: split.pieceB,
+          });
+        } else {
+          nextPieces.push(piece);
+        }
+      });
+
+      pieces = nextPieces;
+    });
+
+    // Сортируем полученные ламели слева направо
+    pieces.sort((a, b) => {
+      const minXA = Math.min(...a.points.map((p) => p.x));
+      const minXB = Math.min(...b.points.map((p) => p.x));
+      return minXA - minXB;
+    });
+
+    // Присваиваем площади и понятные маркировки
+    return pieces.map((piece, idx) => {
+      const areaSqM =
+        Math.round((this.calculatePolygonArea(piece.points) / 1_000_000) * 1000) / 1000;
+      return {
+        ...piece,
+        id: `piece-${Date.now()}-${idx + 1}`,
+        partLabel: pieces.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel,
+        areaSqM,
+      };
+    });
+  }
+
+  /**
    * Отсечение многоугольника полуплоскостью прямой P1-P2 (алгоритм Сазерленда-Ходжмана)
    */
   public static clipPolygonByHalfPlane(
