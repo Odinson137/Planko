@@ -318,7 +318,7 @@ export const CadCanvas: React.FC = () => {
                     )}
 
                     {/* Рельефная светотень для рейки-волны (GW90) */}
-                    {panel.reliefType === 'WAVE_GW90' && !isVoid && (
+                    {showTextures && panel.reliefType === 'WAVE_GW90' && !isVoid && (
                       <Group listening={false}>
                         {Array.from({ length: Math.ceil(panel.width / 40) }).map((_, wIdx) => {
                           const waveX = panelX + wIdx * 40;
@@ -346,7 +346,7 @@ export const CadCanvas: React.FC = () => {
                     )}
 
                     {/* Рельефная светотень для комбинированного желоба (GW30) */}
-                    {panel.reliefType === 'CONCAVE_GW30' && !isVoid && (
+                    {showTextures && panel.reliefType === 'CONCAVE_GW30' && !isVoid && (
                       <Group listening={false}>
                         {Array.from({ length: Math.ceil(panel.width / 75) }).map((_, gIdx) => {
                           const gx = panelX + gIdx * 75;
@@ -385,7 +385,7 @@ export const CadCanvas: React.FC = () => {
                     )}
 
                     {/* Разметка стандартных прямоугольных реек */}
-                    {(panel.reliefType === 'STEP_SLAT' || (isSlat && panel.reliefType !== 'WAVE_GW90' && panel.reliefType !== 'CONCAVE_GW30')) && !isVoid && (
+                    {showTextures && (panel.reliefType === 'STEP_SLAT' || (isSlat && panel.reliefType !== 'WAVE_GW90' && panel.reliefType !== 'CONCAVE_GW30')) && !isVoid && (
                       <Group listening={false}>
                         {Array.from({ length: Math.floor(panel.width / 50) }).map((_, sIdx) => {
                           const slatX = panelX + (sIdx + 1) * 50;
@@ -545,9 +545,7 @@ export const CadCanvas: React.FC = () => {
                               text={
                                 isVoid
                                   ? '⭕ ПУСТО'
-                                  : (isSlat
-                                    ? `🪵 [${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
-                                    : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`)
+                                  : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
                               }
                               fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
                               fill={isVoid ? '#868E96' : '#1A1B1E'}
@@ -572,9 +570,7 @@ export const CadCanvas: React.FC = () => {
                           text={
                             isVoid
                               ? '⭕ ПУСТОТА'
-                              : (isSlat
-                                ? `🪵 [${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
-                                : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`)
+                              : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
                           }
                           fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
                           fill={isVoid ? '#868E96' : '#1A1B1E'}

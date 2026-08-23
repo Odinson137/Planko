@@ -204,48 +204,207 @@ export class PolygonSlicingEngine {
   }
 
   /**
-   * Рассечение многоугольника конечным отрезком ножа p1-p2.
+   * Рассечение многоугольника прямой p1-p2 с разделением на независимые многоугольники (поддерживает вогнутые формы и вырезы)
    */
   public static splitPolygonByLine(
     polygon: Point2D[],
     p1: Point2D,
     p2: Point2D,
     seamGap: number = 0
-  ): { pieceA: Point2D[]; pieceB: Point2D[] } | null {
+  ): {
+    pieceA: Point2D[];
+    pieceB: Point2D[];
+    piecesA?: Point2D[][];
+    piecesB?: Point2D[][];
+    allPieces?: Point2D[][];
+  } | null {
     if (!polygon || polygon.length < 3) return null;
-
-    // Проверяем, пересекает ли данный отрезок ножа этот конкретный полигон
-    if (!this.doesSegmentCrossPolygon(polygon, p1, p2)) {
-      return null;
-    }
+    const ccw = this.ensureCCW(this.cleanCollinearPoints(polygon));
+    const n = ccw.length;
+    if (n < 3) return null;
 
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const len = Math.hypot(dx, dy);
     if (len < 1e-4) return null;
 
-    const nx = -dy / len;
-    const ny = dx / len;
-
     const halfGap = seamGap / 2;
+    const shiftX = (dy / len) * halfGap;
+    const shiftY = (-dx / len) * halfGap;
 
-    const p1A: Point2D = { x: p1.x + nx * halfGap, y: p1.y + ny * halfGap };
-    const p2A: Point2D = { x: p2.x + nx * halfGap, y: p2.y + ny * halfGap };
+    const dist = (pt: Point2D) => (pt.x - p1.x) * dy - (pt.y - p1.y) * dx;
 
-    const p1B: Point2D = { x: p1.x - nx * halfGap, y: p1.y - ny * halfGap };
-    const p2B: Point2D = { x: p2.x - nx * halfGap, y: p2.y - ny * halfGap };
+    // 1. Поиск точек пересечения ребер с линией
+    interface EdgeInter {
+      edgeIdx: number;
+      pt: Point2D;
+      t: number;
+      da: number;
+      db: number;
+      enteringA: boolean;
+    }
 
-    const pieceA = this.clipPolygonByHalfPlane(polygon, p1A, p2A, true);
-    const pieceB = this.clipPolygonByHalfPlane(polygon, p1B, p2B, false);
+    const edgeIntersections: EdgeInter[] = [];
 
-    const areaA = this.calculatePolygonArea(pieceA);
-    const areaB = this.calculatePolygonArea(pieceB);
+    for (let i = 0; i < n; i++) {
+      const a = ccw[i];
+      const b = ccw[(i + 1) % n];
+      const da = dist(a);
+      const db = dist(b);
 
-    if (areaA < 10 || areaB < 10) {
+      if ((da < -1e-4 && db > 1e-4) || (da > 1e-4 && db < -1e-4)) {
+        const u = da / (da - db);
+        const interPt: Point2D = {
+          x: a.x + u * (b.x - a.x),
+          y: a.y + u * (b.y - a.y),
+        };
+        const t = (interPt.x - p1.x) * dx + (interPt.y - p1.y) * dy;
+        edgeIntersections.push({
+          edgeIdx: i,
+          pt: interPt,
+          t,
+          da,
+          db,
+          enteringA: da < 0 && db > 0,
+        });
+      }
+    }
+
+    if (edgeIntersections.length < 2) {
       return null;
     }
 
-    return { pieceA, pieceB };
+    // Сортируем пересечения вдоль линии
+    edgeIntersections.sort((a, b) => a.t - b.t);
+
+    interface AugNode {
+      pt: Point2D;
+      isInter: boolean;
+      d?: number;
+      t?: number;
+      enteringA?: boolean;
+      next?: AugNode;
+      prev?: AugNode;
+      linePartner?: AugNode;
+      visited?: boolean;
+    }
+
+    // 2. Строим расширенный список вершин
+    const augPoly: AugNode[] = [];
+    for (let i = 0; i < n; i++) {
+      augPoly.push({ pt: ccw[i], isInter: false, d: dist(ccw[i]) });
+      const onEdge = edgeIntersections.filter((ei) => ei.edgeIdx === i);
+      onEdge.sort(
+        (e1, e2) =>
+          Math.hypot(e1.pt.x - ccw[i].x, e1.pt.y - ccw[i].y) -
+          Math.hypot(e2.pt.x - ccw[i].x, e2.pt.y - ccw[i].y)
+      );
+      onEdge.forEach((ei) => {
+        augPoly.push({ pt: ei.pt, isInter: true, t: ei.t, enteringA: ei.enteringA });
+      });
+    }
+
+    const numAug = augPoly.length;
+    for (let i = 0; i < numAug; i++) {
+      augPoly[i].next = augPoly[(i + 1) % numAug];
+      augPoly[i].prev = augPoly[(i - 1 + numAug) % numAug];
+    }
+
+    // 3. Связываем партнеров на внутренних отрезках линии
+    for (let i = 0; i < edgeIntersections.length - 1; i += 2) {
+      const e1 = edgeIntersections[i];
+      const e2 = edgeIntersections[i + 1];
+
+      const n1 = augPoly.find(
+        (node) => node.isInter && Math.hypot(node.pt.x - e1.pt.x, node.pt.y - e1.pt.y) < 1e-3
+      );
+      const n2 = augPoly.find(
+        (node) => node.isInter && Math.hypot(node.pt.x - e2.pt.x, node.pt.y - e2.pt.y) < 1e-3
+      );
+
+      if (n1 && n2) {
+        n1.linePartner = n2;
+        n2.linePartner = n1;
+      }
+    }
+
+    // 4. Сборка замкнутых полигонов для каждой стороны
+    const buildSidePolygons = (targetSideA: boolean): Point2D[][] => {
+      const resultPolys: Point2D[][] = [];
+      const interNodes = augPoly.filter((node) => node.isInter);
+
+      interNodes.forEach((node) => (node.visited = false));
+
+      for (const startNode of interNodes) {
+        const isStart = targetSideA ? startNode.enteringA : !startNode.enteringA;
+        if (!isStart || startNode.visited) continue;
+
+        const polyPts: Point2D[] = [];
+        let cur: AugNode | undefined = startNode;
+        let safety = 0;
+
+        while (cur && safety++ < numAug * 4) {
+          cur.visited = true;
+
+          if (cur.isInter && seamGap > 0) {
+            const sign = targetSideA ? 1 : -1;
+            polyPts.push({
+              x: cur.pt.x + shiftX * sign,
+              y: cur.pt.y + shiftY * sign,
+            });
+          } else {
+            polyPts.push({ ...cur.pt });
+          }
+
+          if (cur.isInter) {
+            const isExit = targetSideA ? !cur.enteringA : cur.enteringA;
+            if (isExit && cur !== startNode) {
+              const partner: AugNode | undefined = cur.linePartner;
+              if (partner) {
+                partner.visited = true;
+                if (partner === startNode) {
+                  break;
+                }
+                cur = partner;
+              } else {
+                break;
+              }
+            } else {
+              cur = cur.next;
+            }
+          } else {
+            cur = cur.next;
+          }
+
+          if (cur === startNode) {
+            break;
+          }
+        }
+
+        const cleaned = this.cleanCollinearPoints(polyPts);
+        const area = this.calculatePolygonArea(cleaned);
+        if (area >= 10 && cleaned.length >= 3) {
+          resultPolys.push(cleaned);
+        }
+      }
+
+      return resultPolys;
+    };
+
+    const piecesA = buildSidePolygons(true);
+    const piecesB = buildSidePolygons(false);
+
+    if (piecesA.length === 0 || piecesB.length === 0) {
+      return null;
+    }
+
+    return {
+      pieceA: piecesA[0],
+      pieceB: piecesB[0],
+      piecesA,
+      piecesB,
+      allPieces: [...piecesA, ...piecesB],
+    };
   }
 
   /**
@@ -274,57 +433,72 @@ export class PolygonSlicingEngine {
       return [baseSubPiece];
     }
 
-    // Собираем координаты вертикальных линий реза
-    const cutXs: number[] = [];
+    const finalPolys: Point2D[][] = [];
+    let remainingPolys: Point2D[][] = [polygon];
+
     let curX = minX + stripWidth;
     while (curX < maxX - 5) {
-      cutXs.push(curX);
+      const nextRemaining: Point2D[][] = [];
+      const p1: Point2D = { x: curX, y: minY };
+      const p2: Point2D = { x: curX, y: maxY };
+
+      for (const piece of remainingPolys) {
+        const pieceMinX = Math.min(...piece.map((p) => p.x));
+        const pieceMaxX = Math.max(...piece.map((p) => p.x));
+
+        if (pieceMaxX <= curX + 1e-4) {
+          finalPolys.push(piece);
+          continue;
+        }
+        if (pieceMinX >= curX - 1e-4) {
+          nextRemaining.push(piece);
+          continue;
+        }
+
+        const split = this.splitPolygonByLine(piece, p1, p2, seamGap);
+        if (split) {
+          if (split.piecesB) {
+            split.piecesB.forEach((p) => {
+              if (this.calculatePolygonArea(p) >= 10) finalPolys.push(p);
+            });
+          }
+          if (split.piecesA) {
+            split.piecesA.forEach((p) => {
+              if (this.calculatePolygonArea(p) >= 10) nextRemaining.push(p);
+            });
+          }
+        } else {
+          nextRemaining.push(piece);
+        }
+      }
+
+      remainingPolys = nextRemaining;
       curX += stripWidth;
     }
 
-    let pieces: PolygonSubPiece[] = [{ ...baseSubPiece, points: polygon }];
-
-    cutXs.forEach((cutX) => {
-      const nextPieces: PolygonSubPiece[] = [];
-      const p1: Point2D = { x: cutX, y: minY };
-      const p2: Point2D = { x: cutX, y: maxY };
-
-      pieces.forEach((piece) => {
-        const split = this.splitPolygonByLine(piece.points, p1, p2, seamGap);
-        if (split) {
-          nextPieces.push({
-            ...piece,
-            id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            points: split.pieceA,
-          });
-          nextPieces.push({
-            ...piece,
-            id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            points: split.pieceB,
-          });
-        } else {
-          nextPieces.push(piece);
-        }
-      });
-
-      pieces = nextPieces;
+    remainingPolys.forEach((p) => {
+      if (this.calculatePolygonArea(p) >= 10) finalPolys.push(p);
     });
 
-    // Сортируем полученные ламели слева направо
-    pieces.sort((a, b) => {
-      const minXA = Math.min(...a.points.map((p) => p.x));
-      const minXB = Math.min(...b.points.map((p) => p.x));
-      return minXA - minXB;
+    // Сортируем полученные ламели слева направо, снизу вверх
+    finalPolys.sort((a, b) => {
+      const minXA = Math.min(...a.map((p) => p.x));
+      const minXB = Math.min(...b.map((p) => p.x));
+      if (Math.abs(minXA - minXB) > 1) return minXA - minXB;
+      const minYA = Math.min(...a.map((p) => p.y));
+      const minYB = Math.min(...b.map((p) => p.y));
+      return minYA - minYB;
     });
 
     // Присваиваем площади и понятные маркировки
-    return pieces.map((piece, idx) => {
+    return finalPolys.map((polyPts, idx) => {
       const areaSqM =
-        Math.round((this.calculatePolygonArea(piece.points) / 1_000_000) * 1000) / 1000;
+        Math.round((this.calculatePolygonArea(polyPts) / 1_000_000) * 1000) / 1000;
       return {
-        ...piece,
-        id: `piece-${Date.now()}-${idx + 1}`,
-        partLabel: pieces.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel,
+        ...baseSubPiece,
+        id: `piece-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+        points: polyPts,
+        partLabel: finalPolys.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel,
         areaSqM,
       };
     });
@@ -374,6 +548,20 @@ export class PolygonSlicingEngine {
   }
 
   /**
+   * Ориентация полигона: возвращает массив точек в порядке против часовой стрелки (CCW)
+   */
+  public static ensureCCW(points: Point2D[]): Point2D[] {
+    if (!points || points.length < 3) return points;
+    let sum = 0;
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      sum += points[i].x * points[j].y - points[j].x * points[i].y;
+    }
+    return sum < 0 ? [...points].reverse() : points;
+  }
+
+  /**
    * Очистка дублирующихся или строго коллинеарных соседних вершин
    */
   public static cleanCollinearPoints(points: Point2D[]): Point2D[] {
@@ -394,14 +582,211 @@ export class PolygonSlicingEngine {
       const v1y = pCur.y - pPrev.y;
       const v2x = pNext.x - pCur.x;
       const v2y = pNext.y - pCur.y;
-      const cross = v1x * v2y - v1y * v2x;
-      const dot = v1x * v2x + v1y * v2y;
+      const len1 = Math.hypot(v1x, v1y);
+      const len2 = Math.hypot(v2x, v2y);
+      if (len1 < 1e-4 || len2 < 1e-4) continue;
 
-      if (Math.abs(cross) < 1e-4 && dot > 0) {
+      const cross = (v1x * v2y - v1y * v2x) / (len1 * len2);
+      const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+
+      if (Math.abs(cross) < 1e-3 && dot > 0.99) {
         continue;
       }
 
       cleaned.push(pCur);
+    }
+
+    return cleaned;
+  }
+
+  /**
+   * Объединение массива 2D-многоугольников в единый сплошной полигон (с устранением внутренних швов)
+   */
+  public static unionPolygons(polygons: Point2D[][], seamTolerance: number = 16): Point2D[] {
+    if (!polygons || polygons.length === 0) return [];
+    if (polygons.length === 1) return polygons[0];
+
+    let current = polygons[0];
+    for (let i = 1; i < polygons.length; i++) {
+      const nextPoly = polygons[i];
+      const united = this.unionTwoPolygons(current, nextPoly, seamTolerance);
+      if (united && united.length >= 3) {
+        current = united;
+      }
+    }
+    return current;
+  }
+
+  /**
+   * Геометрическое объединение двух смежных или пересекающихся 2D-многоугольников
+   */
+  public static unionTwoPolygons(
+    polyA: Point2D[],
+    polyB: Point2D[],
+    seamTolerance: number = 16
+  ): Point2D[] | null {
+    if (!polyA || polyA.length < 3) return polyB ? [...polyB] : null;
+    if (!polyB || polyB.length < 3) return polyA ? [...polyA] : null;
+
+    const ccwA = this.ensureCCW(this.cleanCollinearPoints(polyA));
+    const ccwB = this.ensureCCW(this.cleanCollinearPoints(polyB));
+
+    interface DirectedEdge {
+      p1: Point2D;
+      p2: Point2D;
+      polyIdx: number;
+    }
+
+    const distToSegment = (p: Point2D, a: Point2D, b: Point2D) => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq < 1e-6) {
+        return { dist: Math.hypot(p.x - a.x, p.y - a.y), proj: { ...a }, t: 0 };
+      }
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+      const proj = { x: a.x + t * dx, y: a.y + t * dy };
+      return { dist: Math.hypot(p.x - proj.x, p.y - proj.y), proj, t };
+    };
+
+    // 1. Разбиваем рёбра каждого полигона в точках пересечения и проекций вершин
+    const splitPolyEdges = (poly1: Point2D[], poly2: Point2D[], pIdx: number): DirectedEdge[] => {
+      const edges: DirectedEdge[] = [];
+      const n1 = poly1.length;
+      const n2 = poly2.length;
+
+      for (let i = 0; i < n1; i++) {
+        const a = poly1[i];
+        const b = poly1[(i + 1) % n1];
+        const splits: { t: number; pt: Point2D }[] = [
+          { t: 0, pt: a },
+          { t: 1, pt: b },
+        ];
+
+        for (let j = 0; j < n2; j++) {
+          const c = poly2[j];
+          const d = poly2[(j + 1) % n2];
+          const inter = this.lineIntersection(a, b, c, d);
+          if (inter) {
+            const t = distToSegment(inter, a, b).t;
+            if (t > 1e-4 && t < 1 - 1e-4) {
+              splits.push({ t, pt: inter });
+            }
+          }
+        }
+
+        for (let j = 0; j < n2; j++) {
+          const v = poly2[j];
+          const projInfo = distToSegment(v, a, b);
+          if (projInfo.dist <= seamTolerance && projInfo.t > 1e-3 && projInfo.t < 1 - 1e-3) {
+            splits.push({ t: projInfo.t, pt: projInfo.proj });
+          }
+        }
+
+        splits.sort((s1, s2) => s1.t - s2.t);
+
+        const uniqueSplits: Point2D[] = [splits[0].pt];
+        for (let k = 1; k < splits.length; k++) {
+          const prev = uniqueSplits[uniqueSplits.length - 1];
+          const cur = splits[k].pt;
+          if (Math.hypot(cur.x - prev.x, cur.y - prev.y) > 0.5) {
+            uniqueSplits.push(cur);
+          }
+        }
+
+        for (let k = 0; k < uniqueSplits.length - 1; k++) {
+          edges.push({
+            p1: uniqueSplits[k],
+            p2: uniqueSplits[k + 1],
+            polyIdx: pIdx,
+          });
+        }
+      }
+
+      return edges;
+    };
+
+    const edgesA = splitPolyEdges(ccwA, ccwB, 0);
+    const edgesB = splitPolyEdges(ccwB, ccwA, 1);
+
+    // 2. Фильтруем внутренние и противоположные швы
+    const isOppositeEdge = (e1: DirectedEdge, e2: DirectedEdge): boolean => {
+      const d1 = Math.hypot(e1.p1.x - e2.p2.x, e1.p1.y - e2.p2.y);
+      const d2 = Math.hypot(e1.p2.x - e2.p1.x, e1.p2.y - e2.p1.y);
+      if (d1 <= seamTolerance && d2 <= seamTolerance) return true;
+
+      const mid1 = { x: (e1.p1.x + e1.p2.x) / 2, y: (e1.p1.y + e1.p2.y) / 2 };
+      const mid2 = { x: (e2.p1.x + e2.p2.x) / 2, y: (e2.p1.y + e2.p2.y) / 2 };
+      const dMid = Math.hypot(mid1.x - mid2.x, mid1.y - mid2.y);
+      const dot =
+        (e1.p2.x - e1.p1.x) * (e2.p2.x - e2.p1.x) +
+        (e1.p2.y - e1.p1.y) * (e2.p2.y - e2.p1.y);
+
+      if (dMid <= seamTolerance && dot < 0) return true;
+      return false;
+    };
+
+    const keepEdgesA = edgesA.filter((ea) => {
+      const mid = { x: (ea.p1.x + ea.p2.x) / 2, y: (ea.p1.y + ea.p2.y) / 2 };
+      if (this.isPointInPolygon(mid, ccwB)) return false;
+      if (edgesB.some((eb) => isOppositeEdge(ea, eb))) return false;
+      return true;
+    });
+
+    const keepEdgesB = edgesB.filter((eb) => {
+      const mid = { x: (eb.p1.x + eb.p2.x) / 2, y: (eb.p1.y + eb.p2.y) / 2 };
+      if (this.isPointInPolygon(mid, ccwA)) return false;
+      if (edgesA.some((ea) => isOppositeEdge(eb, ea))) return false;
+      return true;
+    });
+
+    const allOuterEdges = [...keepEdgesA, ...keepEdgesB];
+    if (allOuterEdges.length < 3) return null;
+
+    // 3. Сшиваем внешние рёбра в замкнутый контур
+    const used = new Array(allOuterEdges.length).fill(false);
+    const resultPoints: Point2D[] = [];
+
+    let currentEdgeIdx = 0;
+    used[currentEdgeIdx] = true;
+    resultPoints.push(allOuterEdges[currentEdgeIdx].p1);
+    resultPoints.push(allOuterEdges[currentEdgeIdx].p2);
+
+    for (let step = 1; step < allOuterEdges.length; step++) {
+      const lastPt = resultPoints[resultPoints.length - 1];
+      let bestNextIdx = -1;
+      let bestDist = Infinity;
+
+      for (let i = 0; i < allOuterEdges.length; i++) {
+        if (used[i]) continue;
+        const d = Math.hypot(allOuterEdges[i].p1.x - lastPt.x, allOuterEdges[i].p1.y - lastPt.y);
+        if (d < bestDist) {
+          bestDist = d;
+          bestNextIdx = i;
+        }
+      }
+
+      if (bestNextIdx !== -1 && bestDist <= seamTolerance * 3) {
+        used[bestNextIdx] = true;
+        resultPoints.push(allOuterEdges[bestNextIdx].p2);
+      } else {
+        break;
+      }
+    }
+
+    const startPt = resultPoints[0];
+    const endPt = resultPoints[resultPoints.length - 1];
+    if (Math.hypot(startPt.x - endPt.x, startPt.y - endPt.y) < seamTolerance * 3) {
+      resultPoints.pop();
+    }
+
+    const cleaned = this.cleanCollinearPoints(resultPoints);
+    const area = this.calculatePolygonArea(cleaned);
+    const areaA = this.calculatePolygonArea(polyA);
+    const areaB = this.calculatePolygonArea(polyB);
+
+    if (area < Math.max(areaA, areaB) * 0.7) {
+      return null;
     }
 
     return cleaned;

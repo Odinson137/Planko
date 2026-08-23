@@ -4,7 +4,7 @@ import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConf
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
-import { SlatProfileShape } from '../../core/models/AllWallCatalog';
+import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
 
@@ -74,7 +74,11 @@ interface ProjectState {
   // Управление стенами
   addWall: () => void;
   updateWallDimensions: (wallId: string, width: number, height: number) => void;
-  setWallMaterial: (wallId: string, materialId: string) => void;
+  setWallMaterial: (
+    wallId: string,
+    materialId: string,
+    decor?: AllWallDecor | { code?: string; color?: string; name?: string; category?: any }
+  ) => void;
   setWallJointProfile: (wallId: string, profileType: ProfileType) => void;
 
   // Управление каталогом материалов AllWall
@@ -1072,6 +1076,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         let didMergeAnySubs = false;
         const nextCustomPanels = { ...wall.customPanels };
         const nextCustomJoints = { ...wall.customJoints };
+        let firstMergedSubId: string | null = null;
 
         cellMap.forEach(({ colIdx, segIdx, subIds }) => {
           const colConfig = nextCustomPanels[colIdx] || { columnIndex: colIdx, segments: [] };
@@ -1110,18 +1115,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                 };
               }
             } else {
-              // Если выбрана часть subPieces
+              // Если выбрана часть subPieces: ОБЪЕДИНЯЕМ ВЫБРАННЫЕ ПОЛИГОНЫ В ОДИН subPiece!
+              const mergedPoints = PolygonSlicingEngine.unionPolygons(
+                mergingSubs.map((s) => s.points)
+              );
+              const mergedArea =
+                Math.round(
+                  (PolygonSlicingEngine.calculatePolygonArea(mergedPoints) / 1_000_000) * 1000
+                ) / 1000;
+              const mergedSubPieceId = `sub-${Date.now()}-merged`;
+              if (!firstMergedSubId) firstMergedSubId = mergedSubPieceId;
+
+              const baseMat = mergingSubs[0];
+              const mergedPiece: PolygonSubPiece = {
+                id: mergedSubPieceId,
+                points: mergedPoints,
+                materialId: allSameMat ? firstMatId : baseMat.materialId,
+                decorCode: allSameMat ? baseMat.decorCode : baseMat.decorCode,
+                decorName: allSameMat ? baseMat.decorName : baseMat.decorName,
+                color: allSameMat ? baseMat.color : baseMat.color,
+                thickness: baseMat.thickness,
+                reliefType: baseMat.reliefType,
+                textureCategory: baseMat.textureCategory,
+                patternAngleDeg: baseMat.patternAngleDeg,
+                patternFlipX: baseMat.patternFlipX,
+                isVoid: allSameMat && baseMat.isVoid,
+                areaSqM: mergedArea,
+              };
+
+              const combinedSubs = [...remainingSubs, mergedPiece];
+              const baseLabel = `${colIdx + 1}.${segIdx + 1}`;
+              const updatedSubPieces = combinedSubs.map((sp, idx) => ({
+                ...sp,
+                partLabel: sp.isVoid || sp.materialId === MATERIAL_NONE_ID
+                  ? 'ПУСТО'
+                  : (combinedSubs.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel),
+              }));
+
               if (colConfig.segments && colConfig.segments[segIdx]) {
                 const nextSegs = [...colConfig.segments];
                 nextSegs[segIdx] = {
                   ...nextSegs[segIdx],
-                  subPieces: remainingSubs.length > 0 ? remainingSubs : undefined,
+                  subPieces: updatedSubPieces,
                 };
                 nextCustomPanels[colIdx] = { ...colConfig, segments: nextSegs };
               } else {
                 nextCustomPanels[colIdx] = {
                   ...colConfig,
-                  subPieces: remainingSubs.length > 0 ? remainingSubs : undefined,
+                  subPieces: updatedSubPieces,
                 };
               }
             }
@@ -1138,12 +1179,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         if (didMergeAnySubs) {
           const firstKey = Array.from(cellMap.keys())[0] || '0-0';
           const [c, s] = firstKey.split('-').map(Number);
+          const newPieceId = firstMergedSubId
+            ? `panel-${c}-${s}-${firstMergedSubId}`
+            : `panel-${c}-${s}`;
+
           return {
-            selectedSubPieceId: null,
+            selectedSubPieceId: firstMergedSubId,
             selectedColumnIndex: c,
             selectedSegmentIndex: s,
             selectedCellKeys: [firstKey],
-            selectedPieceIds: [`panel-${c}-${s}`],
+            selectedPieceIds: [newPieceId],
             project: {
               ...state.project,
               walls: state.project.walls.map((w) =>
@@ -1605,28 +1650,51 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       },
     })),
 
-  setWallMaterial: (wallId: string, materialId: string) =>
-    set((state) => ({
-      selectedColumnIndex: null,
-      selectedSegmentIndex: null,
-      selectedCellKeys: [],
-      selectedPieceIds: [],
-      selectedJointId: null,
-      selectedJointIds: [],
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) =>
-          w.id === wallId
-            ? {
-                ...w,
-                customPanels: {},
-                customJoints: {},
-                zone: { ...w.zone, materialId },
-              }
-            : w
-        ),
-      },
-    })),
+  setWallMaterial: (
+    wallId: string,
+    materialId: string,
+    decor?: AllWallDecor | { code?: string; color?: string; name?: string; category?: any }
+  ) =>
+    set((state) => {
+      const targetMat = state.project.materials.find((m) => m.id === materialId);
+      const chosenDecor = decor || (targetMat?.availableDecors ? targetMat.availableDecors[0] : undefined);
+
+      const nextMaterials = state.project.materials.map((m) => {
+        if (m.id === materialId && chosenDecor) {
+          return {
+            ...m,
+            color: chosenDecor.color || m.color,
+            decorCode: chosenDecor.code || m.decorCode,
+            decorName: chosenDecor.name || m.decorName,
+            ...(chosenDecor.category ? { textureCategory: chosenDecor.category } : {}),
+          };
+        }
+        return m;
+      });
+
+      return {
+        selectedColumnIndex: null,
+        selectedSegmentIndex: null,
+        selectedCellKeys: [],
+        selectedPieceIds: [],
+        selectedJointId: null,
+        selectedJointIds: [],
+        project: {
+          ...state.project,
+          materials: nextMaterials,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  customPanels: {},
+                  customJoints: {},
+                  zone: { ...w.zone, materialId },
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   setWallJointProfile: (wallId: string, profileType: ProfileType) =>
     set((state) => ({
@@ -2384,17 +2452,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const splitResult = PolygonSlicingEngine.splitPolygonByLine(sub.points, p1, p2, 8);
           if (splitResult) {
             didSplit = true;
-            nextSubPieces.push({
-              ...sub,
-              id: `sub-${Date.now()}-${subIdx}-1`,
-              points: splitResult.pieceA,
-              partLabel: `${sub.partLabel || `${columnIndex + 1}.${segmentIndex + 1}`}.1`,
-            });
-            nextSubPieces.push({
-              ...sub,
-              id: `sub-${Date.now()}-${subIdx}-2`,
-              points: splitResult.pieceB,
-              partLabel: `${sub.partLabel || `${columnIndex + 1}.${segmentIndex + 1}`}.2`,
+            const allPolys = splitResult.allPieces || [splitResult.pieceA, splitResult.pieceB];
+            allPolys.forEach((polyPts, pIdx) => {
+              nextSubPieces.push({
+                ...sub,
+                id: `sub-${Date.now()}-${subIdx}-${pIdx + 1}`,
+                points: polyPts,
+                partLabel: `${sub.partLabel || `${columnIndex + 1}.${segmentIndex + 1}`}.${pIdx + 1}`,
+              });
             });
           } else {
             nextSubPieces.push(sub);
@@ -2569,17 +2634,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const splitResult = PolygonSlicingEngine.splitPolygonByLine(sub.points, p1, p2, 8);
           if (splitResult) {
             didSplit = true;
-            nextSubPieces.push({
-              ...sub,
-              id: `sub-${Date.now()}-${subIdx}-1`,
-              points: splitResult.pieceA,
-              partLabel: `${sub.partLabel || `${columnIndex + 1}.${sIdx + 1}`}.1`,
-            });
-            nextSubPieces.push({
-              ...sub,
-              id: `sub-${Date.now()}-${subIdx}-2`,
-              points: splitResult.pieceB,
-              partLabel: `${sub.partLabel || `${columnIndex + 1}.${sIdx + 1}`}.2`,
+            const allPolys = splitResult.allPieces || [splitResult.pieceA, splitResult.pieceB];
+            allPolys.forEach((polyPts, pIdx) => {
+              nextSubPieces.push({
+                ...sub,
+                id: `sub-${Date.now()}-${subIdx}-${pIdx + 1}`,
+                points: polyPts,
+                partLabel: `${sub.partLabel || `${columnIndex + 1}.${sIdx + 1}`}.${pIdx + 1}`,
+              });
             });
           } else {
             nextSubPieces.push(sub);
@@ -2863,17 +2925,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const splitResult = PolygonSlicingEngine.splitPolygonByLine(sub.points, p1, p2, 8);
           if (splitResult) {
             didSplit = true;
-            nextSubPieces.push({
-              ...sub,
-              id: `sub-${Date.now()}-${subIdx}-1`,
-              points: splitResult.pieceA,
-              partLabel: `${sub.partLabel || `${columnIndex + 1}.${sIdx + 1}`}.1`,
-            });
-            nextSubPieces.push({
-              ...sub,
-              id: `sub-${Date.now()}-${subIdx}-2`,
-              points: splitResult.pieceB,
-              partLabel: `${sub.partLabel || `${columnIndex + 1}.${sIdx + 1}`}.2`,
+            const allPolys = splitResult.allPieces || [splitResult.pieceA, splitResult.pieceB];
+            allPolys.forEach((polyPts, pIdx) => {
+              nextSubPieces.push({
+                ...sub,
+                id: `sub-${Date.now()}-${subIdx}-${pIdx + 1}`,
+                points: polyPts,
+                partLabel: `${sub.partLabel || `${columnIndex + 1}.${sIdx + 1}`}.${pIdx + 1}`,
+              });
             });
           } else {
             nextSubPieces.push(sub);
@@ -2901,26 +2960,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const baseColor = targetSeg?.customColor || currentCustom.customColor || colMat.color;
         const baseDecorCode = targetSeg?.customDecorCode || currentCustom.customDecorCode || colMat.decorCode;
 
-        nextSubPieces = [
-          {
-            id: `sub-${Date.now()}-1`,
-            points: splitResult.pieceA,
-            materialId: baseMatId,
-            color: baseColor,
-            decorCode: baseDecorCode,
-            partLabel: `${columnIndex + 1}.${sIdx + 1}.1`,
-            patternAngleDeg: 0,
-          },
-          {
-            id: `sub-${Date.now()}-2`,
-            points: splitResult.pieceB,
-            materialId: baseMatId,
-            color: baseColor,
-            decorCode: baseDecorCode,
-            partLabel: `${columnIndex + 1}.${sIdx + 1}.2`,
-            patternAngleDeg: 0,
-          },
-        ];
+        const allPolys = splitResult.allPieces || [splitResult.pieceA, splitResult.pieceB];
+        nextSubPieces = allPolys.map((polyPts, pIdx) => ({
+          id: `sub-${Date.now()}-${pIdx + 1}`,
+          points: polyPts,
+          materialId: baseMatId,
+          color: baseColor,
+          decorCode: baseDecorCode,
+          partLabel: `${columnIndex + 1}.${sIdx + 1}.${pIdx + 1}`,
+          patternAngleDeg: 0,
+        }));
       }
 
       const nextCustomPanels = { ...wall.customPanels };

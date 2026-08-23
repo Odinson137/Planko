@@ -19,6 +19,28 @@ interface Point2D {
   y: number;
 }
 
+interface Interval1D {
+  start: number;
+  end: number;
+}
+
+function subtractInterval(intervals: Interval1D[], removeStart: number, removeEnd: number): Interval1D[] {
+  const result: Interval1D[] = [];
+  for (const inv of intervals) {
+    if (removeEnd <= inv.start + 0.1 || removeStart >= inv.end - 0.1) {
+      result.push(inv);
+      continue;
+    }
+    if (removeStart > inv.start + 0.1) {
+      result.push({ start: inv.start, end: removeStart });
+    }
+    if (removeEnd < inv.end - 0.1) {
+      result.push({ start: removeEnd, end: inv.end });
+    }
+  }
+  return result;
+}
+
 export const Axonometric3DView: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -567,7 +589,7 @@ export const Axonometric3DView: React.FC = () => {
     // 3. Отрисовка МОНОЛИТНОЙ НЕСУЩЕЙ СТЕНЫ (Задняя грань, Верхний срез и торцы)
     // =========================================================================
 
-    // 3.1. Задняя грань стены (Back Wall Faces)
+    // 3.1. Задняя грань стены (Back Wall Faces с вырезами под сквозные проемы)
     pathSections.forEach((sec) => {
       const steps = sec.isBend ? 14 : 1;
       const len = sec.sEnd - sec.sStart;
@@ -575,22 +597,33 @@ export const Axonometric3DView: React.FC = () => {
         const s0 = sec.sStart + (i / steps) * len;
         const s1 = sec.sStart + ((i + 1) / steps) * len;
 
-        const b0_bot = project3D(sec.getPoint(s0, 0, wallThick), cx, cy, scale);
-        const b1_bot = project3D(sec.getPoint(s1, 0, wallThick), cx, cy, scale);
-        const b1_top = project3D(sec.getPoint(s1, wallH, wallThick), cx, cy, scale);
-        const b0_top = project3D(sec.getPoint(s0, wallH, wallThick), cx, cy, scale);
+        // Вычитаем сквозные проемы (окна, двери)
+        let intervals: Interval1D[] = [{ start: 0, end: wallH }];
+        selectedWall.openings.forEach((op) => {
+          if (op.isCutout !== false && (op.type === 'WINDOW' || op.type === 'DOOR') && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+            intervals = subtractInterval(intervals, op.y, op.y + op.height);
+          }
+        });
 
-        ctx.fillStyle = '#1c1e22';
-        ctx.strokeStyle = '#25272c';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(b0_bot.x, b0_bot.y);
-        ctx.lineTo(b1_bot.x, b1_bot.y);
-        ctx.lineTo(b1_top.x, b1_top.y);
-        ctx.lineTo(b0_top.x, b0_top.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        for (const inv of intervals) {
+          if (inv.end - inv.start <= 1) continue;
+          const b0_bot = project3D(sec.getPoint(s0, inv.start, wallThick), cx, cy, scale);
+          const b1_bot = project3D(sec.getPoint(s1, inv.start, wallThick), cx, cy, scale);
+          const b1_top = project3D(sec.getPoint(s1, inv.end, wallThick), cx, cy, scale);
+          const b0_top = project3D(sec.getPoint(s0, inv.end, wallThick), cx, cy, scale);
+
+          ctx.fillStyle = '#1c1e22';
+          ctx.strokeStyle = '#25272c';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(b0_bot.x, b0_bot.y);
+          ctx.lineTo(b1_bot.x, b1_bot.y);
+          ctx.lineTo(b1_top.x, b1_top.y);
+          ctx.lineTo(b0_top.x, b0_top.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
       }
     });
 
@@ -698,25 +731,38 @@ export const Axonometric3DView: React.FC = () => {
               const s0 = pStartS + i * slatWidth;
               const s1 = Math.min(pEndS, s0 + slatWidth - 4);
 
-              const p0 = project3D(getPointAtS(s0, yBot, -slatThick), cx, cy, scale);
-              const p1 = project3D(getPointAtS(s1, yBot, -slatThick), cx, cy, scale);
-              const p2 = project3D(getPointAtS(s1, yTop, -slatThick), cx, cy, scale);
-              const p3 = project3D(getPointAtS(s0, yTop, -slatThick), cx, cy, scale);
+              let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
+              selectedWall.openings.forEach((op) => {
+                if (op.isCutout !== false && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+                  intervals = subtractInterval(intervals, op.y, op.y + op.height);
+                }
+              });
 
-              ctx.fillStyle = adjustBrightness(baseColor, 0.95);
-              ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
-              ctx.lineWidth = 1;
-              ctx.beginPath();
-              ctx.moveTo(p0.x, p0.y);
-              ctx.lineTo(p1.x, p1.y);
-              ctx.lineTo(p2.x, p2.y);
-              ctx.lineTo(p3.x, p3.y);
-              ctx.closePath();
-              ctx.fill();
-              ctx.stroke();
+              for (const inv of intervals) {
+                if (inv.end - inv.start <= 1) continue;
+                const segYBot = inv.start;
+                const segYTop = inv.end;
 
-              if (showTextures) {
-                draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+                const p0 = project3D(getPointAtS(s0, segYBot, -slatThick), cx, cy, scale);
+                const p1 = project3D(getPointAtS(s1, segYBot, -slatThick), cx, cy, scale);
+                const p2 = project3D(getPointAtS(s1, segYTop, -slatThick), cx, cy, scale);
+                const p3 = project3D(getPointAtS(s0, segYTop, -slatThick), cx, cy, scale);
+
+                ctx.fillStyle = adjustBrightness(baseColor, 0.95);
+                ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(p0.x, p0.y);
+                ctx.lineTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.lineTo(p3.x, p3.y);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                if (showTextures) {
+                  draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+                }
               }
             }
           }
@@ -735,41 +781,72 @@ export const Axonometric3DView: React.FC = () => {
           const s0 = pStartS + i * slatWidth;
           const s1 = Math.min(pEndS, s0 + slatWidth - 4);
 
-          const p0 = project3D(getPointAtS(s0, yBot, -slatThick), cx, cy, scale);
-          const p1 = project3D(getPointAtS(s1, yBot, -slatThick), cx, cy, scale);
-          const p2 = project3D(getPointAtS(s1, yTop, -slatThick), cx, cy, scale);
-          const p3 = project3D(getPointAtS(s0, yTop, -slatThick), cx, cy, scale);
+          // Вычитаем вырезы проемов (окна, двери, ниши)
+          let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
+          selectedWall.openings.forEach((op) => {
+            if (op.isCutout !== false && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+              intervals = subtractInterval(intervals, op.y, op.y + op.height);
+            }
+          });
 
-          ctx.fillStyle = adjustBrightness(baseColor, 0.95);
-          ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.lineTo(p3.x, p3.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
+          for (const inv of intervals) {
+            if (inv.end - inv.start <= 1) continue;
+            const segYBot = inv.start;
+            const segYTop = inv.end;
 
-          if (!isVoid && showTextures) {
-            draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+            const p0 = project3D(getPointAtS(s0, segYBot, -slatThick), cx, cy, scale);
+            const p1 = project3D(getPointAtS(s1, segYBot, -slatThick), cx, cy, scale);
+            const p2 = project3D(getPointAtS(s1, segYTop, -slatThick), cx, cy, scale);
+            const p3 = project3D(getPointAtS(s0, segYTop, -slatThick), cx, cy, scale);
+
+            ctx.fillStyle = adjustBrightness(baseColor, 0.95);
+            ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            if (!isVoid && showTextures) {
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+            }
+
+            // Верхний торец рейки
+            const pt0 = p3;
+            const pt1 = p2;
+            const pt2 = project3D(getPointAtS(s1, segYTop, 0), cx, cy, scale);
+            const pt3 = project3D(getPointAtS(s0, segYTop, 0), cx, cy, scale);
+
+            ctx.fillStyle = adjustBrightness(baseColor, 1.08);
+            ctx.beginPath();
+            ctx.moveTo(pt0.x, pt0.y);
+            ctx.lineTo(pt1.x, pt1.y);
+            ctx.lineTo(pt2.x, pt2.y);
+            ctx.lineTo(pt3.x, pt3.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Нижний торец рейки (если висит над проемом)
+            if (segYBot > yBot + 1 && elevationDeg < 20) {
+              const pb0 = p0;
+              const pb1 = p1;
+              const pb2 = project3D(getPointAtS(s1, segYBot, 0), cx, cy, scale);
+              const pb3 = project3D(getPointAtS(s0, segYBot, 0), cx, cy, scale);
+
+              ctx.fillStyle = adjustBrightness(baseColor, 0.75);
+              ctx.beginPath();
+              ctx.moveTo(pb0.x, pb0.y);
+              ctx.lineTo(pb1.x, pb1.y);
+              ctx.lineTo(pb2.x, pb2.y);
+              ctx.lineTo(pb3.x, pb3.y);
+              ctx.closePath();
+              ctx.fill();
+            }
           }
-
-          // Верхний торец рейки
-          const pt0 = p3;
-          const pt1 = p2;
-          const pt2 = project3D(getPointAtS(s1, yTop, 0), cx, cy, scale);
-          const pt3 = project3D(getPointAtS(s0, yTop, 0), cx, cy, scale);
-
-          ctx.fillStyle = adjustBrightness(baseColor, 1.08);
-          ctx.beginPath();
-          ctx.moveTo(pt0.x, pt0.y);
-          ctx.lineTo(pt1.x, pt1.y);
-          ctx.lineTo(pt2.x, pt2.y);
-          ctx.lineTo(pt3.x, pt3.y);
-          ctx.closePath();
-          ctx.fill();
         }
       } else {
         // Листовые панели
@@ -799,6 +876,14 @@ export const Axonometric3DView: React.FC = () => {
           }
         });
 
+        // Добавляем границы вырезаемых проемов для аккуратной стыковки срезов
+        selectedWall.openings.forEach((op) => {
+          if (op.isCutout !== false) {
+            if (op.x > pStartS && op.x < pEndS) slicePoints.push(op.x);
+            if (op.x + op.width > pStartS && op.x + op.width < pEndS) slicePoints.push(op.x + op.width);
+          }
+        });
+
         slicePoints.push(pEndS);
         const sortedSlices = Array.from(new Set(slicePoints.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
 
@@ -807,56 +892,70 @@ export const Axonometric3DView: React.FC = () => {
           const s1 = sortedSlices[i + 1];
           if (s1 - s0 <= 0.5) continue;
 
-          const p0 = project3D(getPointAtS(s0, yBot, -thisPanelThick), cx, cy, scale);
-          const p1 = project3D(getPointAtS(s1, yBot, -thisPanelThick), cx, cy, scale);
-          const p2 = project3D(getPointAtS(s1, yTop, -thisPanelThick), cx, cy, scale);
-          const p3 = project3D(getPointAtS(s0, yTop, -thisPanelThick), cx, cy, scale);
-
-          // Проверяем, находится ли этот срез внутри сгиба
-          const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);
-          let lightFactor = 0.95;
-          if (inBend) {
-            const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
-            lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.55 + 0.45 * Math.abs(u - 0.5) * 2 : 0.65 + 0.35 * Math.sin(u * Math.PI);
-          } else {
-            const sec = pathSections.find((s) => s0 >= s.sStart - 0.1 && s1 <= s.sEnd + 0.1);
-            if (sec) {
-              const sunAngle = -Math.PI / 4;
-              const angleDiff = sec.startHeading - sunAngle;
-              lightFactor = 0.86 + 0.14 * Math.cos(angleDiff);
+          // Вычитаем вырезы проемов
+          let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
+          selectedWall.openings.forEach((op) => {
+            if (op.isCutout !== false && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+              intervals = subtractInterval(intervals, op.y, op.y + op.height);
             }
+          });
+
+          for (const inv of intervals) {
+            if (inv.end - inv.start <= 1) continue;
+            const segYBot = inv.start;
+            const segYTop = inv.end;
+
+            const p0 = project3D(getPointAtS(s0, segYBot, -thisPanelThick), cx, cy, scale);
+            const p1 = project3D(getPointAtS(s1, segYBot, -thisPanelThick), cx, cy, scale);
+            const p2 = project3D(getPointAtS(s1, segYTop, -thisPanelThick), cx, cy, scale);
+            const p3 = project3D(getPointAtS(s0, segYTop, -thisPanelThick), cx, cy, scale);
+
+            // Проверяем, находится ли этот срез внутри сгиба
+            const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);
+            let lightFactor = 0.95;
+            if (inBend) {
+              const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
+              lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.55 + 0.45 * Math.abs(u - 0.5) * 2 : 0.65 + 0.35 * Math.sin(u * Math.PI);
+            } else {
+              const sec = pathSections.find((s) => s0 >= s.sStart - 0.1 && s1 <= s.sEnd + 0.1);
+              if (sec) {
+                const sunAngle = -Math.PI / 4;
+                const angleDiff = sec.startHeading - sunAngle;
+                lightFactor = 0.86 + 0.14 * Math.cos(angleDiff);
+              }
+            }
+
+            ctx.fillStyle = isVoid ? '#141517' : adjustBrightness(baseColor, lightFactor);
+            ctx.strokeStyle = isVoid ? '#2c2e33' : '#141517';
+            ctx.lineWidth = inBend ? 0.5 : 1.2;
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            if (!isVoid && showTextures) {
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+            }
+
+            // Верхний торец панели
+            const pt0 = p3;
+            const pt1 = p2;
+            const pt2 = project3D(getPointAtS(s1, segYTop, 0), cx, cy, scale);
+            const pt3 = project3D(getPointAtS(s0, segYTop, 0), cx, cy, scale);
+
+            ctx.fillStyle = adjustBrightness(baseColor, 0.82);
+            ctx.beginPath();
+            ctx.moveTo(pt0.x, pt0.y);
+            ctx.lineTo(pt1.x, pt1.y);
+            ctx.lineTo(pt2.x, pt2.y);
+            ctx.lineTo(pt3.x, pt3.y);
+            ctx.closePath();
+            ctx.fill();
           }
-
-          ctx.fillStyle = isVoid ? '#141517' : adjustBrightness(baseColor, lightFactor);
-          ctx.strokeStyle = isVoid ? '#2c2e33' : '#141517';
-          ctx.lineWidth = inBend ? 0.5 : 1.2;
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.lineTo(p3.x, p3.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-
-          if (!isVoid && showTextures) {
-            draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
-          }
-
-          // Верхний торец панели
-          const pt0 = p3;
-          const pt1 = p2;
-          const pt2 = project3D(getPointAtS(s1, yTop, 0), cx, cy, scale);
-          const pt3 = project3D(getPointAtS(s0, yTop, 0), cx, cy, scale);
-
-          ctx.fillStyle = adjustBrightness(baseColor, 0.82);
-          ctx.beginPath();
-          ctx.moveTo(pt0.x, pt0.y);
-          ctx.lineTo(pt1.x, pt1.y);
-          ctx.lineTo(pt2.x, pt2.y);
-          ctx.lineTo(pt3.x, pt3.y);
-          ctx.closePath();
-          ctx.fill();
         }
 
         if (isVoid) {
@@ -1167,8 +1266,26 @@ export const Axonometric3DView: React.FC = () => {
         const wp2 = project3D(getPointAtS(op.x + op.width - 15, op.y + op.height - 15, opDepth), cx, cy, scale);
         const wp3 = project3D(getPointAtS(op.x + 15, op.y + op.height - 15, opDepth), cx, cy, scale);
 
+        // Внешняя рама профиля окна
+        const frame0 = project3D(getPointAtS(op.x, op.y, opDepth), cx, cy, scale);
+        const frame1 = project3D(getPointAtS(op.x + op.width, op.y, opDepth), cx, cy, scale);
+        const frame2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth), cx, cy, scale);
+        const frame3 = project3D(getPointAtS(op.x, op.y + op.height, opDepth), cx, cy, scale);
+
+        ctx.fillStyle = '#212529';
+        ctx.strokeStyle = '#343a40';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(frame0.x, frame0.y);
+        ctx.lineTo(frame1.x, frame1.y);
+        ctx.lineTo(frame2.x, frame2.y);
+        ctx.lineTo(frame3.x, frame3.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
         // Стеклопакет
-        ctx.fillStyle = 'rgba(165, 216, 255, 0.35)';
+        ctx.fillStyle = 'rgba(165, 216, 255, 0.28)';
         ctx.strokeStyle = '#ced4da';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1180,10 +1297,32 @@ export const Axonometric3DView: React.FC = () => {
         ctx.fill();
         ctx.stroke();
 
+        // Легкий световой блик на стекле
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(wp0.x, wp0.y);
+        ctx.lineTo(wp1.x, wp1.y);
+        ctx.lineTo(wp2.x, wp2.y);
+        ctx.lineTo(wp3.x, wp3.y);
+        ctx.closePath();
+        ctx.clip();
+
+        const grad = ctx.createLinearGradient(wp0.x, wp0.y, wp2.x, wp2.y);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
+        grad.addColorStop(0.35, 'rgba(255, 255, 255, 0.18)');
+        grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.02)');
+        grad.addColorStop(0.65, 'rgba(255, 255, 255, 0.12)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0.02)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.restore();
+
         // Вертикальный импост окна (переплет)
         const midX = op.x + op.width / 2;
         const imp0 = project3D(getPointAtS(midX, op.y + 15, opDepth), cx, cy, scale);
         const imp1 = project3D(getPointAtS(midX, op.y + op.height - 15, opDepth), cx, cy, scale);
+        ctx.strokeStyle = '#ced4da';
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(imp0.x, imp0.y);
         ctx.lineTo(imp1.x, imp1.y);

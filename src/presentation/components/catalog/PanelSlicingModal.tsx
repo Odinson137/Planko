@@ -156,27 +156,18 @@ export const PanelSlicingModal: React.FC = () => {
         const split = PolygonSlicingEngine.splitPolygonByLine(piece.points, p1, p2, gap);
         if (split) {
           didSplitAny = true;
-          const areaA =
-            Math.round(
-              (PolygonSlicingEngine.calculatePolygonArea(split.pieceA) / 1_000_000) * 1000
-            ) / 1000;
-          const areaB =
-            Math.round(
-              (PolygonSlicingEngine.calculatePolygonArea(split.pieceB) / 1_000_000) * 1000
-            ) / 1000;
-
-          nextPieces.push({
-            ...piece,
-            id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            points: split.pieceA,
-            areaSqM: areaA,
-          });
-
-          nextPieces.push({
-            ...piece,
-            id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            points: split.pieceB,
-            areaSqM: areaB,
+          const allPolys = split.allPieces || [split.pieceA, split.pieceB];
+          allPolys.forEach((polyPts) => {
+            const area =
+              Math.round(
+                (PolygonSlicingEngine.calculatePolygonArea(polyPts) / 1_000_000) * 1000
+              ) / 1000;
+            nextPieces.push({
+              ...piece,
+              id: `piece-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              points: polyPts,
+              areaSqM: area,
+            });
           });
         } else {
           nextPieces.push(piece);

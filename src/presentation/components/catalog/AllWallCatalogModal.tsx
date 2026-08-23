@@ -151,9 +151,17 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
     });
   }, [allModels, activeTab, searchQuery]);
 
-  const handleApplyToWall = (model: AllWallPanelModel) => {
+  const handleApplyToWall = (model: AllWallPanelModel, decorToApply?: AllWallDecor) => {
     if (!selectedWall) return;
-    setWallMaterial(selectedWall.id, model.id);
+    const currentProjectMat = project.materials.find((m) => m.id === model.id);
+    const activeDecor =
+      decorToApply ||
+      selectedDecorByModel[model.id] ||
+      model.decors.find((d) => d.code === currentProjectMat?.decorCode) ||
+      model.decors.find((d) => d.color.toLowerCase() === currentProjectMat?.color?.toLowerCase()) ||
+      model.decors[0];
+
+    setWallMaterial(selectedWall.id, model.id, activeDecor);
     onClose();
   };
 
@@ -474,8 +482,20 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           <ScrollArea h={560} offsetScrollbars>
             <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md" p="xs">
               {filteredModels.map((model) => {
-                const activeDecor = selectedDecorByModel[model.id] || model.decors[0];
-                const isCurrentWallMaterial = selectedWall?.zone.materialId === model.id;
+                const currentProjectMat = project.materials.find((m) => m.id === model.id);
+                const isWallUsingThisModel = selectedWall?.zone.materialId === model.id;
+                const currentWallDecor = isWallUsingThisModel
+                  ? model.decors.find((d) => d.code === currentProjectMat?.decorCode) ||
+                    model.decors.find((d) => d.color.toLowerCase() === currentProjectMat?.color?.toLowerCase())
+                  : undefined;
+                const activeDecor = selectedDecorByModel[model.id] || currentWallDecor || model.decors[0];
+                const isCurrentDecorApplied =
+                  isWallUsingThisModel &&
+                  (currentWallDecor
+                    ? activeDecor?.code === currentWallDecor.code
+                    : currentProjectMat?.decorCode
+                    ? activeDecor?.code === currentProjectMat.decorCode
+                    : true);
 
                 return (
                   <Card
@@ -484,7 +504,11 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                     radius="md"
                     style={{
                       backgroundColor: '#1A1B1E',
-                      border: isCurrentWallMaterial ? '2px solid #339af0' : '1px solid #2C2E33',
+                      border: isCurrentDecorApplied
+                        ? '2px solid #339af0'
+                        : isWallUsingThisModel
+                        ? '2px dashed #339af0'
+                        : '1px solid #2C2E33',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
@@ -631,11 +655,11 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                       <Button
                         size="xs"
                         color="blue"
-                        variant={isCurrentWallMaterial ? 'filled' : 'light'}
-                        leftSection={isCurrentWallMaterial ? <Check size={14} /> : <Eye size={14} />}
-                        onClick={() => handleApplyToWall(model)}
+                        variant={isCurrentDecorApplied ? 'filled' : 'light'}
+                        leftSection={isCurrentDecorApplied ? <Check size={14} /> : <Eye size={14} />}
+                        onClick={() => handleApplyToWall(model, activeDecor)}
                       >
-                        {isCurrentWallMaterial ? 'Выбрано на стене' : 'Применить к стене'}
+                        {isCurrentDecorApplied ? 'Выбрано на стене' : 'Применить к стене'}
                       </Button>
                     </Group>
                   </Card>
