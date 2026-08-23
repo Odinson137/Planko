@@ -1,10 +1,13 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
 import { Stage, Layer, Rect, Text, Line, Group } from 'react-konva';
 import { useElementSize } from '@mantine/hooks';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { Opening } from '../../../core/models/Opening';
+
+const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
+const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
 
 export const CadCanvas: React.FC = () => {
   const { ref: containerRef, width: containerWidth, height: containerHeight } = useElementSize();
@@ -38,11 +41,11 @@ export const CadCanvas: React.FC = () => {
     (m) => m.id === (selectedWall?.zone.materialId || 'mat-sheet-1220')
   );
 
-  // Расчет 2D раскладки ячеек и стыков
-  const layout =
-    selectedWall && selectedMaterial
-      ? LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials)
-      : null;
+  // Мемоизированный расчет 2D раскладки (пересчитывается ТОЛЬКО при изменении параметров стены, а не при зуме/пане)
+  const layout = useMemo(() => {
+    if (!selectedWall || !selectedMaterial) return null;
+    return LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials);
+  }, [selectedWall, selectedMaterial, project.materials]);
 
   // Центрирование стены при первой загрузке или сбросе
   const centerWall = useCallback(
@@ -180,7 +183,7 @@ export const CadCanvas: React.FC = () => {
 
           {/* Слой 2: Стена, плиты, кликабельные стыки/края, проемы и размеры */}
           <Layer>
-            {/* Тень и подложка стены */}
+            {/* Подложка стены */}
             <Rect
               name="wall-background"
               x={0}
@@ -190,9 +193,6 @@ export const CadCanvas: React.FC = () => {
               fill="#222327"
               stroke="#373A40"
               strokeWidth={3 / zoom}
-              shadowBlur={30}
-              shadowColor="#000000"
-              shadowOpacity={0.6}
             />
 
             {/* Отрисовка панелей с исходным аккуратным стилем */}
@@ -229,12 +229,9 @@ export const CadCanvas: React.FC = () => {
                         ? '#40C057'
                         : (isVoid ? '#373A40' : '#141517')
                     }
-                    strokeWidth={isPanelSelected ? 4 / zoom : 1}
+                    strokeWidth={isPanelSelected ? 3 / zoom : 1}
                     dash={isVoid ? [12, 8] : undefined}
                     opacity={isVoid ? 0.75 : 0.94}
-                    shadowColor={isPanelSelected ? '#40C057' : undefined}
-                    shadowBlur={isPanelSelected ? 16 : 0}
-                    shadowOpacity={0.85}
                   />
 
                   {/* Отрисовка цилиндрической светотени и бейджа для радиусных панелей */}
@@ -250,8 +247,8 @@ export const CadCanvas: React.FC = () => {
                         fillLinearGradientEndPoint={{ x: panel.width, y: 0 }}
                         fillLinearGradientColorStops={
                           panel.radiusConfig.type === 'INNER_CORNER'
-                            ? [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)']
-                            : [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)']
+                            ? INNER_CORNER_GRADIENT_STOPS
+                            : OUTER_CORNER_GRADIENT_STOPS
                         }
                         opacity={0.9}
                       />
@@ -280,9 +277,6 @@ export const CadCanvas: React.FC = () => {
                             stroke="#4dabf7"
                             strokeWidth={1.5 / zoom}
                             cornerRadius={4}
-                            shadowColor="#4dabf7"
-                            shadowBlur={10}
-                            shadowOpacity={0.5}
                           />
                           <Text
                             x={8}
@@ -397,11 +391,8 @@ export const CadCanvas: React.FC = () => {
                       width={jointW}
                       height={jointH}
                       fill={fillColor}
-                      stroke={isJointSelected ? '#74C0FC' : undefined}
-                      strokeWidth={isJointSelected ? 2 / zoom : 0}
-                      shadowColor={isJointSelected ? '#339AF0' : isLED ? '#FFD43B' : undefined}
-                      shadowBlur={isJointSelected ? 20 : isLED ? 15 : 0}
-                      shadowOpacity={isJointSelected || isLED ? 1 : 0}
+                      stroke={isJointSelected ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
+                      strokeWidth={isJointSelected ? 2 / zoom : isLED ? 1 / zoom : 0}
                     />
 
                     {isJointSelected && (
@@ -521,9 +512,6 @@ export const CadCanvas: React.FC = () => {
                     stroke={isSelected ? '#339AF0' : getOpeningColor(op.type)}
                     strokeWidth={isSelected ? 4 / zoom : (op.isCutout !== false ? 2 / zoom : 3 / zoom)}
                     dash={op.isCutout === false ? [10, 6] : undefined}
-                    shadowColor={isSelected ? '#339AF0' : (op.isCutout === false ? '#000000' : undefined)}
-                    shadowBlur={isSelected ? 20 : (op.isCutout === false ? 12 : 0)}
-                    shadowOpacity={0.8}
                     cornerRadius={op.type === 'TV_ZONE' ? 4 : 0}
                   />
                   {op.type === 'TV_ZONE' && (
