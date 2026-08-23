@@ -664,6 +664,63 @@ export const Axonometric3DView: React.FC = () => {
       const pStartS = panel.x;
       const pEndS = panel.x + panel.width;
 
+      // Если это полигональная деталь (треугольник, трапеция после раскроя)
+      if (panel.polygonPoints && panel.polygonPoints.length >= 3) {
+        const thisPanelThick = isVoid ? 0 : (panel.thickness || (isSlat ? 15 : 5));
+        const poly3D = panel.polygonPoints.map((pt) =>
+          project3D(getPointAtS(pt.x, pt.y, -thisPanelThick), cx, cy, scale)
+        );
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(poly3D[0].x, poly3D[0].y);
+        for (let i = 1; i < poly3D.length; i++) {
+          ctx.lineTo(poly3D[i].x, poly3D[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = isVoid ? 'rgba(20, 21, 24, 0.7)' : adjustBrightness(baseColor, 0.96);
+        ctx.strokeStyle = isVoid ? '#2C2E33' : adjustBrightness(baseColor, 0.7);
+        ctx.lineWidth = 1;
+        ctx.fill();
+        ctx.stroke();
+
+        // Отрисовка текстуры и реек внутри маски полигона
+        if (!isVoid) {
+          ctx.clip();
+          if (isSlat) {
+            const slatThick = panel.thickness || 15;
+            const slatWidth = panel.width > 200 ? 50 : Math.max(30, Math.floor(panel.width / (panel.reliefType === 'WAVE_GW90' ? 4 : 3)));
+            const count = Math.max(1, Math.floor(panel.width / slatWidth));
+
+            for (let i = 0; i < count; i++) {
+              const s0 = pStartS + i * slatWidth;
+              const s1 = Math.min(pEndS, s0 + slatWidth - 4);
+
+              const p0 = project3D(getPointAtS(s0, yBot, -slatThick), cx, cy, scale);
+              const p1 = project3D(getPointAtS(s1, yBot, -slatThick), cx, cy, scale);
+              const p2 = project3D(getPointAtS(s1, yTop, -slatThick), cx, cy, scale);
+              const p3 = project3D(getPointAtS(s0, yTop, -slatThick), cx, cy, scale);
+
+              ctx.fillStyle = adjustBrightness(baseColor, 0.95);
+              ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(p0.x, p0.y);
+              ctx.lineTo(p1.x, p1.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.lineTo(p3.x, p3.y);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+            }
+          }
+        }
+        ctx.restore();
+        return;
+      }
+
       if (isSlat) {
         // Реечные ламели AllWall (GW90 волна, GW30 желоб, GW10..GW68)
         const slatThick = panel.thickness || 15;
@@ -713,25 +770,6 @@ export const Axonometric3DView: React.FC = () => {
       } else {
         // Листовые панели
         const thisPanelThick = isVoid ? 0 : (panel.thickness || 5);
-
-        // Если это полигональная деталь (треугольник, трапеция после раскроя)
-        if (panel.polygonPoints && panel.polygonPoints.length >= 3) {
-          const poly3D = panel.polygonPoints.map((pt) =>
-            project3D(getPointAtS(pt.x, pt.y, -thisPanelThick), cx, cy, scale)
-          );
-          ctx.fillStyle = isVoid ? 'rgba(20, 21, 24, 0.7)' : adjustBrightness(baseColor, 0.96);
-          ctx.strokeStyle = isVoid ? '#2C2E33' : adjustBrightness(baseColor, 0.7);
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(poly3D[0].x, poly3D[0].y);
-          for (let i = 1; i < poly3D.length; i++) {
-            ctx.lineTo(poly3D[i].x, poly3D[i].y);
-          }
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-          return;
-        }
 
         const slicePoints: number[] = [pStartS];
 

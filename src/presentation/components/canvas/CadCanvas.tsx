@@ -257,23 +257,254 @@ export const CadCanvas: React.FC = () => {
                     }
                   }}
                 >
+                  {/* Внутренняя область панели с маской полигона (для обрезки текстуры, реек и светотеней) */}
+                  <Group
+                    clipFunc={
+                      isPolygon && panel.polygonPoints && panel.polygonPoints.length >= 3
+                        ? (ctx) => {
+                            ctx.beginPath();
+                            const firstPt = panel.polygonPoints![0];
+                            ctx.moveTo(firstPt.x, wallH - firstPt.y);
+                            for (let i = 1; i < panel.polygonPoints!.length; i++) {
+                              const pt = panel.polygonPoints![i];
+                              ctx.lineTo(pt.x, wallH - pt.y);
+                            }
+                            ctx.closePath();
+                          }
+                        : undefined
+                    }
+                  >
+                    {isPolygon ? (
+                      <Line
+                        points={polyLinePoints}
+                        closed
+                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (patternCanvas ? undefined : (panel.materialColor || '#d6cbbe'))}
+                        fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
+                        fillPatternX={panelX}
+                        fillPatternY={panelY}
+                        fillPatternScale={
+                          patternCanvas
+                            ? {
+                                x: Math.max(panel.width, 100) / patternCanvas.width,
+                                y: Math.max(panel.height, 100) / patternCanvas.height,
+                              }
+                            : undefined
+                        }
+                        fillPatternRepeat="repeat"
+                        opacity={isVoid ? 0.75 : 0.98}
+                      />
+                    ) : (
+                      <Rect
+                        x={panelX}
+                        y={panelY}
+                        width={panel.width}
+                        height={panel.height}
+                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
+                        fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
+                        fillPatternScale={
+                          patternCanvas
+                            ? {
+                                x: panel.width / patternCanvas.width,
+                                y: panel.height / patternCanvas.height,
+                              }
+                            : undefined
+                        }
+                        fillPatternRepeat="no-repeat"
+                        opacity={isVoid ? 0.75 : 0.98}
+                      />
+                    )}
+
+                    {/* Рельефная светотень для рейки-волны (GW90) */}
+                    {panel.reliefType === 'WAVE_GW90' && !isVoid && (
+                      <Group listening={false}>
+                        {Array.from({ length: Math.ceil(panel.width / 40) }).map((_, wIdx) => {
+                          const waveX = panelX + wIdx * 40;
+                          const waveW = Math.min(40, panelX + panel.width - waveX);
+                          if (waveW <= 1) return null;
+                          return (
+                            <Rect
+                              key={`wave-${panel.id}-${wIdx}`}
+                              x={waveX}
+                              y={panelY}
+                              width={waveW}
+                              height={panel.height}
+                              fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                              fillLinearGradientEndPoint={{ x: waveW, y: 0 }}
+                              fillLinearGradientColorStops={[
+                                0, 'rgba(0, 0, 0, 0.26)',
+                                0.45, 'rgba(255, 255, 255, 0.18)',
+                                0.55, 'rgba(255, 255, 255, 0.18)',
+                                1, 'rgba(0, 0, 0, 0.26)'
+                              ]}
+                            />
+                          );
+                        })}
+                      </Group>
+                    )}
+
+                    {/* Рельефная светотень для комбинированного желоба (GW30) */}
+                    {panel.reliefType === 'CONCAVE_GW30' && !isVoid && (
+                      <Group listening={false}>
+                        {Array.from({ length: Math.ceil(panel.width / 75) }).map((_, gIdx) => {
+                          const gx = panelX + gIdx * 75;
+                          const gw = Math.min(75, panelX + panel.width - gx);
+                          if (gw <= 1) return null;
+                          const troughW = Math.max(1, gw - 24);
+                          return (
+                            <Group key={`gw30-${panel.id}-${gIdx}`}>
+                              <Rect
+                                x={gx + 12}
+                                y={panelY}
+                                width={troughW}
+                                height={panel.height}
+                                fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                                fillLinearGradientEndPoint={{ x: troughW, y: 0 }}
+                                fillLinearGradientColorStops={[
+                                  0, 'rgba(255, 255, 255, 0.12)',
+                                  0.5, 'rgba(0, 0, 0, 0.32)',
+                                  1, 'rgba(255, 255, 255, 0.12)'
+                                ]}
+                              />
+                              <Line
+                                points={[gx + 12, panelY, gx + 12, panelY + panel.height]}
+                                stroke="rgba(0, 0, 0, 0.38)"
+                                strokeWidth={1.5 / zoom}
+                              />
+                              <Line
+                                points={[gx + gw - 12, panelY, gx + gw - 12, panelY + panel.height]}
+                                stroke="rgba(0, 0, 0, 0.38)"
+                                strokeWidth={1.5 / zoom}
+                              />
+                            </Group>
+                          );
+                        })}
+                      </Group>
+                    )}
+
+                    {/* Разметка стандартных прямоугольных реек */}
+                    {(panel.reliefType === 'STEP_SLAT' || (isSlat && panel.reliefType !== 'WAVE_GW90' && panel.reliefType !== 'CONCAVE_GW30')) && !isVoid && (
+                      <Group listening={false}>
+                        {Array.from({ length: Math.floor(panel.width / 50) }).map((_, sIdx) => {
+                          const slatX = panelX + (sIdx + 1) * 50;
+                          if (slatX >= panelX + panel.width) return null;
+                          return (
+                            <Line
+                              key={`slat-${panel.id}-${sIdx}`}
+                              points={[slatX, panelY, slatX, panelY + panel.height]}
+                              stroke="rgba(0, 0, 0, 0.28)"
+                              strokeWidth={1.5 / zoom}
+                            />
+                          );
+                        })}
+                      </Group>
+                    )}
+
+                    {/* Отрисовка цилиндрической светотени и пропилов для зон сгиба на панели */}
+                    {panel.bendsInfo && panel.bendsInfo.length > 0 && !isVoid && (
+                      <Group listening={false}>
+                        {panel.bendsInfo.map((bend, bIdx) => {
+                          const bendSubX = panelX + bend.flatLeft;
+                          const bendSubW = bend.bendWidth;
+
+                          if (bend.radius <= 0 || bendSubW <= 1) {
+                            // Острый угол (R = 0): линия перегиба на листе и бейдж
+                            return (
+                              <Group key={`panel-bend-${panel.id}-${bIdx}`}>
+                                <Line
+                                  points={[bendSubX, panelY, bendSubX, panelY + panel.height]}
+                                  stroke="#339af0"
+                                  strokeWidth={1.8 / zoom}
+                                  dash={[6, 4]}
+                                />
+                                <Group x={bendSubX - 45} y={panelY + 8}>
+                                  <Rect
+                                    width={90}
+                                    height={18}
+                                    fill="#101113"
+                                    stroke="#4dabf7"
+                                    strokeWidth={1.2 / zoom}
+                                    cornerRadius={3}
+                                  />
+                                  <Text
+                                    x={4}
+                                    y={3}
+                                    text={`📐 ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} ${bend.angleDeg || 90}°`}
+                                    fontSize={8.5}
+                                    fontFamily="JetBrains Mono"
+                                    fontStyle="bold"
+                                    fill="#74c0fc"
+                                  />
+                                </Group>
+                              </Group>
+                            );
+                          }
+
+                          return (
+                            <Group key={`panel-bend-${panel.id}-${bIdx}`}>
+                              {/* Светотеневой объемный градиент на участке сгиба */}
+                              <Rect
+                                x={bendSubX}
+                                y={panelY}
+                                width={bendSubW}
+                                height={panel.height}
+                                fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                                fillLinearGradientEndPoint={{ x: bendSubW, y: 0 }}
+                                fillLinearGradientColorStops={
+                                  bend.type === 'INNER_CORNER'
+                                    ? INNER_CORNER_GRADIENT_STOPS
+                                    : OUTER_CORNER_GRADIENT_STOPS
+                                }
+                                opacity={0.9}
+                              />
+
+                              {/* Пунктирные направляющие линий сгиба (керф-бендинг) */}
+                              {Array.from({ length: Math.min(8, Math.max(3, Math.floor(bendSubW / 45))) }).map((_, lIdx, arr) => {
+                                const stepX = bendSubX + ((lIdx + 1) * bendSubW) / (arr.length + 1);
+                                return (
+                                  <Line
+                                    key={`bend-line-${panel.id}-${bIdx}-${lIdx}`}
+                                    points={[stepX, panelY, stepX, panelY + panel.height]}
+                                    stroke="rgba(255, 255, 255, 0.22)"
+                                    dash={[6, 6]}
+                                    strokeWidth={1 / zoom}
+                                  />
+                                );
+                              })}
+
+                              {/* Бейдж радиуса на участке сгиба */}
+                              {bendSubW >= 60 && (
+                                <Group x={bendSubX + Math.max(4, (bendSubW - 130) / 2)} y={panelY + 8}>
+                                  <Rect
+                                    width={Math.min(bendSubW - 8, 130)}
+                                    height={20}
+                                    fill="#101113"
+                                    stroke="#4dabf7"
+                                    strokeWidth={1.2 / zoom}
+                                    cornerRadius={4}
+                                  />
+                                  <Text
+                                    x={6}
+                                    y={4}
+                                    text={`⌒ ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${bend.radius}`}
+                                    fontSize={9}
+                                    fontFamily="JetBrains Mono"
+                                    fontStyle="bold"
+                                    fill="#74c0fc"
+                                  />
+                                </Group>
+                              )}
+                            </Group>
+                          );
+                        })}
+                      </Group>
+                    )}
+                  </Group>
+
+                  {/* Внешний контур панели и выделения (поверх всех реек и рельефов) */}
                   {isPolygon ? (
                     <Line
                       points={polyLinePoints}
                       closed
-                      fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (patternCanvas ? undefined : (panel.materialColor || '#d6cbbe'))}
-                      fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
-                      fillPatternX={panelX}
-                      fillPatternY={panelY}
-                      fillPatternScale={
-                        patternCanvas
-                          ? {
-                              x: Math.max(panel.width, 100) / patternCanvas.width,
-                              y: Math.max(panel.height, 100) / patternCanvas.height,
-                            }
-                          : undefined
-                      }
-                      fillPatternRepeat="repeat"
                       stroke={
                         isPanelSelected
                           ? '#40C057'
@@ -281,7 +512,6 @@ export const CadCanvas: React.FC = () => {
                       }
                       strokeWidth={isPanelSelected ? 3 / zoom : 1}
                       dash={isVoid ? [12, 8] : undefined}
-                      opacity={isVoid ? 0.75 : 0.98}
                     />
                   ) : (
                     <Rect
@@ -289,17 +519,6 @@ export const CadCanvas: React.FC = () => {
                       y={panelY}
                       width={panel.width}
                       height={panel.height}
-                      fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
-                      fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
-                      fillPatternScale={
-                        patternCanvas
-                          ? {
-                              x: panel.width / patternCanvas.width,
-                              y: panel.height / patternCanvas.height,
-                            }
-                          : undefined
-                      }
-                      fillPatternRepeat="no-repeat"
                       stroke={
                         isPanelSelected
                           ? '#40C057'
@@ -307,193 +526,7 @@ export const CadCanvas: React.FC = () => {
                       }
                       strokeWidth={isPanelSelected ? 3 / zoom : 1}
                       dash={isVoid ? [12, 8] : undefined}
-                      opacity={isVoid ? 0.75 : 0.98}
                     />
-                  )}
-
-                  {/* Рельефная светотень для рейки-волны (GW90) */}
-                  {panel.reliefType === 'WAVE_GW90' && !isVoid && (
-                    <Group listening={false}>
-                      {Array.from({ length: Math.ceil(panel.width / 40) }).map((_, wIdx) => {
-                        const waveX = panelX + wIdx * 40;
-                        const waveW = Math.min(40, panelX + panel.width - waveX);
-                        if (waveW <= 1) return null;
-                        return (
-                          <Rect
-                            key={`wave-${panel.id}-${wIdx}`}
-                            x={waveX}
-                            y={panelY}
-                            width={waveW}
-                            height={panel.height}
-                            fillLinearGradientStartPoint={{ x: 0, y: 0 }}
-                            fillLinearGradientEndPoint={{ x: waveW, y: 0 }}
-                            fillLinearGradientColorStops={[
-                              0, 'rgba(0, 0, 0, 0.26)',
-                              0.45, 'rgba(255, 255, 255, 0.18)',
-                              0.55, 'rgba(255, 255, 255, 0.18)',
-                              1, 'rgba(0, 0, 0, 0.26)'
-                            ]}
-                          />
-                        );
-                      })}
-                    </Group>
-                  )}
-
-                  {/* Рельефная светотень для комбинированного желоба (GW30) */}
-                  {panel.reliefType === 'CONCAVE_GW30' && !isVoid && (
-                    <Group listening={false}>
-                      {Array.from({ length: Math.ceil(panel.width / 75) }).map((_, gIdx) => {
-                        const gx = panelX + gIdx * 75;
-                        const gw = Math.min(75, panelX + panel.width - gx);
-                        if (gw <= 1) return null;
-                        const troughW = Math.max(1, gw - 24);
-                        return (
-                          <Group key={`gw30-${panel.id}-${gIdx}`}>
-                            <Rect
-                              x={gx + 12}
-                              y={panelY}
-                              width={troughW}
-                              height={panel.height}
-                              fillLinearGradientStartPoint={{ x: 0, y: 0 }}
-                              fillLinearGradientEndPoint={{ x: troughW, y: 0 }}
-                              fillLinearGradientColorStops={[
-                                0, 'rgba(255, 255, 255, 0.12)',
-                                0.5, 'rgba(0, 0, 0, 0.32)',
-                                1, 'rgba(255, 255, 255, 0.12)'
-                              ]}
-                            />
-                            <Line
-                              points={[gx + 12, panelY, gx + 12, panelY + panel.height]}
-                              stroke="rgba(0, 0, 0, 0.38)"
-                              strokeWidth={1.5 / zoom}
-                            />
-                            <Line
-                              points={[gx + gw - 12, panelY, gx + gw - 12, panelY + panel.height]}
-                              stroke="rgba(0, 0, 0, 0.38)"
-                              strokeWidth={1.5 / zoom}
-                            />
-                          </Group>
-                        );
-                      })}
-                    </Group>
-                  )}
-
-                  {/* Разметка стандартных прямоугольных реек */}
-                  {(panel.reliefType === 'STEP_SLAT' || (isSlat && panel.reliefType !== 'WAVE_GW90' && panel.reliefType !== 'CONCAVE_GW30')) && !isVoid && (
-                    <Group listening={false}>
-                      {Array.from({ length: Math.floor(panel.width / 50) }).map((_, sIdx) => {
-                        const slatX = panelX + (sIdx + 1) * 50;
-                        if (slatX >= panelX + panel.width) return null;
-                        return (
-                          <Line
-                            key={`slat-${panel.id}-${sIdx}`}
-                            points={[slatX, panelY, slatX, panelY + panel.height]}
-                            stroke="rgba(0, 0, 0, 0.28)"
-                            strokeWidth={1.5 / zoom}
-                          />
-                        );
-                      })}
-                    </Group>
-                  )}
-
-                  {/* Отрисовка цилиндрической светотени и пропилов для зон сгиба на панели */}
-                  {panel.bendsInfo && panel.bendsInfo.length > 0 && !isVoid && (
-                    <Group listening={false}>
-                      {panel.bendsInfo.map((bend, bIdx) => {
-                        const bendSubX = panelX + bend.flatLeft;
-                        const bendSubW = bend.bendWidth;
-
-                        if (bend.radius <= 0 || bendSubW <= 1) {
-                          // Острый угол (R = 0): линия перегиба на листе и бейдж
-                          return (
-                            <Group key={`panel-bend-${panel.id}-${bIdx}`}>
-                              <Line
-                                points={[bendSubX, panelY, bendSubX, panelY + panel.height]}
-                                stroke="#339af0"
-                                strokeWidth={1.8 / zoom}
-                                dash={[6, 4]}
-                              />
-                              <Group x={bendSubX - 45} y={panelY + 8}>
-                                <Rect
-                                  width={90}
-                                  height={18}
-                                  fill="#101113"
-                                  stroke="#4dabf7"
-                                  strokeWidth={1.2 / zoom}
-                                  cornerRadius={3}
-                                />
-                                <Text
-                                  x={4}
-                                  y={3}
-                                  text={`📐 ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} ${bend.angleDeg || 90}°`}
-                                  fontSize={8.5}
-                                  fontFamily="JetBrains Mono"
-                                  fontStyle="bold"
-                                  fill="#74c0fc"
-                                />
-                              </Group>
-                            </Group>
-                          );
-                        }
-
-                        return (
-                          <Group key={`panel-bend-${panel.id}-${bIdx}`}>
-                            {/* Светотеневой объемный градиент на участке сгиба */}
-                            <Rect
-                              x={bendSubX}
-                              y={panelY}
-                              width={bendSubW}
-                              height={panel.height}
-                              fillLinearGradientStartPoint={{ x: 0, y: 0 }}
-                              fillLinearGradientEndPoint={{ x: bendSubW, y: 0 }}
-                              fillLinearGradientColorStops={
-                                bend.type === 'INNER_CORNER'
-                                  ? INNER_CORNER_GRADIENT_STOPS
-                                  : OUTER_CORNER_GRADIENT_STOPS
-                              }
-                              opacity={0.9}
-                            />
-
-                            {/* Пунктирные направляющие линий сгиба (керф-бендинг) */}
-                            {Array.from({ length: Math.min(8, Math.max(3, Math.floor(bendSubW / 45))) }).map((_, lIdx, arr) => {
-                              const stepX = bendSubX + ((lIdx + 1) * bendSubW) / (arr.length + 1);
-                              return (
-                                <Line
-                                  key={`bend-line-${panel.id}-${bIdx}-${lIdx}`}
-                                  points={[stepX, panelY, stepX, panelY + panel.height]}
-                                  stroke="rgba(255, 255, 255, 0.22)"
-                                  dash={[6, 6]}
-                                  strokeWidth={1 / zoom}
-                                />
-                              );
-                            })}
-
-                            {/* Бейдж радиуса на участке сгиба */}
-                            {bendSubW >= 60 && (
-                              <Group x={bendSubX + Math.max(4, (bendSubW - 130) / 2)} y={panelY + 8}>
-                                <Rect
-                                  width={Math.min(bendSubW - 8, 130)}
-                                  height={20}
-                                  fill="#101113"
-                                  stroke="#4dabf7"
-                                  strokeWidth={1.2 / zoom}
-                                  cornerRadius={4}
-                                />
-                                <Text
-                                  x={6}
-                                  y={4}
-                                  text={`⌒ ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${bend.radius}`}
-                                  fontSize={9}
-                                  fontFamily="JetBrains Mono"
-                                  fontStyle="bold"
-                                  fill="#74c0fc"
-                                />
-                              </Group>
-                            )}
-                          </Group>
-                        );
-                      })}
-                    </Group>
                   )}
 
                   {/* Текстовые метки ячейки / полигона */}
