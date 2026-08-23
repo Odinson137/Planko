@@ -18,8 +18,7 @@ import {
   NumberInput,
   Select,
   MultiSelect,
-  ColorPicker,
-  Popover,
+  ColorInput,
   ScrollArea,
   Alert,
 } from '@mantine/core';
@@ -404,16 +403,14 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                     onChange={(e) => setNewColorName(e.currentTarget.value)}
                     style={{ flex: 1 }}
                   />
-                  <Popover position="bottom" withArrow shadow="md">
-                    <Popover.Target>
-                      <Button variant="default" leftSection={<ColorSwatch color={newColorHex} size={14} />}>
-                        {newColorHex}
-                      </Button>
-                    </Popover.Target>
-                    <Popover.Dropdown style={{ backgroundColor: '#1A1B1E' }}>
-                      <ColorPicker value={newColorHex} onChange={setNewColorHex} format="hex" />
-                    </Popover.Dropdown>
-                  </Popover>
+                  <ColorInput
+                    label="Цвет (HEX)"
+                    placeholder="#a0784a"
+                    value={newColorHex}
+                    onChange={setNewColorHex}
+                    format="hex"
+                    style={{ width: 140 }}
+                  />
 
                   <Button variant="light" color="teal" onClick={handleAddCustomColor}>
                     + Добавить цвет
@@ -758,16 +755,14 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                 onChange={(e) => setEditNewColorName(e.currentTarget.value)}
                 style={{ flex: 1 }}
               />
-              <Popover position="bottom" withArrow shadow="md">
-                <Popover.Target>
-                  <Button variant="default" leftSection={<ColorSwatch color={editNewColorHex} size={14} />}>
-                    {editNewColorHex}
-                  </Button>
-                </Popover.Target>
-                <Popover.Dropdown style={{ backgroundColor: '#1A1B1E' }}>
-                  <ColorPicker value={editNewColorHex} onChange={setEditNewColorHex} format="hex" />
-                </Popover.Dropdown>
-              </Popover>
+              <ColorInput
+                label="Цвет (HEX)"
+                placeholder="#a0784a"
+                value={editNewColorHex}
+                onChange={setEditNewColorHex}
+                format="hex"
+                style={{ width: 140 }}
+              />
 
               <Button variant="light" color="teal" onClick={handleAddEditColor}>
                 + Добавить декор
