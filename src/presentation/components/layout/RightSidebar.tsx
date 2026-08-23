@@ -97,8 +97,8 @@ export const RightSidebar: React.FC = () => {
   const currentOpening = currentWall?.openings.find((op) => op.id === selectedOpeningId);
   const currentWallBend = currentWall?.bends?.find((b) => b.id === selectedWallBendId);
   const currentMaterial = project.materials.find(
-    (m) => m.id === (currentWall?.zone.materialId || 'mat-sheet-1220')
-  );
+    (m) => m.id === (currentWall?.zone.materialId || MATERIAL_NONE_ID)
+  ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
 
   // Расчет раскладки и расхода в реальном времени
   const layoutResult =
@@ -1433,7 +1433,7 @@ export const RightSidebar: React.FC = () => {
       selectedSegment?.customMaterialId ??
       selectedCustomPanel?.customMaterialId ??
       currentWall.zone.materialId ??
-      'mat-sheet-1220';
+      MATERIAL_NONE_ID;
 
     const isCellVoid = selectedPanelMaterialId === MATERIAL_NONE_ID;
 
@@ -1452,18 +1452,17 @@ export const RightSidebar: React.FC = () => {
         <ScrollArea style={{ flex: 1 }}>
           <Stack gap="md" p="xs">
             {(() => {
-              const activeSubPieces = (
+              const activeSubPieces =
                 selectedSegment?.subPieces ||
                 selectedCustomPanel?.subPieces ||
-                []
-              ).filter((sp) => !sp.isVoid);
+                [];
 
               const isSubPieceActive = Boolean(
                 selectedSubPieceId && activeSubPieces.some((sp) => sp.id === selectedSubPieceId)
               );
               const activeSub = isSubPieceActive
                 ? activeSubPieces.find((sp) => sp.id === selectedSubPieceId)!
-                : (activeSubPieces.length > 0 ? activeSubPieces[0] : null);
+                : (selectedSubPieceId ? null : (activeSubPieces.length > 0 ? activeSubPieces[0] : null));
 
               const activeMaterialId = activeSub ? activeSub.materialId : selectedPanelMaterialId;
               const isCurrentVoid = isCellVoid || activeSub?.isVoid || activeMaterialId === MATERIAL_NONE_ID;
@@ -1586,18 +1585,17 @@ export const RightSidebar: React.FC = () => {
             <Divider color="#2C2E33" />
 
             {(() => {
-              const activeSubPieces = (
+              const activeSubPieces =
                 selectedSegment?.subPieces ||
                 selectedCustomPanel?.subPieces ||
-                []
-              ).filter((sp) => !sp.isVoid);
+                [];
 
               const isSubPieceActive = Boolean(
                 selectedSubPieceId && activeSubPieces.some((sp) => sp.id === selectedSubPieceId)
               );
               const activeSub = isSubPieceActive
                 ? activeSubPieces.find((sp) => sp.id === selectedSubPieceId)!
-                : (activeSubPieces.length > 0 ? activeSubPieces[0] : null);
+                : (selectedSubPieceId ? null : (activeSubPieces.length > 0 ? activeSubPieces[0] : null));
 
               const effectiveMaterialId = activeSub ? activeSub.materialId : selectedPanelMaterialId;
               const effectiveIsVoid = isCellVoid || activeSub?.isVoid || effectiveMaterialId === MATERIAL_NONE_ID;
@@ -1962,11 +1960,10 @@ export const RightSidebar: React.FC = () => {
 
             {/* НАПРАВЛЕНИЕ РИСУНКА И ВОЛОКОН */}
             {(() => {
-              const activeSubPieces = (
+              const activeSubPieces =
                 selectedSegment?.subPieces ||
                 selectedCustomPanel?.subPieces ||
-                []
-              ).filter((sp) => !sp.isVoid);
+                [];
               const targetSub = activeSubPieces.find((sp) => sp.id === selectedSubPieceId);
 
               const currentPatternAngle =

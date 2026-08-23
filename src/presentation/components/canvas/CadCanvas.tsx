@@ -7,6 +7,7 @@ import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { Opening, ensureOpeningSlopes } from '../../../core/models/Opening';
 import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
+import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 
 const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
 const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
@@ -45,8 +46,8 @@ export const CadCanvas: React.FC = () => {
 
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
   const selectedMaterial = project.materials.find(
-    (m) => m.id === (selectedWall?.zone.materialId || 'mat-sheet-1220')
-  );
+    (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
+  ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
 
   // Мемоизированный расчет 2D раскладки (пересчитывается ТОЛЬКО при изменении параметров стены, а не при зуме/пане)
   const layout = useMemo(() => {

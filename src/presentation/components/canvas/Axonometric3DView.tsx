@@ -32,8 +32,8 @@ export const Axonometric3DView: React.FC = () => {
   const { project } = useProjectStore();
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
   const selectedMaterial = project.materials.find(
-    (m) => m.id === (selectedWall?.zone.materialId || 'mat-sheet-1220')
-  );
+    (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
+  ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
 
   const layout =
     selectedWall && selectedMaterial

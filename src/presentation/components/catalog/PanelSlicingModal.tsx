@@ -21,6 +21,7 @@ import {
   SnapResult,
 } from '../../../core/geometry/PolygonSlicingEngine';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
+import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 
 export const PanelSlicingModal: React.FC = () => {
   const {
@@ -77,6 +78,7 @@ export const PanelSlicingModal: React.FC = () => {
 
   const defaultMaterial =
     project.materials.find((m) => m.id === currentWall?.zone.materialId) ||
+    project.materials.find((m) => m.id === MATERIAL_NONE_ID) ||
     project.materials[0];
 
   // Рассчитываем точные физические размеры выбранного элемента на стене
@@ -94,6 +96,8 @@ export const PanelSlicingModal: React.FC = () => {
     (customCol?.customMaterialId &&
       project.materials.find((m) => m.id === customCol.customMaterialId)) ||
     defaultMaterial;
+
+  const isPanelVoid = panelMaterial.isVoid || panelMaterial.id === MATERIAL_NONE_ID;
 
   const panelWidth = Math.round(
     actualPiece ? actualPiece.width : (customCol?.customWidth ?? 1220)
@@ -123,11 +127,12 @@ export const PanelSlicingModal: React.FC = () => {
       const initialPiece: PolygonSubPiece = {
         id: `piece-${Date.now()}-1`,
         points: initialPoly,
-        materialId: panelMaterial.id,
-        color: customSeg?.customColor || customCol?.customColor || panelMaterial.color,
-        decorCode: customSeg?.customDecorCode || customCol?.customDecorCode || panelMaterial.decorCode,
-        decorName: panelMaterial.decorName,
-        partLabel: `${colIdx + 1}.${segIdx + 1}`,
+        materialId: isPanelVoid ? MATERIAL_NONE_ID : panelMaterial.id,
+        isVoid: isPanelVoid,
+        color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : (customSeg?.customColor || customCol?.customColor || panelMaterial.color),
+        decorCode: isPanelVoid ? '' : (customSeg?.customDecorCode || customCol?.customDecorCode || panelMaterial.decorCode),
+        decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
+        partLabel: isPanelVoid ? 'ПУСТО' : `${colIdx + 1}.${segIdx + 1}`,
         patternAngleDeg: customSeg?.patternAngleDeg || customCol?.patternAngleDeg || 0,
         patternFlipX: customSeg?.patternFlipX || customCol?.patternFlipX || false,
         areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
@@ -139,7 +144,7 @@ export const PanelSlicingModal: React.FC = () => {
     setDrawingStart(null);
     setCurrentMouse(null);
     setActiveSnap(null);
-  }, [isSlicingModalOpen, panelWidth, panelHeight, panelMaterial, customSeg, customCol, colIdx, segIdx]);
+  }, [isSlicingModalOpen, panelWidth, panelHeight, panelMaterial, customSeg, customCol, colIdx, segIdx, isPanelVoid]);
 
   // Рассечение полигонов линией ножа
   const applyCutLineToPieces = useCallback(
@@ -182,7 +187,9 @@ export const PanelSlicingModal: React.FC = () => {
         const baseLabel = `${colIdx + 1}.${segIdx + 1}`;
         const indexedPieces = nextPieces.map((p, idx) => ({
           ...p,
-          partLabel: nextPieces.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel,
+          partLabel: p.isVoid || p.materialId === MATERIAL_NONE_ID
+            ? 'ПУСТО'
+            : (nextPieces.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel),
         }));
         setPieces(indexedPieces);
       }
@@ -202,11 +209,12 @@ export const PanelSlicingModal: React.FC = () => {
     const initialPiece: PolygonSubPiece = {
       id: `piece-${Date.now()}-1`,
       points: initialPoly,
-      materialId: panelMaterial.id,
-      color: panelMaterial.color,
-      decorCode: panelMaterial.decorCode,
-      decorName: panelMaterial.decorName,
-      partLabel: `${colIdx + 1}.${segIdx + 1}`,
+      materialId: isPanelVoid ? MATERIAL_NONE_ID : panelMaterial.id,
+      isVoid: isPanelVoid,
+      color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : panelMaterial.color,
+      decorCode: isPanelVoid ? '' : panelMaterial.decorCode,
+      decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
+      partLabel: isPanelVoid ? 'ПУСТО' : `${colIdx + 1}.${segIdx + 1}`,
       patternAngleDeg: 0,
       areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
     };

@@ -701,8 +701,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     const material = state.project.materials.find(
-      (m) => m.id === (wall.zone.materialId || 'mat-sheet-1220')
-    );
+      (m) => m.id === (wall.zone.materialId || MATERIAL_NONE_ID)
+    ) || state.project.materials.find((m) => m.id === MATERIAL_NONE_ID) || state.project.materials[0];
     if (!material) {
       return {
         canMerge: false,
@@ -1274,6 +1274,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!wall || state.selectedCellKeys.length === 0) return state;
 
       const targetMaterial = state.project.materials.find((m) => m.id === materialId);
+      const isVoidMat = materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
+
+      if (state.selectedSubPieceId) {
+        const subId = state.selectedSubPieceId;
+        const nextCustomPanels = { ...wall.customPanels };
+        const updateSubs = (subs?: PolygonSubPiece[]) =>
+          subs?.map((s) =>
+            s.id === subId
+              ? {
+                  ...s,
+                  materialId,
+                  isVoid: isVoidMat,
+                  color: targetMaterial?.color || s.color,
+                  decorCode: targetMaterial?.decorCode || s.decorCode,
+                  decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+                  thickness: targetMaterial?.thickness || s.thickness,
+                  textureCategory: (targetMaterial?.textureCategory as any) || s.textureCategory,
+                  reliefType: (targetMaterial?.reliefType as any) || s.reliefType,
+                  partLabel: isVoidMat ? 'ПУСТО' : s.partLabel,
+                }
+              : s
+          );
+
+        state.selectedCellKeys.forEach((key) => {
+          const [cIdx, sIdx] = key.split('-').map(Number);
+          const currentCustom = nextCustomPanels[cIdx] || { columnIndex: cIdx, segments: [] };
+          if (currentCustom.segments && currentCustom.segments[sIdx]) {
+            const nextSegs = [...currentCustom.segments];
+            nextSegs[sIdx] = {
+              ...nextSegs[sIdx],
+              subPieces: updateSubs(nextSegs[sIdx].subPieces),
+            };
+            nextCustomPanels[cIdx] = { ...currentCustom, segments: nextSegs };
+          } else {
+            nextCustomPanels[cIdx] = { ...currentCustom, subPieces: updateSubs(currentCustom.subPieces) };
+          }
+        });
+
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+            ),
+          },
+        };
+      }
+
       const wallMaterial =
         state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
 
@@ -1287,10 +1335,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
         selectedColIndices.forEach((colIdx) => {
           const currentCustom = nextCustomPanels[colIdx];
+          const hasSubPieces =
+            (currentCustom?.segments?.some((s) => (s.subPieces?.length ?? 0) > 0) ?? false) ||
+            (currentCustom?.subPieces?.length ?? 0) > 0;
           const currentWidth =
             currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
 
-          if (currentWidth > targetMaterial.width + 10) {
+          if (!hasSubPieces && currentWidth > targetMaterial.width + 10) {
             const res = splitColumnIntoPieces(
               nextCustomPanels,
               nextCustomJoints,
@@ -1575,13 +1626,70 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!wall) return state;
 
       const targetMaterial = state.project.materials.find((m) => m.id === materialId);
+      const isVoidMat = materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
+
+      // 1. ЕСЛИ ВЫБРАНА КОНКРЕТНАЯ ДЕТАЛЬ РАСКРОЯ (subPiece) — МЕНЯЕМ ТОЛЬКО ЕЁ!
+      if (state.selectedSubPieceId) {
+        const subId = state.selectedSubPieceId;
+        const nextCustomPanels = { ...wall.customPanels };
+        const updateSubs = (subs?: PolygonSubPiece[]) =>
+          subs?.map((s) =>
+            s.id === subId
+              ? {
+                  ...s,
+                  materialId,
+                  isVoid: isVoidMat,
+                  color: targetMaterial?.color || s.color,
+                  decorCode: targetMaterial?.decorCode || s.decorCode,
+                  decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+                  thickness: targetMaterial?.thickness || s.thickness,
+                  textureCategory: (targetMaterial?.textureCategory as any) || s.textureCategory,
+                  reliefType: (targetMaterial?.reliefType as any) || s.reliefType,
+                  partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
+                }
+              : s
+          );
+
+        const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
+        if (currentCustom.segments && currentCustom.segments[segmentIndex]) {
+          const nextSegs = [...currentCustom.segments];
+          nextSegs[segmentIndex] = {
+            ...nextSegs[segmentIndex],
+            subPieces: updateSubs(nextSegs[segmentIndex].subPieces),
+          };
+          nextCustomPanels[columnIndex] = {
+            ...currentCustom,
+            segments: nextSegs,
+          };
+        } else {
+          nextCustomPanels[columnIndex] = {
+            ...currentCustom,
+            subPieces: updateSubs(currentCustom.subPieces),
+          };
+        }
+
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+            ),
+          },
+        };
+      }
+
       const wallMaterial =
         state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
       const currentCustom = wall.customPanels[columnIndex];
       const currentWidth =
         currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
 
+      const hasSubPieces =
+        (currentCustom?.segments?.[segmentIndex]?.subPieces?.length ?? 0) > 0 ||
+        (currentCustom?.subPieces?.length ?? 0) > 0;
+
       if (
+        !hasSubPieces &&
         targetMaterial &&
         !targetMaterial.isVoid &&
         targetMaterial.width > 0 &&
@@ -1705,8 +1813,67 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ? state.project.materials.find((m) => m.id === properties.materialId)
         : undefined;
 
-      // Если новый материал имеет меньшую ширину, чем колонка (например, пустота 3000 -> плита 1000, или плита 1000 -> рейка 100) — автоматически разделяем колонку на плиты!
+      // 1. ЕСЛИ ВЫБРАНА КОНКРЕТНАЯ ДЕТАЛЬ РАСКРОЯ (subPiece) — МЕНЯЕМ ТОЛЬКО ЕЁ!
+      if (state.selectedSubPieceId) {
+        const subId = state.selectedSubPieceId;
+        const nextCustomPanels = { ...wall.customPanels };
+        const isVoidMat = properties.materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
+
+        const updateSubs = (subs?: PolygonSubPiece[]) =>
+          subs?.map((s) =>
+            s.id === subId
+              ? {
+                  ...s,
+                  ...(properties.materialId ? {
+                    materialId: properties.materialId,
+                    isVoid: isVoidMat,
+                    decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+                    partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
+                  } : {}),
+                  ...(properties.customColor !== undefined ? { color: properties.customColor } : (targetMaterial?.color ? { color: targetMaterial.color } : {})),
+                  ...(properties.customDecorCode !== undefined ? { decorCode: properties.customDecorCode } : (targetMaterial?.decorCode ? { decorCode: targetMaterial.decorCode } : {})),
+                  ...(properties.customThickness !== undefined ? { thickness: properties.customThickness } : (targetMaterial?.thickness ? { thickness: targetMaterial.thickness } : {})),
+                  ...(properties.customTextureCategory !== undefined ? { textureCategory: properties.customTextureCategory as any } : (targetMaterial?.textureCategory ? { textureCategory: targetMaterial.textureCategory as any } : {})),
+                  ...(properties.customReliefType !== undefined ? { reliefType: properties.customReliefType as any } : (targetMaterial?.reliefType ? { reliefType: targetMaterial.reliefType as any } : {})),
+                }
+              : s
+          );
+
+        const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
+        if (currentCustom.segments && currentCustom.segments[segmentIndex]) {
+          const nextSegs = [...currentCustom.segments];
+          nextSegs[segmentIndex] = {
+            ...nextSegs[segmentIndex],
+            subPieces: updateSubs(nextSegs[segmentIndex].subPieces),
+          };
+          nextCustomPanels[columnIndex] = {
+            ...currentCustom,
+            segments: nextSegs,
+          };
+        } else {
+          nextCustomPanels[columnIndex] = {
+            ...currentCustom,
+            subPieces: updateSubs(currentCustom.subPieces),
+          };
+        }
+
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+            ),
+          },
+        };
+      }
+
+      const hasSubPieces =
+        (currentCustom?.segments?.[segmentIndex]?.subPieces?.length ?? 0) > 0 ||
+        (currentCustom?.subPieces?.length ?? 0) > 0;
+
+      // Если новый материал имеет меньшую ширину, чем колонка — автоматически разделяем колонку на плиты, ТОЛЬКО ЕСЛИ НЕТ SUBPIECES!
       if (
+        !hasSubPieces &&
         targetMaterial &&
         !targetMaterial.isVoid &&
         targetMaterial.width > 0 &&
@@ -1740,52 +1907,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                     customJoints: nextJoints,
                   }
                 : w
-            ),
-          },
-        };
-      }
-
-      if (state.selectedSubPieceId) {
-        const subId = state.selectedSubPieceId;
-        const nextCustomPanels = { ...wall.customPanels };
-        const updateSubs = (subs?: PolygonSubPiece[]) =>
-          subs?.map((s) =>
-            s.id === subId
-              ? {
-                  ...s,
-                  ...(properties.materialId ? { materialId: properties.materialId, isVoid: properties.materialId === MATERIAL_NONE_ID } : {}),
-                  ...(properties.customColor !== undefined ? { color: properties.customColor } : {}),
-                  ...(properties.customDecorCode !== undefined ? { decorCode: properties.customDecorCode } : {}),
-                  ...(properties.customThickness !== undefined ? { thickness: properties.customThickness } : {}),
-                  ...(properties.customTextureCategory !== undefined ? { textureCategory: properties.customTextureCategory as any } : {}),
-                  ...(properties.customReliefType !== undefined ? { reliefType: properties.customReliefType as any } : {}),
-                }
-              : s
-          );
-
-        const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
-        if (currentCustom.segments && currentCustom.segments[segmentIndex]) {
-          const nextSegs = [...currentCustom.segments];
-          nextSegs[segmentIndex] = {
-            ...nextSegs[segmentIndex],
-            subPieces: updateSubs(nextSegs[segmentIndex].subPieces),
-          };
-          nextCustomPanels[columnIndex] = {
-            ...currentCustom,
-            segments: nextSegs,
-          };
-        } else {
-          nextCustomPanels[columnIndex] = {
-            ...currentCustom,
-            subPieces: updateSubs(currentCustom.subPieces),
-          };
-        }
-
-        return {
-          project: {
-            ...state.project,
-            walls: state.project.walls.map((w) =>
-              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
             ),
           },
         };
@@ -1906,8 +2027,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!wall) return state;
 
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex };
-      const colMaterialId = config.customMaterialId || currentCustom.customMaterialId || wall.zone.materialId || 'mat-sheet-1220';
-      const material = state.project.materials.find((m) => m.id === colMaterialId);
+      const colMaterialId = config.customMaterialId || currentCustom.customMaterialId || wall.zone.materialId || MATERIAL_NONE_ID;
+      const material = state.project.materials.find((m) => m.id === colMaterialId) || state.project.materials.find((m) => m.id === MATERIAL_NONE_ID);
       const isVoid = material?.isVoid === true || colMaterialId === MATERIAL_NONE_ID;
       const maxSheetWidth = isVoid ? 10000 : (material?.width || 1220);
 
@@ -1970,8 +2091,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         segments[segmentIndex]?.customMaterialId ||
         currentCustom.customMaterialId ||
         wall.zone.materialId ||
-        'mat-sheet-1220';
-      const material = state.project.materials.find((m) => m.id === segMaterialId);
+        MATERIAL_NONE_ID;
+      const material = state.project.materials.find((m) => m.id === segMaterialId) || state.project.materials.find((m) => m.id === MATERIAL_NONE_ID);
       const isVoid = material?.isVoid === true || segMaterialId === MATERIAL_NONE_ID;
       const maxSheetHeight = isVoid ? 10000 : (material?.height || 2800);
 
