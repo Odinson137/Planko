@@ -17,6 +17,7 @@ import {
   Tooltip,
   Switch,
   Alert,
+  Box,
 } from '@mantine/core';
 import {
   RotateCcw,
@@ -1163,46 +1164,96 @@ export const RightSidebar: React.FC = () => {
               const maxCellW = cellMaterial?.width || 1220;
               const maxCellH = cellMaterial?.height || 2800;
 
+              const currentX = actualPanelPiece ? actualPanelPiece.x : 0;
+              const maxAvailableW = Math.max(100, Math.round(currentWall.width - currentX));
+
+              const currentY = actualPanelPiece ? actualPanelPiece.y : 0;
+              const maxAvailableH = Math.max(100, Math.round(currentWall.height - currentY));
+
               return (
                 <Stack gap="xs">
-                  <Group grow>
-                    <NumberInput
-                      size="xs"
-                      label="Ширина (мм)"
-                      description={`Лист до ${maxCellW} мм`}
-                      value={selectedPanelWidth || ''}
-                      clampBehavior="blur"
-                      allowNegative={false}
-                      allowDecimal={false}
-                      min={100}
-                      max={25000}
-                      step={10}
-                      onChange={(val) =>
-                        updatePanelConfig(currentWall.id, selectedColumnIndex, {
-                          customWidth: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                        })
-                      }
-                    />
-                    <NumberInput
-                      size="xs"
-                      label="Высота (мм)"
-                      description={`Лист до ${maxCellH} мм`}
-                      value={selectedPanelHeight || ''}
-                      clampBehavior="blur"
-                      allowNegative={false}
-                      allowDecimal={false}
-                      min={100}
-                      max={10000}
-                      step={10}
-                      onChange={(val) =>
-                        updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                          height: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                        })
-                      }
-                    />
+                  <Group grow align="flex-start">
+                    {/* Поле ширины с кнопкой MAX */}
+                    <Box style={{ flex: 1 }}>
+                      <Group justify="space-between" mb={2}>
+                        <Text size="xs" fw={500}>
+                          Ширина (мм)
+                        </Text>
+                        <Tooltip label={`Растянуть до правого края стены (${maxAvailableW} мм)`} position="top">
+                          <Button
+                            size="compact-xs"
+                            variant="light"
+                            color="blue"
+                            onClick={() =>
+                              updatePanelConfig(currentWall.id, selectedColumnIndex, {
+                                customWidth: maxAvailableW,
+                              })
+                            }
+                          >
+                            MAX
+                          </Button>
+                        </Tooltip>
+                      </Group>
+                      <NumberInput
+                        size="xs"
+                        description={`Лист до ${maxCellW} мм`}
+                        value={selectedPanelWidth || ''}
+                        clampBehavior="blur"
+                        allowNegative={false}
+                        allowDecimal={false}
+                        min={100}
+                        max={25000}
+                        step={10}
+                        onChange={(val) =>
+                          updatePanelConfig(currentWall.id, selectedColumnIndex, {
+                            customWidth: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
+                          })
+                        }
+                      />
+                    </Box>
+
+                    {/* Поле высоты с кнопкой MAX */}
+                    <Box style={{ flex: 1 }}>
+                      <Group justify="space-between" mb={2}>
+                        <Text size="xs" fw={500}>
+                          Высота (мм)
+                        </Text>
+                        <Tooltip label={`Растянуть до верхнего края стены (${maxAvailableH} мм)`} position="top">
+                          <Button
+                            size="compact-xs"
+                            variant="light"
+                            color="blue"
+                            onClick={() =>
+                              updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                                height: maxAvailableH,
+                              })
+                            }
+                          >
+                            MAX
+                          </Button>
+                        </Tooltip>
+                      </Group>
+                      <NumberInput
+                        size="xs"
+                        description={`Лист до ${maxCellH} мм`}
+                        value={selectedPanelHeight || ''}
+                        clampBehavior="blur"
+                        allowNegative={false}
+                        allowDecimal={false}
+                        min={100}
+                        max={10000}
+                        step={10}
+                        onChange={(val) =>
+                          updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            height: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
+                          })
+                        }
+                      />
+                    </Box>
                   </Group>
+
                   <Text size="xs" c="dimmed" style={{ lineHeight: 1.3 }}>
-                    💡 При вводе размера больше габарита листа ({maxCellW}×{maxCellH} мм) автоматически создаются дополнительные листы со швами.
+                    💡 При вводе размера больше габарита листа ({maxCellW}×{maxCellH} мм) автоматически создаются дополнительные листы со швами (каждый от 100 мм).
                   </Text>
                 </Stack>
               );
