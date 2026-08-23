@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Group,
   Button,
@@ -22,10 +22,11 @@ import {
   Maximize2,
   Grid,
   Ruler,
-  LayoutGrid,
+  Layers,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
+import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
 
 export const TopToolbar: React.FC = () => {
   const {
@@ -42,7 +43,8 @@ export const TopToolbar: React.FC = () => {
     toggleDimensions,
   } = useEditorStore();
 
-  const { project, addOpening, applyGridPreset, addWallBend } = useProjectStore();
+  const { project, addOpening, addWallBend } = useProjectStore();
+  const [catalogOpened, setCatalogOpened] = useState(false);
   const selectedWallId = project.selectedWallId;
 
   const handleAddOpening = (type: 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE') => {
@@ -58,194 +60,179 @@ export const TopToolbar: React.FC = () => {
   };
 
   return (
-    <Group justify="space-between" px="md" py={6} style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#1A1B1E' }}>
-      {/* Логотип и переключатель 2D / 3D */}
-      <Group gap="sm">
-        <Title order={4} style={{ color: '#E9ECEF', letterSpacing: '0.5px' }}>
-          PLANKO
-        </Title>
-        <Badge size="xs" variant="outline" color="yellow">
-          v0.1 CAD
-        </Badge>
-        <Divider orientation="vertical" />
-        <SegmentedControl
-          size="xs"
-          value={viewMode}
-          onChange={(val: any) => setViewMode(val)}
-          data={[
-            { label: '📐 2D Чертёж', value: '2D' },
-            { label: '🧊 3D Вид (30°)', value: '3D' },
-          ]}
-        />
-      </Group>
+    <>
+      <Group justify="space-between" px="md" py={6} style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#1A1B1E' }}>
+        {/* Логотип и переключатель 2D / 3D */}
+        <Group gap="sm">
+          <Title order={4} style={{ color: '#E9ECEF', letterSpacing: '0.5px' }}>
+            PLANKO
+          </Title>
+          <Badge size="xs" variant="outline" color="yellow">
+            v0.1 CAD
+          </Badge>
+          <Divider orientation="vertical" />
+          <SegmentedControl
+            size="xs"
+            value={viewMode}
+            onChange={(val: any) => setViewMode(val)}
+            data={[
+              { label: '📐 2D Чертёж', value: '2D' },
+              { label: '🧊 3D Вид (30°)', value: '3D' },
+            ]}
+          />
 
-      {/* Инструменты добавления сетки, проемов и курсор */}
-      <Group gap={6}>
-        <Tooltip label="Выбор и перемещение (V)" position="bottom">
-          <ActionIcon
-            variant={activeTool === 'SELECT' ? 'filled' : 'subtle'}
-            color={activeTool === 'SELECT' ? 'blue' : 'gray'}
-            onClick={() => setActiveTool('SELECT')}
+          {/* Кнопка открытия каталога AllWall */}
+          <Button
+            size="xs"
+            variant="gradient"
+            gradient={{ from: 'blue', to: 'cyan', deg: 90 }}
+            leftSection={<Layers size={14} />}
+            onClick={() => setCatalogOpened(true)}
           >
-            <MousePointer size={16} />
-          </ActionIcon>
-        </Tooltip>
+            Каталог AllWall
+          </Button>
+        </Group>
 
-        <Divider orientation="vertical" />
+        {/* Инструменты добавления радиусов, проемов и курсор */}
+        <Group gap={6}>
+          <Tooltip label="Выбор и перемещение (V)" position="bottom">
+            <ActionIcon
+              variant={activeTool === 'SELECT' ? 'filled' : 'subtle'}
+              color={activeTool === 'SELECT' ? 'blue' : 'gray'}
+              onClick={() => setActiveTool('SELECT')}
+            >
+              <MousePointer size={16} />
+            </ActionIcon>
+          </Tooltip>
 
-        {/* Меню пресетов сетки */}
-        <Menu shadow="md" width={250} position="bottom-start">
-          <Menu.Target>
+          <Divider orientation="vertical" />
+
+          {/* Меню добавления радиусных элементов и арок */}
+          <Menu shadow="md" width={270} position="bottom-start">
+            <Menu.Target>
+              <Button
+                size="xs"
+                variant="light"
+                color="cyan"
+                leftSection={<Text size="xs" fw={700} style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
+                disabled={!selectedWallId}
+              >
+                + Радиус / Арка
+              </Button>
+            </Menu.Target>
+
+            <Menu.Dropdown>
+              <Menu.Label>Криволинейные элементы</Menu.Label>
+              <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 300, 90)}>
+                ⌒ Внешний угол 90° (R = 300 мм)
+              </Menu.Item>
+              <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 500, 90)}>
+                ⌒ Внешний угол 90° (R = 500 мм)
+              </Menu.Item>
+              <Menu.Item onClick={() => handleAddRadius('INNER_CORNER', 300, 90)}>
+                ╭ Внутренний угол 90° (R = 300 мм)
+              </Menu.Item>
+              <Menu.Divider />
+              <Menu.Item onClick={() => handleAddRadius('ARCH_VAULT', 800, 180)}>
+                🏛️ Арочный свод 180° (R = 800 мм)
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+
+          <Divider orientation="vertical" />
+
+          <Tooltip label="Добавить дверь" position="bottom">
             <Button
               size="xs"
-              variant="light"
-              color="grape"
-              leftSection={<LayoutGrid size={14} />}
+              variant="default"
+              leftSection={<DoorOpen size={14} />}
+              onClick={() => handleAddOpening('DOOR')}
               disabled={!selectedWallId}
             >
-              Сетка / Шаблоны
+              + Дверь
             </Button>
-          </Menu.Target>
+          </Tooltip>
 
-          <Menu.Dropdown>
-            <Menu.Label>Быстрая разметка стены</Menu.Label>
-            <Menu.Item onClick={() => selectedWallId && applyGridPreset(selectedWallId, 'STANDARD_1220')}>
-              📄 Листовые панели 1220 мм
-            </Menu.Item>
-            <Menu.Item onClick={() => selectedWallId && applyGridPreset(selectedWallId, 'SLATS_145')}>
-              🪵 Реечные панели 145 мм
-            </Menu.Item>
-            <Menu.Item onClick={() => selectedWallId && applyGridPreset(selectedWallId, 'TIERS_900_1800')}>
-              📏 3 Уровня (Цоколь 900 + LED + Верх)
-            </Menu.Item>
-            <Menu.Item onClick={() => selectedWallId && applyGridPreset(selectedWallId, 'CENTER_TV_NICHE')}>
-              📺 ТВ по центру (Пустота + Рейки по бокам)
-            </Menu.Item>
-          </Menu.Dropdown>
-        </Menu>
-
-        {/* Меню добавления радиусных элементов и арок */}
-        <Menu shadow="md" width={270} position="bottom-start">
-          <Menu.Target>
+          <Tooltip label="Добавить окно" position="bottom">
             <Button
               size="xs"
-              variant="light"
-              color="cyan"
-              leftSection={<Text size="xs" fw={700} style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
+              variant="default"
+              leftSection={<AppWindow size={14} />}
+              onClick={() => handleAddOpening('WINDOW')}
               disabled={!selectedWallId}
             >
-              + Радиус / Арка
+              + Окно
             </Button>
-          </Menu.Target>
+          </Tooltip>
 
-          <Menu.Dropdown>
-            <Menu.Label>Криволинейные элементы</Menu.Label>
-            <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 300, 90)}>
-              ⌒ Внешний угол 90° (R = 300 мм)
-            </Menu.Item>
-            <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 500, 90)}>
-              ⌒ Внешний угол 90° (R = 500 мм)
-            </Menu.Item>
-            <Menu.Item onClick={() => handleAddRadius('INNER_CORNER', 300, 90)}>
-              ╭ Внутренний угол 90° (R = 300 мм)
-            </Menu.Item>
-            <Menu.Divider />
-            <Menu.Item onClick={() => handleAddRadius('ARCH_VAULT', 800, 180)}>
-              🏛️ Арочный свод 180° (R = 800 мм)
-            </Menu.Item>
-          </Menu.Dropdown>
-        </Menu>
+          <Tooltip label="Добавить ТВ-зону" position="bottom">
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<Tv size={14} />}
+              onClick={() => handleAddOpening('TV_ZONE')}
+              disabled={!selectedWallId}
+            >
+              + ТВ-зона
+            </Button>
+          </Tooltip>
 
-        <Divider orientation="vertical" />
+          <Tooltip label="Добавить нишу" position="bottom">
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<Square size={14} />}
+              onClick={() => handleAddOpening('NICHE')}
+              disabled={!selectedWallId}
+            >
+              + Ниша
+            </Button>
+          </Tooltip>
+        </Group>
 
-        <Tooltip label="Добавить дверь" position="bottom">
-          <Button
-            size="xs"
-            variant="default"
-            leftSection={<DoorOpen size={14} />}
-            onClick={() => handleAddOpening('DOOR')}
-            disabled={!selectedWallId}
-          >
-            + Дверь
-          </Button>
-        </Tooltip>
+        {/* Управление холстом (зум, сетка, размеры) */}
+        <Group gap={6}>
+          <Tooltip label="Сетка (G)" position="bottom">
+            <ActionIcon
+              variant={showGrid ? 'light' : 'subtle'}
+              color={showGrid ? 'blue' : 'gray'}
+              onClick={toggleGrid}
+            >
+              <Grid size={16} />
+            </ActionIcon>
+          </Tooltip>
 
-        <Tooltip label="Добавить окно" position="bottom">
-          <Button
-            size="xs"
-            variant="default"
-            leftSection={<AppWindow size={14} />}
-            onClick={() => handleAddOpening('WINDOW')}
-            disabled={!selectedWallId}
-          >
-            + Окно
-          </Button>
-        </Tooltip>
+          <Tooltip label="Размерные цепочки" position="bottom">
+            <ActionIcon
+              variant={showDimensions ? 'light' : 'subtle'}
+              color={showDimensions ? 'blue' : 'gray'}
+              onClick={toggleDimensions}
+            >
+              <Ruler size={16} />
+            </ActionIcon>
+          </Tooltip>
 
-        <Tooltip label="Добавить ТВ-зону" position="bottom">
-          <Button
-            size="xs"
-            variant="default"
-            leftSection={<Tv size={14} />}
-            onClick={() => handleAddOpening('TV_ZONE')}
-            disabled={!selectedWallId}
-          >
-            + ТВ-зона
-          </Button>
-        </Tooltip>
+          <Divider orientation="vertical" />
 
-        <Tooltip label="Добавить нишу" position="bottom">
-          <Button
-            size="xs"
-            variant="default"
-            leftSection={<Square size={14} />}
-            onClick={() => handleAddOpening('NICHE')}
-            disabled={!selectedWallId}
-          >
-            + Ниша
-          </Button>
-        </Tooltip>
+          <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom - 0.1)}>
+            <ZoomOut size={16} />
+          </ActionIcon>
+          <Text size="xs" c="dimmed" style={{ minWidth: 45, textAlign: 'center' }}>
+            {Math.round(zoom * 100)}%
+          </Text>
+          <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom + 0.1)}>
+            <ZoomIn size={16} />
+          </ActionIcon>
+          <Tooltip label="Центрировать вид" position="bottom">
+            <ActionIcon variant="subtle" color="gray" onClick={resetView}>
+              <Maximize2 size={16} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
       </Group>
 
-      {/* Управление холстом (зум, сетка, размеры) */}
-      <Group gap={6}>
-        <Tooltip label="Сетка (G)" position="bottom">
-          <ActionIcon
-            variant={showGrid ? 'light' : 'subtle'}
-            color={showGrid ? 'blue' : 'gray'}
-            onClick={toggleGrid}
-          >
-            <Grid size={16} />
-          </ActionIcon>
-        </Tooltip>
-
-        <Tooltip label="Размерные цепочки" position="bottom">
-          <ActionIcon
-            variant={showDimensions ? 'light' : 'subtle'}
-            color={showDimensions ? 'blue' : 'gray'}
-            onClick={toggleDimensions}
-          >
-            <Ruler size={16} />
-          </ActionIcon>
-        </Tooltip>
-
-        <Divider orientation="vertical" />
-
-        <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom - 0.1)}>
-          <ZoomOut size={16} />
-        </ActionIcon>
-        <Text size="xs" c="dimmed" style={{ minWidth: 45, textAlign: 'center' }}>
-          {Math.round(zoom * 100)}%
-        </Text>
-        <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom + 0.1)}>
-          <ZoomIn size={16} />
-        </ActionIcon>
-        <Tooltip label="Центрировать вид" position="bottom">
-          <ActionIcon variant="subtle" color="gray" onClick={resetView}>
-            <Maximize2 size={16} />
-          </ActionIcon>
-        </Tooltip>
-      </Group>
-    </Group>
+      {/* Модальное окно каталога AllWall */}
+      <AllWallCatalogModal opened={catalogOpened} onClose={() => setCatalogOpened(false)} />
+    </>
   );
 };

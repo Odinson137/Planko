@@ -3,6 +3,7 @@ import {
   Stack,
   Title,
   NumberInput,
+  TextInput,
   Select,
   SegmentedControl,
   Divider,
@@ -20,7 +21,6 @@ import {
   Box,
 } from '@mantine/core';
 import {
-  RotateCcw,
   Split,
   Columns2,
   Ban,
@@ -32,11 +32,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Link,
+  Search,
 } from 'lucide-react';
 import { useProjectStore, JointPreset } from '../../../application/stores/useProjectStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
-import { ProfileType } from '../../../core/models/Profile';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
+import { findDecorByCode } from '../../../core/models/AllWallCatalog';
 
 export const RightSidebar: React.FC = () => {
   const {
@@ -52,8 +53,6 @@ export const RightSidebar: React.FC = () => {
     selectJoint,
     selectWallBend,
     updateWallDimensions,
-    setWallMaterial,
-    setWallJointProfile,
     updateOpening,
     removeOpening,
     updateWallBend,
@@ -71,11 +70,10 @@ export const RightSidebar: React.FC = () => {
     setJointPreset,
     updatePanelConfig,
     updatePanelSegment,
-    setCellMaterial,
+    setCellProperties,
     clearCellMaterial,
     splitPanelHorizontally,
     splitColumnVertically,
-    resetPanelConfig,
   } = useProjectStore();
 
   const selectedWallId = project.selectedWallId;
@@ -1033,70 +1031,270 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color="#2C2E33" />
 
-            {/* Быстрые кнопки назначения материала */}
-            <div>
-              <Text size="xs" mb={6} c="dimmed">
-                Материал плиты:
-              </Text>
-              <Group gap={4} grow>
-                <Button
-                  size="compact-xs"
-                  variant={selectedPanelMaterialId === 'mat-sheet-1220' ? 'filled' : 'default'}
-                  color="blue"
-                  onClick={() =>
-                    setCellMaterial(
-                      currentWall.id,
-                      selectedColumnIndex,
-                      activeSegmentIndex,
-                      'mat-sheet-1220'
-                    )
-                  }
-                >
-                  Лист
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant={selectedPanelMaterialId === 'mat-slat-16' ? 'filled' : 'default'}
-                  color="orange"
-                  onClick={() =>
-                    setCellMaterial(
-                      currentWall.id,
-                      selectedColumnIndex,
-                      activeSegmentIndex,
-                      'mat-slat-16'
-                    )
-                  }
-                >
-                  Рейка 16
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant={selectedPanelMaterialId === 'mat-slat-15' ? 'filled' : 'default'}
-                  color="yellow"
-                  onClick={() =>
-                    setCellMaterial(
-                      currentWall.id,
-                      selectedColumnIndex,
-                      activeSegmentIndex,
-                      'mat-slat-15'
-                    )
-                  }
-                >
-                  Рейка 15
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant={isCellVoid ? 'filled' : 'subtle'}
-                  color="gray"
-                  leftSection={<Ban size={10} />}
-                  onClick={() =>
-                    clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex)
-                  }
-                >
-                  Пусто
-                </Button>
+            {/* 1. Габариты выбранной панели */}
+            {(() => {
+              const targetModel = project.materials.find((m) => m.id === selectedPanelMaterialId);
+              const maxAllowedWidth = targetModel && !targetModel.isVoid ? targetModel.width : currentWall.width;
+              const maxAllowedHeight = targetModel && !targetModel.isVoid ? targetModel.height : currentWall.height;
+
+              return (
+                <Stack gap="xs">
+                  <Group justify="space-between" align="center">
+                    <Text size="xs" fw={600} c="dimmed">
+                      Габариты плиты:
+                    </Text>
+                    <Badge size="xs" variant="outline" color="blue">
+                      {selectedPanelWidth} × {selectedPanelHeight} мм
+                    </Badge>
+                  </Group>
+
+                  <Group grow gap="xs">
+                    <NumberInput
+                      size="xs"
+                      label="Ширина (мм)"
+                      description={targetModel && !targetModel.isVoid ? `макс. физический лист: ${maxAllowedWidth} мм` : undefined}
+                      value={selectedPanelWidth || ''}
+                      clampBehavior="blur"
+                      allowNegative={false}
+                      allowDecimal={false}
+                      min={50}
+                      max={10000}
+                      step={10}
+                      onChange={(val) => {
+                        if (selectedColumnIndex === null) return;
+                        const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
+                        const clamped = Math.min(10000, num);
+                        updatePanelConfig(currentWall.id, selectedColumnIndex, {
+                          customWidth: clamped,
+                        });
+                      }}
+                    />
+                    <NumberInput
+                      size="xs"
+                      label="Высота (мм)"
+                      description={targetModel && !targetModel.isVoid ? `макс. физический лист: ${maxAllowedHeight} мм` : undefined}
+                      value={selectedPanelHeight || ''}
+                      clampBehavior="blur"
+                      allowNegative={false}
+                      allowDecimal={false}
+                      min={50}
+                      max={10000}
+                      step={10}
+                      onChange={(val) => {
+                        if (selectedColumnIndex === null) return;
+                        const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
+                        const clamped = Math.min(10000, num);
+                        updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                          height: clamped,
+                        });
+                      }}
+                    />
+                  </Group>
+                </Stack>
+              );
+            })()}
+
+            <Divider color="#2C2E33" />
+
+            {/* Выбор модели панели AllWall */}
+            <Stack gap="xs">
+              <Group justify="space-between" align="center">
+                <Text size="xs" fw={600} c="dimmed">
+                  Модель панели AllWall:
+                </Text>
+                {isCellVoid && <Badge size="xs" color="gray">Пустота</Badge>}
               </Group>
-            </div>
+
+              <Select
+                size="xs"
+                value={selectedPanelMaterialId}
+                onChange={(val) => {
+                  if (!val) return;
+                  if (val === MATERIAL_NONE_ID) {
+                    clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex);
+                    return;
+                  }
+                  const chosenModel = project.materials.find((m) => m.id === val);
+                  const firstDecor = chosenModel?.availableDecors?.[0];
+                  setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                    materialId: val,
+                    customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
+                    customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
+                    customDecorCode: firstDecor?.code || chosenModel?.decorCode || '',
+                    customTextureCategory: chosenModel?.textureCategory || 'WOOD',
+                    customReliefType: chosenModel?.reliefType || 'FLAT',
+                  });
+                }}
+                data={[
+                  {
+                    group: 'Сплошные панели AllWall',
+                    items: project.materials
+                      .filter((m) => m.type === 'SHEET' && !m.isVoid)
+                      .map((m) => ({ value: m.id, label: `📄 ${m.name}` })),
+                  },
+                  {
+                    group: 'Реечные панели GW10–GW99',
+                    items: project.materials
+                      .filter((m) => m.type === 'SLAT' && !m.isVoid)
+                      .map((m) => ({ value: m.id, label: `🪵 ${m.name}` })),
+                  },
+                  {
+                    group: 'HQ-панели (Глянец & Золото)',
+                    items: project.materials
+                      .filter((m) => m.type === 'HQ' && !m.isVoid)
+                      .map((m) => ({ value: m.id, label: `✨ ${m.name}` })),
+                  },
+                  {
+                    group: 'Специальные зоны',
+                    items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
+                  },
+                ]}
+                styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
+              />
+            </Stack>
+
+            {!isCellVoid && (
+              <>
+                {/* 2. Выбор толщины панели (только из доступных для этой модели) */}
+                {(() => {
+                  const targetMat = project.materials.find((m) => m.id === selectedPanelMaterialId);
+                  const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
+                    ? targetMat.thicknessOptions
+                    : [targetMat?.thickness || 5];
+                  const currentThick = selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
+
+                  return (
+                    <Stack gap={4}>
+                      <Group justify="space-between" align="center">
+                        <Text size="xs" fw={600} c="dimmed">
+                          Толщина панели:
+                        </Text>
+                        <Badge size="xs" color="blue" variant="light">
+                          {currentThick} мм
+                        </Badge>
+                      </Group>
+
+                      {thicknessOpts.length > 1 ? (
+                        <SegmentedControl
+                          size="xs"
+                          value={String(currentThick)}
+                          onChange={(val) =>
+                            setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                              customThickness: Number(val),
+                            })
+                          }
+                          data={thicknessOpts.map((t) => ({ label: `${t} мм`, value: String(t) }))}
+                        />
+                      ) : (
+                        <Paper p={6} radius="sm" style={{ backgroundColor: '#1A1B1E', border: '1px solid #2C2E33' }}>
+                          <Text size="xs" c="dimmed">
+                            Фиксированная глубина профиля: <strong style={{ color: '#74C0FC' }}>{thicknessOpts[0]} мм</strong>
+                          </Text>
+                        </Paper>
+                      )}
+                    </Stack>
+                  );
+                })()}
+
+                {/* 3. Декор и цвет AllWall (ввод заводского кода + свотчи) */}
+                {(() => {
+                  const targetMat = project.materials.find((m) => m.id === selectedPanelMaterialId);
+                  const decorsList = targetMat?.availableDecors || [];
+                  const activeColor = selectedSegment?.customColor || selectedCustomPanel?.customColor || targetMat?.color || '#d6cbbe';
+                  const activeCode = selectedSegment?.customDecorCode || selectedCustomPanel?.customDecorCode || targetMat?.decorCode || '';
+
+                  return (
+                    <Stack gap="xs">
+                      <Group justify="space-between" align="center">
+                        <Text size="xs" fw={600} c="dimmed">
+                          Декор и цвет AllWall:
+                        </Text>
+                        {activeCode && (
+                          <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
+                            {activeCode}
+                          </Badge>
+                        )}
+                      </Group>
+
+                      {/* Быстрый ввод заводского кода AllWall */}
+                      <TextInput
+                        size="xs"
+                        placeholder="Введите код декора AllWall (напр: 7029, 5134, RY8056)..."
+                        value={activeCode}
+                        onChange={(e) => {
+                          const val = e.currentTarget.value.trim();
+                          const found = findDecorByCode(val);
+                          setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            customDecorCode: val,
+                            ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
+                          });
+                        }}
+                        leftSection={<Search size={14} />}
+                        styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' } }}
+                      />
+
+                      {/* Свотчи декоров AllWall */}
+                      {decorsList.length > 0 && (
+                        <div>
+                          <Text size="xs" c="dimmed" mb={4}>
+                            Фирменная палитра модели ({decorsList.length}):
+                          </Text>
+                          <Group gap={6} style={{ flexWrap: 'wrap' }}>
+                            {decorsList.map((decor) => {
+                              const isSelected = activeCode === decor.code || activeColor.toLowerCase() === decor.color.toLowerCase();
+                              return (
+                                <Tooltip
+                                  key={decor.code}
+                                  label={
+                                    <div style={{ textAlign: 'center' }}>
+                                      <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
+                                        {decor.code}
+                                      </Badge>
+                                      <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
+                                    </div>
+                                  }
+                                  withArrow
+                                >
+                                  <div
+                                    onClick={() =>
+                                      setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                                        customColor: decor.color,
+                                        customDecorCode: decor.code,
+                                        customTextureCategory: decor.category,
+                                      })
+                                    }
+                                    style={{
+                                      cursor: 'pointer',
+                                      padding: 2,
+                                      borderRadius: '50%',
+                                      border: isSelected ? '2px solid #339af0' : '2px solid transparent',
+                                      transform: isSelected ? 'scale(1.2)' : 'scale(1)',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <ColorSwatch color={decor.color} size={18} />
+                                  </div>
+                                </Tooltip>
+                              );
+                            })}
+                          </Group>
+                        </div>
+                      )}
+                    </Stack>
+                  );
+                })()}
+              </>
+            )}
+
+            <Button
+              size="xs"
+              variant={isCellVoid ? 'filled' : 'subtle'}
+              color="gray"
+              leftSection={<Ban size={12} />}
+              onClick={() => clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex)}
+            >
+              {isCellVoid ? 'Сделать активной плитой' : 'Убрать материал (Сделать пустотой)'}
+            </Button>
 
             {/* ТЕХНОЛОГИЧЕСКАЯ КАРТА ГИБКИ ЛИСТА (ЧПУ / КЕРФ-ПРОПИЛЫ) */}
             {actualPanelPiece?.bendsInfo && actualPanelPiece.bendsInfo.length > 0 && (
@@ -1295,18 +1493,6 @@ export const RightSidebar: React.FC = () => {
                 Разрез по верт.
               </Button>
             </Group>
-
-            {selectedCustomPanel && (
-              <Button
-                size="xs"
-                variant="subtle"
-                color="gray"
-                leftSection={<RotateCcw size={12} />}
-                onClick={() => resetPanelConfig(currentWall.id, selectedColumnIndex)}
-              >
-                Сбросить колонку к стандарту
-              </Button>
-            )}
           </Stack>
         </ScrollArea>
       </Stack>
@@ -1383,64 +1569,6 @@ export const RightSidebar: React.FC = () => {
               }
             />
           </Group>
-
-          <Divider color="#2C2E33" />
-
-          {/* Базовый материал стены */}
-          <Title order={6} size="xs" c="dimmed">
-            Основной материал покрытия
-          </Title>
-
-          <Select
-            size="xs"
-            label="Материал по умолчанию"
-            value={currentWall.zone.materialId}
-            onChange={(val) => val && setWallMaterial(currentWall.id, val)}
-            data={project.materials.map((mat) => ({
-              value: mat.id,
-              label: mat.name,
-            }))}
-          />
-
-          {currentMaterial && (
-            <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
-              <Group gap="xs">
-                <ColorSwatch color={currentMaterial.color} size={18} />
-                <div>
-                  <Text size="xs" fw={500}>
-                    {currentMaterial.type === 'SHEET' ? 'Лист' : (currentMaterial.type === 'SLAT' ? 'Рейка' : 'Без отделки')}: {currentMaterial.width}×{currentMaterial.height} мм
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Толщина: {currentMaterial.thickness} мм
-                  </Text>
-                </div>
-              </Group>
-            </Paper>
-          )}
-
-          <Divider color="#2C2E33" />
-
-          {/* Базовый профиль швов */}
-          <Title order={6} size="xs" c="dimmed">
-            Швы и профили по умолчанию
-          </Title>
-
-          <div>
-            <Text size="xs" mb={4} c="dimmed">
-              Шов между панелями:
-            </Text>
-            <SegmentedControl
-              size="xs"
-              fullWidth
-              value={currentWall.zone.jointProfileType || 'JOINT_8'}
-              onChange={(val) => setWallJointProfile(currentWall.id, val as ProfileType)}
-              data={[
-                { label: '8 мм (Стандарт)', value: 'JOINT_8' },
-                { label: '0.8 мм', value: 'H_JOINT' },
-                { label: 'LED 10 мм', value: 'LED_10' },
-              ]}
-            />
-          </div>
 
           <Divider color="#2C2E33" />
 

@@ -422,21 +422,22 @@ export const Axonometric3DView: React.FC = () => {
       const pEndS = panel.x + panel.width;
 
       if (isSlat) {
-        // Реечные ламели
-        const slatWidth = 145;
+        // Реечные ламели AllWall (GW90 волна, GW30 желоб, GW10..GW68)
+        const slatThick = panel.thickness || 15;
+        const slatWidth = panel.width > 200 ? 50 : Math.max(30, Math.floor(panel.width / (panel.reliefType === 'WAVE_GW90' ? 4 : 3)));
         const count = Math.max(1, Math.floor(panel.width / slatWidth));
 
         for (let i = 0; i < count; i++) {
           const s0 = pStartS + i * slatWidth;
-          const s1 = Math.min(pEndS, s0 + slatWidth - 8);
+          const s1 = Math.min(pEndS, s0 + slatWidth - 4);
 
-          const p0 = project3D(getPointAtS(s0, yBot, -16), cx, cy, scale);
-          const p1 = project3D(getPointAtS(s1, yBot, -16), cx, cy, scale);
-          const p2 = project3D(getPointAtS(s1, yTop, -16), cx, cy, scale);
-          const p3 = project3D(getPointAtS(s0, yTop, -16), cx, cy, scale);
+          const p0 = project3D(getPointAtS(s0, yBot, -slatThick), cx, cy, scale);
+          const p1 = project3D(getPointAtS(s1, yBot, -slatThick), cx, cy, scale);
+          const p2 = project3D(getPointAtS(s1, yTop, -slatThick), cx, cy, scale);
+          const p3 = project3D(getPointAtS(s0, yTop, -slatThick), cx, cy, scale);
 
-          ctx.fillStyle = '#6b4b32';
-          ctx.strokeStyle = '#3e2a1b';
+          ctx.fillStyle = adjustBrightness(baseColor, 0.95);
+          ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(p0.x, p0.y);
@@ -453,7 +454,7 @@ export const Axonometric3DView: React.FC = () => {
           const pt2 = project3D(getPointAtS(s1, yTop, 0), cx, cy, scale);
           const pt3 = project3D(getPointAtS(s0, yTop, 0), cx, cy, scale);
 
-          ctx.fillStyle = '#8b6443';
+          ctx.fillStyle = adjustBrightness(baseColor, 1.08);
           ctx.beginPath();
           ctx.moveTo(pt0.x, pt0.y);
           ctx.lineTo(pt1.x, pt1.y);
@@ -464,7 +465,7 @@ export const Axonometric3DView: React.FC = () => {
         }
       } else {
         // Листовые панели (разбиваем на фасеты на участках изгибов)
-        // Собираем ключевые точки s вдоль ширины панели
+        const thisPanelThick = isVoid ? 0 : (panel.thickness || 5);
         const slicePoints: number[] = [pStartS];
 
         pathSections.forEach((sec) => {
@@ -491,10 +492,10 @@ export const Axonometric3DView: React.FC = () => {
           const s1 = sortedSlices[i + 1];
           if (s1 - s0 <= 0.5) continue;
 
-          const p0 = project3D(getPointAtS(s0, yBot, -panelThick), cx, cy, scale);
-          const p1 = project3D(getPointAtS(s1, yBot, -panelThick), cx, cy, scale);
-          const p2 = project3D(getPointAtS(s1, yTop, -panelThick), cx, cy, scale);
-          const p3 = project3D(getPointAtS(s0, yTop, -panelThick), cx, cy, scale);
+          const p0 = project3D(getPointAtS(s0, yBot, -thisPanelThick), cx, cy, scale);
+          const p1 = project3D(getPointAtS(s1, yBot, -thisPanelThick), cx, cy, scale);
+          const p2 = project3D(getPointAtS(s1, yTop, -thisPanelThick), cx, cy, scale);
+          const p3 = project3D(getPointAtS(s0, yTop, -thisPanelThick), cx, cy, scale);
 
           // Проверяем, находится ли этот срез внутри сгиба
           const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);

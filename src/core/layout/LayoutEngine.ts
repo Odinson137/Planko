@@ -14,6 +14,11 @@ export interface CalculatedPanelPiece {
   materialId: string;
   materialColor: string;
   materialType: string;
+  decorCode?: string;
+  decorName?: string;
+  thickness?: number;
+  reliefType?: string;
+  textureCategory?: string;
   partLabel: string;  // метка '1.1', '1.2' или 'ПУСТО'
   radiusConfig?: RadiusConfig; // обратная совместимость
   arcLength?: number;          // длина развертки дуги в мм
@@ -206,16 +211,19 @@ export class LayoutEngine {
         (customConfig?.customMaterialId && materialsMap.get(customConfig.customMaterialId)) ||
         defaultMaterial;
 
-      let baseWidth = columnMaterial.isVoid ? 1220 : columnMaterial.width;
+      let baseWidth = columnMaterial.isVoid ? (maxX - currentX) : columnMaterial.width;
       let arcLength: number | undefined = undefined;
 
       if (customConfig?.radiusConfig) {
         const rad = customConfig.radiusConfig.radius;
         const angle = customConfig.radiusConfig.angleDeg ?? (customConfig.radiusConfig.type === 'ARCH_VAULT' ? 180 : 90);
         arcLength = Math.round((Math.PI * rad * angle) / 180);
-        baseWidth = Math.min(arcLength, columnMaterial.width);
+        baseWidth = columnMaterial.isVoid ? arcLength : Math.min(arcLength, columnMaterial.width);
       } else if (customConfig?.customWidth !== undefined) {
-        baseWidth = Math.min(customConfig.customWidth, columnMaterial.width);
+        // Для пустоты (isVoid) нет ограничений по максимальной ширине материала
+        baseWidth = columnMaterial.isVoid
+          ? customConfig.customWidth
+          : Math.min(customConfig.customWidth, columnMaterial.width);
       }
 
       const panelWidth = Math.min(baseWidth, Math.max(0, maxX - currentX));
@@ -253,9 +261,10 @@ export class LayoutEngine {
           columnMaterial;
 
         const isVoid = segMaterial.id === MATERIAL_NONE_ID || segMaterial.isVoid === true;
+        const maxAllowedH = isVoid ? (maxY - currentY) : segMaterial.height;
         const rawHeight = segConfig?.height !== undefined
-          ? Math.min(segConfig.height, segMaterial.height, maxY - currentY)
-          : Math.min(segMaterial.height, maxY - currentY);
+          ? Math.min(segConfig.height, maxAllowedH, maxY - currentY)
+          : Math.min(maxAllowedH, maxY - currentY);
         const segmentHeight = Math.min(rawHeight, Math.max(0, maxY - currentY));
 
         if (segmentHeight <= 0.5) {
@@ -364,8 +373,15 @@ export class LayoutEngine {
           originalColumnIndex: columnIndex,
           originalSegmentIndex: segmentIndex,
           materialId: segMaterial.id,
-          materialColor: isVoid ? 'rgba(30, 31, 35, 0.45)' : segMaterial.color,
+          materialColor: isVoid
+            ? 'rgba(30, 31, 35, 0.45)'
+            : (segConfig?.customColor || customConfig?.customColor || segMaterial.color),
           materialType: segMaterial.type,
+          decorCode: segConfig?.customDecorCode || customConfig?.customDecorCode || segMaterial.decorCode,
+          decorName: segMaterial.decorName,
+          thickness: isVoid ? 0 : (segConfig?.customThickness || customConfig?.customThickness || segMaterial.thickness),
+          reliefType: segConfig?.customReliefType || customConfig?.customReliefType || segMaterial.reliefType || 'FLAT',
+          textureCategory: segConfig?.customTextureCategory || customConfig?.customTextureCategory || segMaterial.textureCategory || 'FABRIC',
           partLabel: defaultLabel,
           radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
           arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,

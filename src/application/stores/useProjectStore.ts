@@ -3,7 +3,8 @@ import { Project, createDefaultProject } from '../../core/models/Project';
 import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType } from '../../core/models/Profile';
-import { MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
+import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
+import { SlatProfileShape } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
@@ -34,8 +35,8 @@ interface ProjectState {
   selectedCellKeys: string[];
   selectedPieceIds: string[];
   selectedJointId: string | null;
-  selectedJointIds: string[]; // Поддержка мульти-выбора швов через Shift
-  selectedWallBendId: string | null; // Выбранная зона изгиба на стене
+  selectedJointIds: string[];
+  selectedWallBendId: string | null;
 
   // Выбор
   selectWall: (wallId: string) => void;
@@ -64,6 +65,11 @@ interface ProjectState {
   setWallMaterial: (wallId: string, materialId: string) => void;
   setWallJointProfile: (wallId: string, profileType: ProfileType) => void;
 
+  // Управление каталогом материалов AllWall
+  addCustomCatalogPanel: (panel: Material) => void;
+  updateCatalogPanel: (panelId: string, updates: Partial<Material>) => void;
+  deleteCatalogPanel: (panelId: string) => void;
+
   // Управление кликабельными стыками и краями
   setJointWidth: (wallId: string, jointId: string, width: number) => void;
   setJointLED: (wallId: string, jointId: string, isLED: boolean) => void;
@@ -71,6 +77,19 @@ interface ProjectState {
 
   // Управление ячейками сетки (материалы, размеры, пустоты)
   setCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number, materialId: string) => void;
+  setCellProperties: (
+    wallId: string,
+    columnIndex: number,
+    segmentIndex: number,
+    properties: {
+      materialId?: string;
+      customThickness?: number;
+      customColor?: string;
+      customDecorCode?: string;
+      customTextureCategory?: string;
+      customReliefType?: SlatProfileShape;
+    }
+  ) => void;
   clearCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number) => void;
   updatePanelConfig: (wallId: string, columnIndex: number, config: Partial<CustomPanelConfig>) => void;
   updatePanelSegment: (wallId: string, columnIndex: number, segmentIndex: number, config: Partial<PanelSegmentConfig>) => void;
@@ -93,209 +112,350 @@ interface ProjectState {
 }
 
 /**
- * Разделяет широкую колонку на отдельные колонки-рейки заданной ширины (по умолчанию 145 мм).
+ * Автоматически разделяет широкую колонку (или пустоту) на отдельные панели заданной ширины материала (например, 3000 -> 3 по 1000, 1000 -> 10 по 100)
  */
-function splitColumnIntoSlats(
+function splitColumnIntoPieces(
   customPanels: Record<number, CustomPanelConfig>,
+  customJoints: Record<string, JointEdgeConfig>,
   columnIndex: number,
   columnWidth: number,
-  slatMaterialId: string,
-  slatWidth: number = 145,
+  targetMaterial: Material,
+  decorCode?: string,
+  customColor?: string,
+  customTextureCategory?: string,
+  customReliefType?: SlatProfileShape,
   jointGap: number = 8
-): Record<number, CustomPanelConfig> {
-  const result: Record<number, CustomPanelConfig> = {};
+): {
+  customPanels: Record<number, CustomPanelConfig>;
+  customJoints: Record<string, JointEdgeConfig>;
+} {
+  const stepWidth = targetMaterial.width;
+  if (!stepWidth || stepWidth <= 0 || columnWidth <= stepWidth + 5) {
+    const resultPanels = { ...customPanels };
+    resultPanels[columnIndex] = {
+      ...(customPanels[columnIndex] || { columnIndex }),
+      customMaterialId: targetMaterial.id,
+      customWidth: columnWidth,
+      customThickness: targetMaterial.thickness,
+      customColor: customColor || targetMaterial.color,
+      customDecorCode: decorCode || targetMaterial.decorCode,
+      customTextureCategory: customTextureCategory || targetMaterial.textureCategory,
+      customReliefType: customReliefType || targetMaterial.reliefType,
+    };
+    return {
+      customPanels: resultPanels,
+      customJoints,
+    };
+  }
 
-  // 1. Копируем все колонки левее выбранной
-  for (let i = 0; i < columnIndex; i++) {
-    if (customPanels[i]) {
-      result[i] = { ...customPanels[i], columnIndex: i };
+  // 1. Рассчитываем количество и ширины нарезанных панелей
+  const pieceWidths: number[] = [];
+  let remainingW = columnWidth;
+
+  while (remainingW > 0.5) {
+    const w = Math.min(stepWidth, remainingW);
+    pieceWidths.push(Math.round(w));
+    remainingW -= w;
+    if (remainingW > 0) {
+      remainingW -= jointGap;
     }
   }
 
-  // 2. Рассчитываем количество и ширины реек, помещающихся в ширину исходной колонки
-  const slatColumns: CustomPanelConfig[] = [];
-  let remainingW = columnWidth;
-  while (remainingW > 0.5) {
-    const w = Math.min(slatWidth, remainingW);
-    slatColumns.push({
-      columnIndex: 0,
-      customWidth: Math.round(w),
-      customMaterialId: slatMaterialId,
-      segments: [],
-    });
-    remainingW -= w + (remainingW > slatWidth ? jointGap : 0);
+  if (pieceWidths.length <= 1) {
+    pieceWidths.length = 0;
+    pieceWidths.push(columnWidth);
   }
 
-  if (slatColumns.length === 0) {
-    slatColumns.push({
-      columnIndex: 0,
-      customWidth: slatWidth,
-      customMaterialId: slatMaterialId,
-      segments: [],
-    });
-  }
+  const numNew = pieceWidths.length;
+  const numAdded = numNew - 1;
 
-  slatColumns.forEach((col, idx) => {
-    result[columnIndex + idx] = {
-      ...col,
-      columnIndex: columnIndex + idx,
+  const resultPanels: Record<number, CustomPanelConfig> = {};
+  const resultJoints: Record<string, JointEdgeConfig> = {};
+
+  // 2. Копируем колонки до columnIndex и сдвигаем колонки после columnIndex
+  Object.entries(customPanels).forEach(([kStr, conf]) => {
+    const k = Number(kStr);
+    if (k < columnIndex) {
+      resultPanels[k] = { ...conf, columnIndex: k };
+    } else if (k > columnIndex) {
+      resultPanels[k + numAdded] = {
+        ...conf,
+        columnIndex: k + numAdded,
+      };
+    }
+  });
+
+  // 3. Добавляем новые нарезанные панели
+  pieceWidths.forEach((w, idx) => {
+    const targetIdx = columnIndex + idx;
+    resultPanels[targetIdx] = {
+      columnIndex: targetIdx,
+      customWidth: w,
+      customMaterialId: targetMaterial.id,
+      customThickness: targetMaterial.thickness,
+      customColor: customColor || targetMaterial.color,
+      customDecorCode: decorCode || targetMaterial.decorCode,
+      customTextureCategory: customTextureCategory || targetMaterial.textureCategory,
+      customReliefType: customReliefType || targetMaterial.reliefType,
+      segments: [],
     };
   });
 
-  // 3. Сдвигаем все колонки правее выбранной
-  const shiftAmount = Math.max(0, slatColumns.length - 1);
-  const oldCols = Object.keys(customPanels)
-    .map(Number)
-    .filter((k) => k > columnIndex)
-    .sort((a, b) => a - b);
+  // 4. Сдвигаем вертикальные стыки
+  Object.entries(customJoints).forEach(([jKey, jConfig]) => {
+    if (jKey.startsWith('edge-v-') && !jKey.includes('left') && !jKey.includes('right') && !jKey.includes('end')) {
+      const cIdx = Number(jKey.replace('edge-v-', ''));
+      if (!isNaN(cIdx)) {
+        if (cIdx < columnIndex) {
+          resultJoints[jKey] = jConfig;
+        } else if (cIdx > columnIndex) {
+          const newKey = `edge-v-${cIdx + numAdded}`;
+          resultJoints[newKey] = {
+            ...jConfig,
+            id: newKey,
+          };
+        }
+        return;
+      }
+    }
+    resultJoints[jKey] = jConfig;
+  });
 
-  for (const oldIdx of oldCols) {
-    result[oldIdx + shiftAmount] = {
-      ...customPanels[oldIdx],
-      columnIndex: oldIdx + shiftAmount,
+  // 5. Создаем швы между новыми нарезанными колонками
+  for (let idx = 0; idx < numAdded; idx++) {
+    const targetIdx = columnIndex + idx;
+    const jointKey = `edge-v-${targetIdx}`;
+    resultJoints[jointKey] = {
+      id: jointKey,
+      orientation: 'VERTICAL',
+      width: jointGap,
+      isLED: false,
     };
   }
 
-  return result;
+  return { customPanels: resultPanels, customJoints: resultJoints };
 }
 
 /**
  * Автоматически разделяет слишком широкую колонку на несколько колонок стандартной ширины листа (100 мм <= W <= maxSheetWidth)
+ * При превышении максимального размера (например, 1210 при max 1200) первая плита получает 1200, а справа создается плита мин. 100 мм.
  */
 function splitOversizedColumn(
   customPanels: Record<number, CustomPanelConfig>,
+  customJoints: Record<string, JointEdgeConfig>,
   columnIndex: number,
   requestedWidth: number,
   maxSheetWidth: number = 1220,
   jointGap: number = 8,
   minPieceWidth: number = 100
-): Record<number, CustomPanelConfig> {
-  const result: Record<number, CustomPanelConfig> = {};
+): { customPanels: Record<number, CustomPanelConfig>; customJoints: Record<string, JointEdgeConfig> } {
+  const pieceWidths: number[] = [];
+  let rem = requestedWidth;
 
-  // 1. Копируем все колонки левее выбранной
-  for (let i = 0; i < columnIndex; i++) {
-    if (customPanels[i]) {
-      result[i] = { ...customPanels[i], columnIndex: i };
+  while (rem > 0) {
+    if (rem <= maxSheetWidth) {
+      pieceWidths.push(Math.max(minPieceWidth, Math.round(rem)));
+      break;
+    } else {
+      pieceWidths.push(maxSheetWidth);
+      rem -= maxSheetWidth + jointGap;
+      if (rem <= 0) {
+        pieceWidths.push(minPieceWidth);
+        break;
+      }
     }
   }
 
-  // 2. Рассчитываем количество и ширины листов с гарантией мин. размера >= 100 мм
-  const totalW = Math.max(minPieceWidth, requestedWidth);
-  const sheetColumns: CustomPanelConfig[] = [];
+  if (pieceWidths.length <= 1) {
+    pieceWidths.length = 0;
+    pieceWidths.push(Math.max(minPieceWidth, Math.min(maxSheetWidth, requestedWidth)));
+  }
+
+  const numNew = pieceWidths.length;
+  const numAdded = numNew - 1;
+
+  const resultPanels: Record<number, CustomPanelConfig> = {};
+  const resultJoints: Record<string, JointEdgeConfig> = {};
+
   const origCustom = customPanels[columnIndex] || { columnIndex };
 
-  let numPieces = Math.ceil((totalW + jointGap) / (maxSheetWidth + jointGap));
-  if (numPieces < 1) numPieces = 1;
-
-  let remainingW = totalW;
-  const pieceWidths: number[] = [];
-
-  for (let p = 0; p < numPieces; p++) {
-    const piecesLeft = numPieces - p;
-    if (piecesLeft === 1) {
-      pieceWidths.push(Math.max(minPieceWidth, Math.round(remainingW)));
-    } else {
-      const minNeededForRest = (piecesLeft - 1) * (minPieceWidth + jointGap);
-      let w = Math.min(maxSheetWidth, remainingW - minNeededForRest);
-      w = Math.max(minPieceWidth, Math.round(w));
-      pieceWidths.push(w);
-      remainingW -= w + jointGap;
+  // 1. Копируем колонки левее columnIndex и сдвигаем правее
+  Object.entries(customPanels).forEach(([kStr, conf]) => {
+    const k = Number(kStr);
+    if (k < columnIndex) {
+      resultPanels[k] = { ...conf, columnIndex: k };
+    } else if (k > columnIndex) {
+      resultPanels[k + numAdded] = {
+        ...conf,
+        columnIndex: k + numAdded,
+      };
     }
-  }
+  });
 
-  pieceWidths.forEach((w) => {
-    sheetColumns.push({
+  // 2. Добавляем новые нарезанные колонки
+  pieceWidths.forEach((w, idx) => {
+    const targetIdx = columnIndex + idx;
+    resultPanels[targetIdx] = {
       ...origCustom,
-      columnIndex: 0,
+      columnIndex: targetIdx,
       customWidth: w,
-      segments: origCustom.segments ? [...origCustom.segments] : undefined,
-    });
-  });
-
-  sheetColumns.forEach((col, idx) => {
-    result[columnIndex + idx] = {
-      ...col,
-      columnIndex: columnIndex + idx,
+      segments: origCustom.segments
+        ? origCustom.segments.map((s) => ({ ...s, id: `seg-${Date.now()}-${targetIdx}-${s.id}` }))
+        : undefined,
     };
   });
 
-  // 3. Сдвигаем все последующие колонки вправо на shiftAmount
-  const shiftAmount = Math.max(0, sheetColumns.length - 1);
-  const oldCols = Object.keys(customPanels)
-    .map(Number)
-    .filter((k) => k > columnIndex)
-    .sort((a, b) => a - b);
+  // 3. Сдвигаем вертикальные и горизонтальные стыки
+  Object.entries(customJoints).forEach(([jKey, jConfig]) => {
+    if (jKey.startsWith('edge-v-') && !jKey.includes('left') && !jKey.includes('right') && !jKey.includes('end')) {
+      const cIdx = Number(jKey.replace('edge-v-', ''));
+      if (!isNaN(cIdx)) {
+        if (cIdx < columnIndex) {
+          resultJoints[jKey] = jConfig;
+        } else if (cIdx >= columnIndex) {
+          const newKey = `edge-v-${cIdx + numAdded}`;
+          resultJoints[newKey] = {
+            ...jConfig,
+            id: newKey,
+          };
+        }
+        return;
+      }
+    }
 
-  for (const oldIdx of oldCols) {
-    result[oldIdx + shiftAmount] = {
-      ...customPanels[oldIdx],
-      columnIndex: oldIdx + shiftAmount,
+    if (jKey.startsWith('edge-h-') && !jKey.includes('top') && !jKey.includes('bot')) {
+      const parts = jKey.replace('edge-h-', '').split('-');
+      if (parts.length === 2) {
+        const cIdx = Number(parts[0]);
+        const sIdx = Number(parts[1]);
+        if (!isNaN(cIdx) && !isNaN(sIdx)) {
+          if (cIdx < columnIndex) {
+            resultJoints[jKey] = jConfig;
+          } else if (cIdx === columnIndex) {
+            resultJoints[jKey] = jConfig;
+            for (let i = 1; i <= numAdded; i++) {
+              const rightKey = `edge-h-${columnIndex + i}-${sIdx}`;
+              resultJoints[rightKey] = { ...jConfig, id: rightKey };
+            }
+          } else if (cIdx > columnIndex) {
+            const newKey = `edge-h-${cIdx + numAdded}-${sIdx}`;
+            resultJoints[newKey] = {
+              ...jConfig,
+              id: newKey,
+            };
+          }
+          return;
+        }
+      }
+    }
+
+    resultJoints[jKey] = jConfig;
+  });
+
+  // 4. Создаем швы между новыми нарезанными колонками
+  for (let idx = 0; idx < numAdded; idx++) {
+    const targetIdx = columnIndex + idx;
+    const jointKey = `edge-v-${targetIdx}`;
+    resultJoints[jointKey] = {
+      id: jointKey,
+      orientation: 'VERTICAL',
+      width: jointGap,
+      isLED: false,
     };
   }
 
-  return result;
+  return { customPanels: resultPanels, customJoints: resultJoints };
 }
 
 /**
  * Автоматически разделяет слишком высокий сегмент на несколько рядов (100 мм <= H <= maxSheetHeight)
+ * При превышении максимального размера (например, 2810 при max 2800) первый сегмент получает 2800, а сверху создается сегмент мин. 100 мм.
  */
 function splitOversizedSegment(
+  customJoints: Record<string, JointEdgeConfig>,
+  columnIndex: number,
   segments: PanelSegmentConfig[],
   segmentIndex: number,
   requestedHeight: number,
   maxSheetHeight: number = 2800,
   jointGap: number = 8,
   minPieceHeight: number = 100
-): PanelSegmentConfig[] {
-  const result: PanelSegmentConfig[] = [];
-
-  // 1. Копируем все сегменты ниже выбранного
-  for (let i = 0; i < segmentIndex; i++) {
-    if (segments[i]) {
-      result.push(segments[i]);
-    }
-  }
-
-  // 2. Рассчитываем высоты новых сегментов с гарантией мин. размера >= 100 мм
-  const totalH = Math.max(minPieceHeight, requestedHeight);
-  let numPieces = Math.ceil((totalH + jointGap) / (maxSheetHeight + jointGap));
-  if (numPieces < 1) numPieces = 1;
-
-  let remainingH = totalH;
+): { segments: PanelSegmentConfig[]; customJoints: Record<string, JointEdgeConfig> } {
   const pieceHeights: number[] = [];
+  let rem = requestedHeight;
 
-  for (let p = 0; p < numPieces; p++) {
-    const piecesLeft = numPieces - p;
-    if (piecesLeft === 1) {
-      pieceHeights.push(Math.max(minPieceHeight, Math.round(remainingH)));
+  while (rem > 0) {
+    if (rem <= maxSheetHeight) {
+      pieceHeights.push(Math.max(minPieceHeight, Math.round(rem)));
+      break;
     } else {
-      const minNeededForRest = (piecesLeft - 1) * (minPieceHeight + jointGap);
-      let h = Math.min(maxSheetHeight, remainingH - minNeededForRest);
-      h = Math.max(minPieceHeight, Math.round(h));
-      pieceHeights.push(h);
-      remainingH -= h + jointGap;
+      pieceHeights.push(maxSheetHeight);
+      rem -= maxSheetHeight + jointGap;
+      if (rem <= 0) {
+        pieceHeights.push(minPieceHeight);
+        break;
+      }
     }
   }
+
+  if (pieceHeights.length <= 1) {
+    pieceHeights.length = 0;
+    pieceHeights.push(Math.max(minPieceHeight, Math.min(maxSheetHeight, requestedHeight)));
+  }
+
+  const numNew = pieceHeights.length;
+  const numAdded = numNew - 1;
+
+  const resultSegments: PanelSegmentConfig[] = [];
+  const resultJoints: Record<string, JointEdgeConfig> = { ...customJoints };
 
   const origSeg = segments[segmentIndex] || { id: `seg-${Date.now()}-0` };
 
-  // 3. Вставляем новые сегменты
-  pieceHeights.forEach((h, offset) => {
-    result.push({
+  // 1. Копируем сегменты ниже segmentIndex
+  for (let i = 0; i < segmentIndex; i++) {
+    if (segments[i]) resultSegments.push(segments[i]);
+  }
+
+  // 2. Вставляем новые нарезанные сегменты
+  pieceHeights.forEach((h, idx) => {
+    resultSegments.push({
       ...origSeg,
-      id: offset === 0 ? origSeg.id : `seg-${Date.now()}-${segmentIndex + offset}`,
+      id: idx === 0 ? origSeg.id : `seg-${Date.now()}-${segmentIndex + idx}`,
       height: h,
     });
   });
 
-  // 4. Добавляем последующие сегменты выше выбранного
+  // 3. Копируем сегменты выше segmentIndex
   for (let i = segmentIndex + 1; i < segments.length; i++) {
-    if (segments[i]) {
-      result.push(segments[i]);
+    if (segments[i]) resultSegments.push(segments[i]);
+  }
+
+  // 4. Сдвигаем горизонтальные стыки этого столбца
+  for (let sIdx = segments.length - 1; sIdx >= segmentIndex; sIdx--) {
+    const oldKey = `edge-h-${columnIndex}-${sIdx}`;
+    const newKey = `edge-h-${columnIndex}-${sIdx + numAdded}`;
+    if (resultJoints[oldKey]) {
+      resultJoints[newKey] = {
+        ...resultJoints[oldKey],
+        id: newKey,
+      };
+      delete resultJoints[oldKey];
     }
   }
 
-  return result;
+  // 5. Создаем швы между новыми нарезанными сегментами
+  for (let idx = 0; idx < numAdded; idx++) {
+    const targetIdx = segmentIndex + idx;
+    const jointKey = `edge-h-${columnIndex}-${targetIdx}`;
+    resultJoints[jointKey] = {
+      id: jointKey,
+      orientation: 'HORIZONTAL',
+      width: jointGap,
+      isLED: false,
+    };
+  }
+
+  return { segments: resultSegments, customJoints: resultJoints };
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -826,19 +986,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           segConfig?.customMaterialId ||
           colConfig?.customMaterialId ||
           wall.zone.materialId ||
-          'mat-sheet-1220'
+          MATERIAL_NONE_ID
         );
       });
 
       const uniqueMaterials = Array.from(new Set(cellMaterials));
       const areMaterialsIdentical = uniqueMaterials.length === 1 && uniqueMaterials[0] !== MATERIAL_NONE_ID;
       const resultMaterialId = areMaterialsIdentical ? uniqueMaterials[0] : MATERIAL_NONE_ID;
-      const isVoidResult = resultMaterialId === MATERIAL_NONE_ID;
+      const isVoidResult = resultMaterialId === MATERIAL_NONE_ID || uniqueMaterials.every((m) => m === MATERIAL_NONE_ID || m === 'mat-none');
 
       // Габариты материала (для пустоты ограничений нет)
       const material = state.project.materials.find((m) => m.id === resultMaterialId);
-      const maxMatWidth = material && !material.isVoid ? material.width : 1220;
-      const maxMatHeight = material && !material.isVoid ? material.height : 2800;
+      const maxMatWidth = isVoidResult ? Infinity : (material && !material.isVoid ? material.width : 1220);
+      const maxMatHeight = isVoidResult ? Infinity : (material && !material.isVoid ? material.height : 2800);
 
       const uniqueColumns = Array.from(new Set(coords.map((c) => c.columnIndex))).sort((a, b) => a - b);
       const nextCustomPanels = { ...wall.customPanels };
@@ -872,11 +1032,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           segments.splice(minSegIdx, selectedSegIndices.length, {
             id: `seg-${Date.now()}-merged`,
             height: combinedHeight >= wall.height ? undefined : combinedHeight,
-            customMaterialId: resultMaterialId,
+            customMaterialId: isVoidResult ? MATERIAL_NONE_ID : resultMaterialId,
             partLabel: isVoidResult ? 'ПУСТО' : undefined,
           });
         } else {
-          // Материал превышает maxMatHeight (2800 мм): пакуем полные высоты + остаток
+          // Материал превышает maxMatHeight: пакуем полные высоты + остаток
           const newSegments: PanelSegmentConfig[] = [];
           let remH = combinedHeight;
           let segCount = 0;
@@ -932,30 +1092,76 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // СЛУЧАЙ 2: Выбраны смежные колонки (объединение по горизонтали)
       // =========================================================================
       const minColIdx = uniqueColumns[0];
+      const maxColIdx = uniqueColumns[uniqueColumns.length - 1];
+      const numRemoved = uniqueColumns.length - 1;
       let combinedWidth = 0;
 
       uniqueColumns.forEach((cIdx, i) => {
-        const colConfig = nextCustomPanels[cIdx];
-        const colW = colConfig?.customWidth ?? maxMatWidth;
-        const seamW = i < uniqueColumns.length - 1 ? (nextCustomJoints[`edge-v-${cIdx}`]?.width ?? standardSeam) : 0;
+        const colConfig = wall.customPanels[cIdx];
+        const colW = colConfig?.customWidth ?? 1220;
+        const seamW = i < uniqueColumns.length - 1 ? (wall.customJoints[`edge-v-${cIdx}`]?.width ?? standardSeam) : 0;
         combinedWidth += colW + seamW;
-
-        // Удаляем промежуточный вертикальный стык
-        delete nextCustomJoints[`edge-v-${cIdx}`];
       });
 
-      // Удаляем остальные объединенные колонки
-      for (let i = 1; i < uniqueColumns.length; i++) {
-        delete nextCustomPanels[uniqueColumns[i]];
-      }
-
       if (isVoidResult || combinedWidth <= maxMatWidth) {
-        // Пустота или укладывается в один лист: 1 целая колонка
-        nextCustomPanels[minColIdx] = {
+        // Пустота или укладывается в 1 лист: сдвигаем все последующие колонки
+        const shiftedPanels: Record<number, CustomPanelConfig> = {};
+        const shiftedJoints: Record<string, JointEdgeConfig> = {};
+
+        // 1. Колонки до minColIdx
+        Object.entries(wall.customPanels).forEach(([kStr, conf]) => {
+          const k = Number(kStr);
+          if (k < minColIdx) {
+            shiftedPanels[k] = conf;
+          } else if (k > maxColIdx) {
+            shiftedPanels[k - numRemoved] = {
+              ...conf,
+              columnIndex: k - numRemoved,
+            };
+          }
+        });
+
+        // 2. Новая объединенная колонка
+        shiftedPanels[minColIdx] = {
           columnIndex: minColIdx,
           customWidth: combinedWidth,
-          customMaterialId: resultMaterialId,
+          customMaterialId: isVoidResult ? MATERIAL_NONE_ID : resultMaterialId,
           segments: undefined,
+        };
+
+        // 3. Вертикальные стыки
+        Object.entries(wall.customJoints).forEach(([jKey, jConfig]) => {
+          if (jKey.startsWith('edge-v-') && !jKey.includes('left') && !jKey.includes('right') && !jKey.includes('end')) {
+            const cIdx = Number(jKey.replace('edge-v-', ''));
+            if (!isNaN(cIdx)) {
+              if (cIdx < minColIdx) {
+                shiftedJoints[jKey] = jConfig;
+              } else if (cIdx >= minColIdx && cIdx < maxColIdx) {
+                // Внутренний стык между объединяемыми колонками удален
+              } else if (cIdx >= maxColIdx) {
+                const newKey = `edge-v-${cIdx - numRemoved}`;
+                shiftedJoints[newKey] = {
+                  ...jConfig,
+                  id: newKey,
+                };
+              }
+              return;
+            }
+          }
+          shiftedJoints[jKey] = jConfig;
+        });
+
+        return {
+          selectedColumnIndex: minColIdx,
+          selectedSegmentIndex: 0,
+          selectedCellKeys: [`${minColIdx}-0`],
+          selectedPieceIds: [`panel-${minColIdx}-0`],
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: shiftedPanels, customJoints: shiftedJoints } : w
+            ),
+          },
         };
       } else {
         // Материал превышает maxMatWidth (1220 мм): пакуем максимальные листы + остаток
@@ -987,33 +1193,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           }
           colOffset++;
         }
+
+        return {
+          selectedColumnIndex: minColIdx,
+          selectedSegmentIndex: 0,
+          selectedCellKeys: [`${minColIdx}-0`],
+          selectedPieceIds: [`panel-${minColIdx}-0`],
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints } : w
+            ),
+          },
+        };
       }
-
-      return {
-        selectedColumnIndex: minColIdx,
-        selectedSegmentIndex: 0,
-        selectedCellKeys: [`${minColIdx}-0`],
-        selectedPieceIds: [`panel-${minColIdx}-0`],
-        project: {
-          ...state.project,
-          walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints } : w
-          ),
-        },
-      };
-
-      return {
-        selectedColumnIndex: minColIdx,
-        selectedSegmentIndex: 0,
-        selectedCellKeys: [`${minColIdx}-0`],
-        selectedPieceIds: [`panel-${minColIdx}-0`],
-        project: {
-          ...state.project,
-          walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints } : w
-          ),
-        },
-      };
     }),
 
   // МАССОВОЕ НАЗНАЧЕНИЕ МАТЕРИАЛА ВСЕМ ВЫБРАННЫМ БЛОКАМ
@@ -1027,8 +1220,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
 
       let nextCustomPanels = { ...wall.customPanels };
+      let nextCustomJoints = { ...wall.customJoints };
 
-      if (targetMaterial?.type === 'SLAT') {
+      if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
         const selectedColIndices = Array.from(
           new Set(state.selectedCellKeys.map((k) => Number(k.split('-')[0])))
         ).sort((a, b) => b - a); // Справа налево, чтобы сдвиги не сбивали индексы
@@ -1036,17 +1230,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         selectedColIndices.forEach((colIdx) => {
           const currentCustom = nextCustomPanels[colIdx];
           const currentWidth =
-            currentCustom?.customWidth ?? (wallMaterial.isVoid ? 1220 : wallMaterial.width);
+            currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
 
-          if (currentWidth > 150) {
-            nextCustomPanels = splitColumnIntoSlats(
+          if (currentWidth > targetMaterial.width + 10) {
+            const res = splitColumnIntoPieces(
               nextCustomPanels,
+              nextCustomJoints,
               colIdx,
               currentWidth,
-              materialId,
-              targetMaterial.width,
+              targetMaterial,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
               8
             );
+            nextCustomPanels = res.customPanels;
+            nextCustomJoints = res.customJoints;
           } else {
             nextCustomPanels[colIdx] = {
               ...(currentCustom || { columnIndex: colIdx }),
@@ -1063,7 +1263,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           project: {
             ...state.project,
             walls: state.project.walls.map((w) =>
-              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+              w.id === wallId
+                ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints }
+                : w
             ),
           },
         };
@@ -1319,16 +1521,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
       const currentCustom = wall.customPanels[columnIndex];
       const currentWidth =
-        currentCustom?.customWidth ?? (wallMaterial.isVoid ? 1220 : wallMaterial.width);
+        currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
 
-      // Если выбран реечный материал, а колонка широкая (> 150 мм) — разделяем колонку на отдельные рейки по 145 мм
-      if (targetMaterial?.type === 'SLAT' && currentWidth > 150) {
-        const nextCustomPanels = splitColumnIntoSlats(
+      if (
+        targetMaterial &&
+        !targetMaterial.isVoid &&
+        targetMaterial.width > 0 &&
+        currentWidth > targetMaterial.width + 10
+      ) {
+        const { customPanels: nextCustomPanels, customJoints: nextCustomJoints } = splitColumnIntoPieces(
           wall.customPanels,
+          wall.customJoints,
           columnIndex,
           currentWidth,
-          materialId,
-          targetMaterial.width,
+          targetMaterial,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
           8
         );
 
@@ -1340,7 +1550,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           project: {
             ...state.project,
             walls: state.project.walls.map((w) =>
-              w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+              w.id === wallId
+                ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints }
+                : w
             ),
           },
         };
@@ -1382,6 +1594,143 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     }),
 
+  addCustomCatalogPanel: (panel: Material) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        materials: [...state.project.materials, panel],
+      },
+    })),
+
+  updateCatalogPanel: (panelId: string, updates: Partial<Material>) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        materials: state.project.materials.map((m) =>
+          m.id === panelId ? { ...m, ...updates } : m
+        ),
+      },
+    })),
+
+  deleteCatalogPanel: (panelId: string) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        materials: state.project.materials.filter((m) => m.id !== panelId),
+      },
+    })),
+
+  setCellProperties: (
+    wallId: string,
+    columnIndex: number,
+    segmentIndex: number,
+    properties: {
+      materialId?: string;
+      customThickness?: number;
+      customColor?: string;
+      customDecorCode?: string;
+      customTextureCategory?: string;
+      customReliefType?: SlatProfileShape;
+    }
+  ) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      const currentCustom = wall.customPanels[columnIndex];
+      const wallMaterial =
+        state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
+      const currentWidth =
+        currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
+
+      const targetMaterial = properties.materialId
+        ? state.project.materials.find((m) => m.id === properties.materialId)
+        : undefined;
+
+      // Если новый материал имеет меньшую ширину, чем колонка (например, пустота 3000 -> плита 1000, или плита 1000 -> рейка 100) — автоматически разделяем колонку на плиты!
+      if (
+        targetMaterial &&
+        !targetMaterial.isVoid &&
+        targetMaterial.width > 0 &&
+        currentWidth > targetMaterial.width + 10
+      ) {
+        const { customPanels: nextPanels, customJoints: nextJoints } = splitColumnIntoPieces(
+          wall.customPanels,
+          wall.customJoints,
+          columnIndex,
+          currentWidth,
+          targetMaterial,
+          properties.customDecorCode,
+          properties.customColor,
+          properties.customTextureCategory,
+          properties.customReliefType,
+          8
+        );
+
+        return {
+          selectedColumnIndex: columnIndex,
+          selectedSegmentIndex: 0,
+          selectedCellKeys: [`${columnIndex}-0`],
+          selectedPieceIds: [`panel-${columnIndex}-0`],
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId
+                ? {
+                    ...w,
+                    customPanels: nextPanels,
+                    customJoints: nextJoints,
+                  }
+                : w
+            ),
+          },
+        };
+      }
+
+      const segments = [...(currentCustom?.segments || [])];
+      while (segments.length <= segmentIndex) {
+        segments.push({
+          id: `seg-${Date.now()}-${segments.length}`,
+          height: undefined,
+        });
+      }
+
+      segments[segmentIndex] = {
+        ...segments[segmentIndex],
+        ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+        ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+        ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+        ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+        ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+        ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+      };
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  customPanels: {
+                    ...w.customPanels,
+                    [columnIndex]: {
+                      ...(currentCustom || { columnIndex }),
+                      ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+                      ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+                      ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+                      ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+                      ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+                      ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+                      segments,
+                    },
+                  },
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   clearCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number) =>
     set((state) => ({
@@ -1426,18 +1775,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex };
       const colMaterialId = config.customMaterialId || currentCustom.customMaterialId || wall.zone.materialId || 'mat-sheet-1220';
       const material = state.project.materials.find((m) => m.id === colMaterialId);
-      const maxSheetWidth = material?.width || 1220;
+      const isVoid = material?.isVoid === true || colMaterialId === MATERIAL_NONE_ID;
+      const maxSheetWidth = isVoid ? 10000 : (material?.width || 1220);
 
       let nextCustomPanels = { ...wall.customPanels };
+      let nextCustomJoints = { ...wall.customJoints };
 
-      if (config.customWidth !== undefined && config.customWidth > maxSheetWidth) {
-        nextCustomPanels = splitOversizedColumn(
+      if (config.customWidth !== undefined && !isVoid && config.customWidth > maxSheetWidth) {
+        const res = splitOversizedColumn(
           wall.customPanels,
+          wall.customJoints,
           columnIndex,
           config.customWidth,
           maxSheetWidth,
-          8
+          8,
+          100
         );
+        nextCustomPanels = res.customPanels;
+        nextCustomJoints = res.customJoints;
       } else {
         nextCustomPanels[columnIndex] = {
           ...currentCustom,
@@ -1449,7 +1804,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         project: {
           ...state.project,
           walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+            w.id === wallId
+              ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints }
+              : w
           ),
         },
       };
@@ -1482,18 +1839,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         wall.zone.materialId ||
         'mat-sheet-1220';
       const material = state.project.materials.find((m) => m.id === segMaterialId);
-      const maxSheetHeight = material?.height || 2800;
+      const isVoid = material?.isVoid === true || segMaterialId === MATERIAL_NONE_ID;
+      const maxSheetHeight = isVoid ? 10000 : (material?.height || 2800);
 
       let nextSegments: PanelSegmentConfig[];
+      let nextCustomJoints = { ...wall.customJoints };
 
-      if (config.height !== undefined && config.height > maxSheetHeight) {
-        nextSegments = splitOversizedSegment(
+      if (config.height !== undefined && !isVoid && config.height > maxSheetHeight) {
+        const res = splitOversizedSegment(
+          wall.customJoints,
+          columnIndex,
           segments,
           segmentIndex,
           config.height,
           maxSheetHeight,
-          8
+          8,
+          100
         );
+        nextSegments = res.segments;
+        nextCustomJoints = res.customJoints;
       } else {
         segments[segmentIndex] = {
           ...segments[segmentIndex],
@@ -1509,6 +1873,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             w.id === wallId
               ? {
                   ...w,
+                  customJoints: nextCustomJoints,
                   customPanels: {
                     ...w.customPanels,
                     [columnIndex]: {
@@ -1529,71 +1894,242 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     segmentIndex: number,
     firstHeight: number
   ) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
-          if (w.id !== wallId) return w;
-          const currentCustom = w.customPanels[columnIndex] || { columnIndex, segments: [] };
-          const segments = [...(currentCustom.segments || [])];
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
 
-          if (segments.length === 0) {
-            segments.push(
-              { id: `seg-${Date.now()}-0`, height: firstHeight },
-              { id: `seg-${Date.now()}-1`, height: undefined }
-            );
-          } else {
-            segments[segmentIndex] = {
-              ...segments[segmentIndex],
-              height: firstHeight,
+      const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
+      const currentSegments = currentCustom.segments || [];
+
+      const nextCustomPanels = { ...wall.customPanels };
+      const nextCustomJoints = { ...wall.customJoints };
+
+      if (currentSegments.length === 0) {
+        // Колонка была сплошной на всю высоту стены
+        const totalH = wall.height;
+        const h1 = firstHeight > 0 && firstHeight < totalH - 8 ? firstHeight : Math.round((totalH - 8) / 2);
+        const h2 = Math.max(10, totalH - h1 - 8);
+
+        const baseProps = {
+          customMaterialId: currentCustom.customMaterialId,
+          customThickness: currentCustom.customThickness,
+          customColor: currentCustom.customColor,
+          customDecorCode: currentCustom.customDecorCode,
+          customTextureCategory: currentCustom.customTextureCategory,
+          customReliefType: currentCustom.customReliefType,
+        };
+
+        nextCustomPanels[columnIndex] = {
+          ...currentCustom,
+          segments: [
+            { id: `seg-${Date.now()}-0`, height: h1, ...baseProps },
+            { id: `seg-${Date.now()}-1`, height: h2, ...baseProps },
+          ],
+        };
+
+        nextCustomJoints[`edge-h-${columnIndex}-0`] = {
+          id: `edge-h-${columnIndex}-0`,
+          orientation: 'HORIZONTAL',
+          width: 8,
+          isLED: false,
+        };
+      } else {
+        // В колонке уже были сегменты, делим только конкретный сегмент segmentIndex
+        const targetSeg = currentSegments[segmentIndex];
+        const segH = targetSeg?.height ?? Math.round(wall.height / currentSegments.length);
+        const h1 = firstHeight > 0 && firstHeight < segH - 8 ? firstHeight : Math.round((segH - 8) / 2);
+        const h2 = Math.max(10, segH - h1 - 8);
+
+        const seg1 = {
+          ...targetSeg,
+          id: targetSeg?.id || `seg-${Date.now()}-${segmentIndex}`,
+          height: h1,
+        };
+
+        const seg2 = {
+          ...targetSeg,
+          id: `seg-${Date.now()}-${segmentIndex + 1}`,
+          height: h2,
+        };
+
+        const newSegments = [...currentSegments];
+        newSegments.splice(segmentIndex, 1, seg1, seg2);
+
+        nextCustomPanels[columnIndex] = {
+          ...currentCustom,
+          segments: newSegments,
+        };
+
+        // Сдвигаем горизонтальные стыки этого столбца: sIdx >= segmentIndex сдвигаются на +1
+        for (let sIdx = currentSegments.length - 1; sIdx >= segmentIndex; sIdx--) {
+          const oldKey = `edge-h-${columnIndex}-${sIdx}`;
+          const newKey = `edge-h-${columnIndex}-${sIdx + 1}`;
+          if (nextCustomJoints[oldKey]) {
+            nextCustomJoints[newKey] = {
+              ...nextCustomJoints[oldKey],
+              id: newKey,
             };
-            segments.splice(segmentIndex + 1, 0, {
-              id: `seg-${Date.now()}-${segmentIndex + 1}`,
-              height: undefined,
-            });
+            delete nextCustomJoints[oldKey];
           }
+        }
 
-          return {
-            ...w,
-            customPanels: {
-              ...w.customPanels,
-              [columnIndex]: {
-                ...currentCustom,
-                segments,
-              },
-            },
-          };
-        }),
-      },
-    })),
+        // Вставляем новый горизонтальный стык между половинками
+        nextCustomJoints[`edge-h-${columnIndex}-${segmentIndex}`] = {
+          id: `edge-h-${columnIndex}-${segmentIndex}`,
+          orientation: 'HORIZONTAL',
+          width: 8,
+          isLED: false,
+        };
+      }
+
+      return {
+        selectedColumnIndex: columnIndex,
+        selectedSegmentIndex: segmentIndex,
+        selectedCellKeys: [`${columnIndex}-${segmentIndex}`],
+        selectedPieceIds: [`panel-${columnIndex}-${segmentIndex}`],
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  customPanels: nextCustomPanels,
+                  customJoints: nextCustomJoints,
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   splitColumnVertically: (wallId: string, columnIndex: number, firstWidth: number) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
-          if (w.id !== wallId) return w;
-          const currentCustom = w.customPanels[columnIndex] || { columnIndex };
-          const currentWidth = currentCustom.customWidth || 1220;
-          const secondWidth = Math.max(100, currentWidth - firstWidth - 8);
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
 
-          return {
-            ...w,
-            customPanels: {
-              ...w.customPanels,
-              [columnIndex]: {
-                ...currentCustom,
-                customWidth: firstWidth,
-              },
-              [columnIndex + 1]: {
-                columnIndex: columnIndex + 1,
-                customWidth: secondWidth,
-              },
-            },
+      const currentCustom = wall.customPanels[columnIndex] || { columnIndex };
+      const wallMaterial =
+        state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
+      const currentWidth =
+        currentCustom.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
+
+      const splitW = firstWidth > 0 && firstWidth < currentWidth - 8 ? firstWidth : Math.round((currentWidth - 8) / 2);
+      const secondWidth = Math.max(10, currentWidth - splitW - 8);
+
+      const nextPanels: Record<number, CustomPanelConfig> = {};
+      const nextJoints: Record<string, JointEdgeConfig> = {};
+
+      // 1. Копируем колонки левее columnIndex
+      Object.entries(wall.customPanels).forEach(([kStr, conf]) => {
+        const k = Number(kStr);
+        if (k < columnIndex) {
+          nextPanels[k] = { ...conf, columnIndex: k };
+        } else if (k > columnIndex) {
+          nextPanels[k + 1] = {
+            ...conf,
+            columnIndex: k + 1,
           };
-        }),
-      },
-    })),
+        }
+      });
+
+      // 2. Создаем левую колонку [columnIndex] с сохранением всех свойств и сегментов
+      nextPanels[columnIndex] = {
+        ...currentCustom,
+        columnIndex,
+        customWidth: splitW,
+        segments: currentCustom.segments
+          ? currentCustom.segments.map((s) => ({ ...s, id: `seg-${Date.now()}-L-${s.id}` }))
+          : undefined,
+      };
+
+      // 3. Создаем правую колонку [columnIndex + 1] с точной копией всех свойств и сегментов
+      nextPanels[columnIndex + 1] = {
+        ...currentCustom,
+        columnIndex: columnIndex + 1,
+        customWidth: secondWidth,
+        segments: currentCustom.segments
+          ? currentCustom.segments.map((s) => ({ ...s, id: `seg-${Date.now()}-R-${s.id}` }))
+          : undefined,
+      };
+
+      // 4. Сдвигаем вертикальные и горизонтальные стыки
+      Object.entries(wall.customJoints).forEach(([jKey, jConfig]) => {
+        // Вертикальные швы колонок: edge-v-{cIdx}
+        if (jKey.startsWith('edge-v-') && !jKey.includes('left') && !jKey.includes('right') && !jKey.includes('end')) {
+          const cIdx = Number(jKey.replace('edge-v-', ''));
+          if (!isNaN(cIdx)) {
+            if (cIdx < columnIndex) {
+              nextJoints[jKey] = jConfig;
+            } else if (cIdx >= columnIndex) {
+              const newKey = `edge-v-${cIdx + 1}`;
+              nextJoints[newKey] = {
+                ...jConfig,
+                id: newKey,
+              };
+            }
+            return;
+          }
+        }
+
+        // Горизонтальные швы сегментов: edge-h-{cIdx}-{sIdx}
+        if (jKey.startsWith('edge-h-') && !jKey.includes('top') && !jKey.includes('bot')) {
+          const parts = jKey.replace('edge-h-', '').split('-');
+          if (parts.length === 2) {
+            const cIdx = Number(parts[0]);
+            const sIdx = Number(parts[1]);
+            if (!isNaN(cIdx) && !isNaN(sIdx)) {
+              if (cIdx < columnIndex) {
+                nextJoints[jKey] = jConfig;
+              } else if (cIdx === columnIndex) {
+                // Левая колонка оставляет шов, а правая колонка дублирует его
+                nextJoints[jKey] = jConfig;
+                const rightKey = `edge-h-${columnIndex + 1}-${sIdx}`;
+                nextJoints[rightKey] = {
+                  ...jConfig,
+                  id: rightKey,
+                };
+              } else if (cIdx > columnIndex) {
+                const newKey = `edge-h-${cIdx + 1}-${sIdx}`;
+                nextJoints[newKey] = {
+                  ...jConfig,
+                  id: newKey,
+                };
+              }
+              return;
+            }
+          }
+        }
+
+        nextJoints[jKey] = jConfig;
+      });
+
+      // 5. Создаем вертикальный шов между левой и правой половинками
+      nextJoints[`edge-v-${columnIndex}`] = {
+        id: `edge-v-${columnIndex}`,
+        orientation: 'VERTICAL',
+        width: 8,
+        isLED: false,
+      };
+
+      return {
+        selectedColumnIndex: columnIndex,
+        selectedSegmentIndex: 0,
+        selectedCellKeys: [`${columnIndex}-0`],
+        selectedPieceIds: [`panel-${columnIndex}-0`],
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  customPanels: nextPanels,
+                  customJoints: nextJoints,
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   resetPanelConfig: (wallId: string, columnIndex: number) =>
     set((state) => ({

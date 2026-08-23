@@ -211,7 +211,6 @@ export const CadCanvas: React.FC = () => {
 
               const isVoid = panel.isVoid;
               const isSlat = panel.materialType === 'SLAT';
-              const slatStep = 145;
 
               return (
                 <Group
@@ -234,8 +233,93 @@ export const CadCanvas: React.FC = () => {
                     }
                     strokeWidth={isPanelSelected ? 3 / zoom : 1}
                     dash={isVoid ? [12, 8] : undefined}
-                    opacity={isVoid ? 0.75 : 0.94}
+                    opacity={isVoid ? 0.75 : 0.96}
                   />
+
+                  {/* Рельефная светотень для рейки-волны (GW90) */}
+                  {panel.reliefType === 'WAVE_GW90' && !isVoid && (
+                    <Group listening={false}>
+                      {Array.from({ length: Math.ceil(panel.width / 40) }).map((_, wIdx) => {
+                        const waveX = panelX + wIdx * 40;
+                        const waveW = Math.min(40, panelX + panel.width - waveX);
+                        if (waveW <= 1) return null;
+                        return (
+                          <Rect
+                            key={`wave-${panel.id}-${wIdx}`}
+                            x={waveX}
+                            y={panelY}
+                            width={waveW}
+                            height={panel.height}
+                            fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                            fillLinearGradientEndPoint={{ x: waveW, y: 0 }}
+                            fillLinearGradientColorStops={[
+                              0, 'rgba(0, 0, 0, 0.26)',
+                              0.45, 'rgba(255, 255, 255, 0.18)',
+                              0.55, 'rgba(255, 255, 255, 0.18)',
+                              1, 'rgba(0, 0, 0, 0.26)'
+                            ]}
+                          />
+                        );
+                      })}
+                    </Group>
+                  )}
+
+                  {/* Рельефная светотень для комбинированного желоба (GW30) */}
+                  {panel.reliefType === 'CONCAVE_GW30' && !isVoid && (
+                    <Group listening={false}>
+                      {Array.from({ length: Math.ceil(panel.width / 75) }).map((_, gIdx) => {
+                        const gx = panelX + gIdx * 75;
+                        const gw = Math.min(75, panelX + panel.width - gx);
+                        if (gw <= 1) return null;
+                        const troughW = Math.max(1, gw - 24);
+                        return (
+                          <Group key={`gw30-${panel.id}-${gIdx}`}>
+                            <Rect
+                              x={gx + 12}
+                              y={panelY}
+                              width={troughW}
+                              height={panel.height}
+                              fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                              fillLinearGradientEndPoint={{ x: troughW, y: 0 }}
+                              fillLinearGradientColorStops={[
+                                0, 'rgba(255, 255, 255, 0.12)',
+                                0.5, 'rgba(0, 0, 0, 0.32)',
+                                1, 'rgba(255, 255, 255, 0.12)'
+                              ]}
+                            />
+                            <Line
+                              points={[gx + 12, panelY, gx + 12, panelY + panel.height]}
+                              stroke="rgba(0, 0, 0, 0.38)"
+                              strokeWidth={1.5 / zoom}
+                            />
+                            <Line
+                              points={[gx + gw - 12, panelY, gx + gw - 12, panelY + panel.height]}
+                              stroke="rgba(0, 0, 0, 0.38)"
+                              strokeWidth={1.5 / zoom}
+                            />
+                          </Group>
+                        );
+                      })}
+                    </Group>
+                  )}
+
+                  {/* Разметка стандартных прямоугольных реек */}
+                  {(panel.reliefType === 'STEP_SLAT' || (isSlat && panel.reliefType !== 'WAVE_GW90' && panel.reliefType !== 'CONCAVE_GW30')) && !isVoid && (
+                    <Group listening={false}>
+                      {Array.from({ length: Math.floor(panel.width / 50) }).map((_, sIdx) => {
+                        const slatX = panelX + (sIdx + 1) * 50;
+                        if (slatX >= panelX + panel.width) return null;
+                        return (
+                          <Line
+                            key={`slat-${panel.id}-${sIdx}`}
+                            points={[slatX, panelY, slatX, panelY + panel.height]}
+                            stroke="rgba(0, 0, 0, 0.28)"
+                            strokeWidth={1.5 / zoom}
+                          />
+                        );
+                      })}
+                    </Group>
+                  )}
 
                   {/* Отрисовка цилиндрической светотени и пропилов для зон сгиба на панели */}
                   {panel.bendsInfo && panel.bendsInfo.length > 0 && !isVoid && (
@@ -305,30 +389,17 @@ export const CadCanvas: React.FC = () => {
                     </Group>
                   )}
 
-                  {/* Отрисовка ламелей реек */}
-                  {isSlat && (
-                    <Group listening={false}>
-                      {Array.from({ length: Math.floor(panel.width / slatStep) }).map((_, idx) => {
-                        const slatX = panelX + (idx + 1) * slatStep;
-                        if (slatX >= panelX + panel.width) return null;
-                        return (
-                          <Line
-                            key={`slat-v-${panel.id}-${idx}`}
-                            points={[slatX, panelY, slatX, panelY + panel.height]}
-                            stroke="#4A3423"
-                            strokeWidth={2 / zoom}
-                            opacity={0.65}
-                          />
-                        );
-                      })}
-                    </Group>
-                  )}
-
-                  {/* Текстовые метки ячейки (деталь и размеры) */}
+                  {/* Текстовые метки ячейки (деталь, код декора и размеры) */}
                   {panel.width > 70 && panel.height > 40 && (
                     <Group x={panelX + 10} y={panelY + (panel.radiusConfig ? 38 : 10)} listening={false}>
                       <Text
-                        text={isVoid ? '⭕ ПУСТОТА' : (isSlat ? `🪵 [${panel.partLabel}]` : `[${panel.partLabel}]`)}
+                        text={
+                          isVoid
+                            ? '⭕ ПУСТОТА'
+                            : (isSlat
+                              ? `🪵 [${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
+                              : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`)
+                        }
                         fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
                         fill={isVoid ? '#868E96' : '#1A1B1E'}
                         fontFamily="JetBrains Mono"
@@ -336,7 +407,7 @@ export const CadCanvas: React.FC = () => {
                       />
                       <Text
                         y={Math.max(14, 18 / Math.max(0.5, zoom))}
-                        text={`${Math.round(panel.width)} × ${Math.round(panel.height)} мм${panel.radiusConfig ? ` (⌒ R${panel.radiusConfig.radius})` : ''}`}
+                        text={`${Math.round(panel.width)} × ${Math.round(panel.height)}${panel.thickness ? ` × ${panel.thickness}мм` : ''}${panel.radiusConfig ? ` (⌒ R${panel.radiusConfig.radius})` : ''}`}
                         fontSize={Math.max(10, 12 / Math.max(0.5, zoom))}
                         fill={isVoid ? '#5C5F66' : '#2C2E33'}
                         fontFamily="JetBrains Mono"

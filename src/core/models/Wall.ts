@@ -1,5 +1,7 @@
 import { Opening } from './Opening';
 import { ProfileType } from './Profile';
+import { SlatProfileShape } from './AllWallCatalog';
+import { MATERIAL_NONE_ID } from './Material';
 
 export type LayoutOrientation = 'VERTICAL' | 'HORIZONTAL';
 
@@ -7,6 +9,11 @@ export interface PanelSegmentConfig {
   id: string;
   height?: number;             // высота конкретной ячейки в мм
   customMaterialId?: string;   // материал этой ячейки ('mat-none' для пустоты)
+  customThickness?: number;    // толщина конкретной ячейки в мм (например 5, 8, 15)
+  customColor?: string;        // цвет конкретной ячейки (#HEX)
+  customDecorCode?: string;    // код декора AllWall (например '7029', '5134')
+  customTextureCategory?: string; // категория текстуры (FABRIC, WOOD, STONE, etc.)
+  customReliefType?: SlatProfileShape; // форма рельефа реек
   partLabel?: string;          // метка детали (например '1.1', '1.2' или 'ПУСТО')
 }
 
@@ -48,6 +55,11 @@ export interface CustomPanelConfig {
   columnIndex: number;
   customWidth?: number;            // ширина всей колонки в мм
   customMaterialId?: string;       // материал по умолчанию для колонки
+  customThickness?: number;
+  customColor?: string;
+  customDecorCode?: string;
+  customTextureCategory?: string;
+  customReliefType?: SlatProfileShape;
   segments?: PanelSegmentConfig[]; // вертикальные ячейки в этой колонке
   radiusConfig?: RadiusConfig;     // обратная совместимость
 }
@@ -91,10 +103,9 @@ export function createDefaultWall(id: string, name: string = 'Стена 1'): Wa
     customJoints: {},
     zone: {
       id: `zone-${id}`,
-      materialId: 'mat-sheet-1220',
+      materialId: MATERIAL_NONE_ID,
       orientation: 'VERTICAL',
       jointProfileType: 'JOINT_8',
     },
   };
 }
-
