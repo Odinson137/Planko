@@ -18,10 +18,13 @@ export const CadCanvas: React.FC = () => {
     selectedPieceIds,
     selectedJointId,
     selectedJointIds,
+    selectedWallBendId,
     selectOpening,
     selectPanel,
     toggleCellSelection,
     selectJoint,
+    selectWallBend,
+    updateWallBend,
     updateOpening,
   } = useProjectStore();
   const {
@@ -234,61 +237,71 @@ export const CadCanvas: React.FC = () => {
                     opacity={isVoid ? 0.75 : 0.94}
                   />
 
-                  {/* Отрисовка цилиндрической светотени и бейджа для радиусных панелей */}
-                  {panel.radiusConfig && !isVoid && (
+                  {/* Отрисовка цилиндрической светотени и пропилов для зон сгиба на панели */}
+                  {panel.bendsInfo && panel.bendsInfo.length > 0 && !isVoid && (
                     <Group listening={false}>
-                      {/* Светотеневой объемный градиент */}
-                      <Rect
-                        x={panelX}
-                        y={panelY}
-                        width={panel.width}
-                        height={panel.height}
-                        fillLinearGradientStartPoint={{ x: 0, y: 0 }}
-                        fillLinearGradientEndPoint={{ x: panel.width, y: 0 }}
-                        fillLinearGradientColorStops={
-                          panel.radiusConfig.type === 'INNER_CORNER'
-                            ? INNER_CORNER_GRADIENT_STOPS
-                            : OUTER_CORNER_GRADIENT_STOPS
-                        }
-                        opacity={0.9}
-                      />
+                      {panel.bendsInfo.map((bend, bIdx) => {
+                        const bendSubX = panelX + bend.flatLeft;
+                        const bendSubW = bend.bendWidth;
+                        if (bendSubW <= 1) return null;
 
-                      {/* Пунктирные направляющие линий сгиба (керф-бендинг) */}
-                      {Array.from({ length: Math.min(8, Math.max(3, Math.floor(panel.width / 50))) }).map((_, bIdx, arr) => {
-                        const stepX = panelX + ((bIdx + 1) * panel.width) / (arr.length + 1);
                         return (
-                          <Line
-                            key={`bend-line-${panel.id}-${bIdx}`}
-                            points={[stepX, panelY, stepX, panelY + panel.height]}
-                            stroke="rgba(255, 255, 255, 0.22)"
-                            dash={[6, 6]}
-                            strokeWidth={1 / zoom}
-                          />
+                          <Group key={`panel-bend-${panel.id}-${bIdx}`}>
+                            {/* Светотеневой объемный градиент на участке сгиба */}
+                            <Rect
+                              x={bendSubX}
+                              y={panelY}
+                              width={bendSubW}
+                              height={panel.height}
+                              fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                              fillLinearGradientEndPoint={{ x: bendSubW, y: 0 }}
+                              fillLinearGradientColorStops={
+                                bend.type === 'INNER_CORNER'
+                                  ? INNER_CORNER_GRADIENT_STOPS
+                                  : OUTER_CORNER_GRADIENT_STOPS
+                              }
+                              opacity={0.9}
+                            />
+
+                            {/* Пунктирные направляющие линий сгиба (керф-бендинг) */}
+                            {Array.from({ length: Math.min(8, Math.max(3, Math.floor(bendSubW / 45))) }).map((_, lIdx, arr) => {
+                              const stepX = bendSubX + ((lIdx + 1) * bendSubW) / (arr.length + 1);
+                              return (
+                                <Line
+                                  key={`bend-line-${panel.id}-${bIdx}-${lIdx}`}
+                                  points={[stepX, panelY, stepX, panelY + panel.height]}
+                                  stroke="rgba(255, 255, 255, 0.22)"
+                                  dash={[6, 6]}
+                                  strokeWidth={1 / zoom}
+                                />
+                              );
+                            })}
+
+                            {/* Бейдж радиуса на участке сгиба */}
+                            {bendSubW >= 60 && (
+                              <Group x={bendSubX + Math.max(4, (bendSubW - 130) / 2)} y={panelY + 8}>
+                                <Rect
+                                  width={Math.min(bendSubW - 8, 130)}
+                                  height={20}
+                                  fill="#101113"
+                                  stroke="#4dabf7"
+                                  strokeWidth={1.2 / zoom}
+                                  cornerRadius={4}
+                                />
+                                <Text
+                                  x={6}
+                                  y={4}
+                                  text={`⌒ ${bend.type === 'ARCH_VAULT' ? 'СВОД' : bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${bend.radius}`}
+                                  fontSize={9}
+                                  fontFamily="JetBrains Mono"
+                                  fontStyle="bold"
+                                  fill="#74c0fc"
+                                />
+                              </Group>
+                            )}
+                          </Group>
                         );
                       })}
-
-                      {/* Бейдж радиуса */}
-                      {panel.width >= 100 && (
-                        <Group x={panelX + Math.max(8, (panel.width - 150) / 2)} y={panelY + 10}>
-                          <Rect
-                            width={150}
-                            height={22}
-                            fill="#101113"
-                            stroke="#4dabf7"
-                            strokeWidth={1.5 / zoom}
-                            cornerRadius={4}
-                          />
-                          <Text
-                            x={8}
-                            y={5}
-                            text={`⌒ ${panel.radiusConfig.type === 'ARCH_VAULT' ? 'СВОД' : panel.radiusConfig.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${panel.radiusConfig.radius}`}
-                            fontSize={10}
-                            fontFamily="JetBrains Mono"
-                            fontStyle="bold"
-                            fill="#74c0fc"
-                          />
-                        </Group>
-                      )}
                     </Group>
                   )}
 
@@ -535,6 +548,75 @@ export const CadCanvas: React.FC = () => {
                     fontStyle="bold"
                     listening={false}
                   />
+                </Group>
+              );
+            })}
+
+            {/* ИНТЕРАКТИВНЫЕ МАРКЕРЫ ЗОН ИЗГИБА СТЕНЫ (WallBend) */}
+            {selectedWall.bends?.map((bend) => {
+              const arcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
+              const isBendSelected = selectedWallBendId === bend.id;
+
+              return (
+                <Group
+                  key={bend.id}
+                  x={bend.x}
+                  y={0}
+                  draggable
+                  dragBoundFunc={(pos) => {
+                    const stageX = pos.x;
+                    const minX = panX;
+                    const maxX = panX + (wallW - arcLen) * zoom;
+                    const clampedStageX = Math.max(minX, Math.min(stageX, maxX));
+                    return { x: clampedStageX, y: panY };
+                  }}
+                  onDragStart={(e) => {
+                    e.cancelBubble = true;
+                    selectWallBend(bend.id);
+                  }}
+                  onDragEnd={(e) => {
+                    e.cancelBubble = true;
+                    const currentStageX = e.target.x();
+                    const wallX = Math.max(0, Math.min(wallW - arcLen, Math.round((currentStageX - panX) / zoom)));
+                    const roundedX = Math.round(wallX / 10) * 10;
+                    e.target.position({ x: roundedX, y: 0 });
+                    updateWallBend(selectedWall.id, bend.id, { x: roundedX });
+                  }}
+                  onClick={(e) => {
+                    e.cancelBubble = true;
+                    selectWallBend(bend.id);
+                  }}
+                >
+                  {/* Полупрозрачная направляющая полоса зоны сгиба на стене */}
+                  <Rect
+                    width={arcLen}
+                    height={wallH}
+                    fill={isBendSelected ? 'rgba(51, 154, 240, 0.16)' : 'rgba(77, 171, 247, 0.07)'}
+                    stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                    strokeWidth={isBendSelected ? 2.5 / zoom : 1.2 / zoom}
+                    dash={[8, 6]}
+                  />
+
+                  {/* Верхняя плашка с названием угла и радиусом */}
+                  <Group x={Math.max(4, (arcLen - 170) / 2)} y={-36} listening={false}>
+                    <Rect
+                      width={Math.min(arcLen - 8, 170)}
+                      height={24}
+                      fill="#141517"
+                      stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                      strokeWidth={1.5}
+                      cornerRadius={4}
+                    />
+                    <Text
+                      x={6}
+                      y={6}
+                      text={`⌒ ${bend.name || (bend.type === 'ARCH_VAULT' ? 'Свод' : bend.type === 'INNER_CORNER' ? 'Внутр' : 'Внешн')} R=${bend.radius} (${arcLen} мм)`}
+                      fontSize={10}
+                      fontFamily="JetBrains Mono"
+                      fontStyle="bold"
+                      fill="#74C0FC"
+                    />
+                  </Group>
                 </Group>
               );
             })}

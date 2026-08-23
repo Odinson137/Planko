@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
-import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType } from '../../core/models/Wall';
+import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType } from '../../core/models/Profile';
 import { MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
@@ -35,6 +35,7 @@ interface ProjectState {
   selectedPieceIds: string[];
   selectedJointId: string | null;
   selectedJointIds: string[]; // Поддержка мульти-выбора швов через Shift
+  selectedWallBendId: string | null; // Выбранная зона изгиба на стене
 
   // Выбор
   selectWall: (wallId: string) => void;
@@ -42,6 +43,7 @@ interface ProjectState {
   selectPanel: (panelId: string | null, columnIndex: number | null, segmentIndex?: number | null) => void;
   toggleCellSelection: (panelId: string, columnIndex: number, segmentIndex: number, isShift: boolean) => void;
   selectJoint: (jointId: string | null, isShift?: boolean) => void;
+  selectWallBend: (bendId: string | null) => void;
 
   // Объединение и массовое редактирование панелей через Shift
   mergeSelectedCells: (wallId: string) => void;
@@ -78,6 +80,9 @@ interface ProjectState {
   applyGridPreset: (wallId: string, preset: GridPresetType) => void;
 
   // Управление радиусными элементами (изгибы, углы, своды)
+  addWallBend: (wallId: string, type?: RadiusType, x?: number, radius?: number, angleDeg?: number) => string;
+  updateWallBend: (wallId: string, bendId: string, updates: Partial<WallBend>) => void;
+  deleteWallBend: (wallId: string, bendId: string) => void;
   addRadiusColumn: (wallId: string, type?: RadiusType, radius?: number, angleDeg?: number) => void;
   setPanelRadiusConfig: (wallId: string, columnIndex: number, config: RadiusConfig | undefined) => void;
 
@@ -162,6 +167,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   selectedPieceIds: [],
   selectedJointId: null,
   selectedJointIds: [],
+  selectedWallBendId: null,
 
   selectWall: (wallId: string) =>
     set((state) => ({
@@ -171,6 +177,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedPieceIds: [],
       selectedJointId: null,
       selectedJointIds: [],
+      selectedWallBendId: null,
       project: {
         ...state.project,
         selectedWallId: wallId,
@@ -186,9 +193,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedPieceIds: [],
       selectedJointId: null,
       selectedJointIds: [],
+      selectedWallBendId: null,
       project: {
         ...state.project,
         selectedOpeningId: openingId,
+      },
+    })),
+
+  selectWallBend: (bendId: string | null) =>
+    set((state) => ({
+      selectedColumnIndex: null,
+      selectedSegmentIndex: null,
+      selectedCellKeys: [],
+      selectedPieceIds: [],
+      selectedJointId: null,
+      selectedJointIds: [],
+      selectedWallBendId: bendId,
+      project: {
+        ...state.project,
+        selectedOpeningId: null,
       },
     })),
 
@@ -200,6 +223,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedPieceIds: panelId ? [panelId] : [],
       selectedJointId: null,
       selectedJointIds: [],
+      selectedWallBendId: null,
       project: {
         ...state.project,
         selectedOpeningId: null,
@@ -217,6 +241,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           selectedPieceIds: [panelId],
           selectedJointId: null,
           selectedJointIds: [],
+          selectedWallBendId: null,
           project: {
             ...state.project,
             selectedOpeningId: null,
@@ -1525,6 +1550,81 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         },
       };
     }),
+
+  addWallBend: (
+    wallId: string,
+    type: RadiusType = 'OUTER_CORNER',
+    x?: number,
+    radius: number = 300,
+    angleDeg: number = 90
+  ) => {
+    const bendId = `bend-${Date.now()}`;
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      const arcLen = Math.round((Math.PI * radius * angleDeg) / 180);
+      const defaultX = x !== undefined ? x : Math.min(wall.width - arcLen, Math.max(0, Math.round((wall.width - arcLen) / 2)));
+
+      const newBend: WallBend = {
+        id: bendId,
+        x: defaultX,
+        type,
+        radius,
+        angleDeg,
+        name: type === 'ARCH_VAULT' ? 'Арочный свод' : type === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол',
+      };
+
+      const currentBends = wall.bends || [];
+      return {
+        selectedColumnIndex: null,
+        selectedSegmentIndex: null,
+        selectedCellKeys: [],
+        selectedPieceIds: [],
+        selectedJointId: null,
+        selectedJointIds: [],
+        selectedWallBendId: bendId,
+        project: {
+          ...state.project,
+          selectedOpeningId: null,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, bends: [...currentBends, newBend] } : w
+          ),
+        },
+      };
+    });
+    return bendId;
+  },
+
+  updateWallBend: (wallId: string, bendId: string, updates: Partial<WallBend>) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const currentBends = w.bends || [];
+          return {
+            ...w,
+            bends: currentBends.map((b) => (b.id === bendId ? { ...b, ...updates } : b)),
+          };
+        }),
+      },
+    })),
+
+  deleteWallBend: (wallId: string, bendId: string) =>
+    set((state) => ({
+      selectedWallBendId: state.selectedWallBendId === bendId ? null : state.selectedWallBendId,
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          return {
+            ...w,
+            bends: (w.bends || []).filter((b) => b.id !== bendId),
+          };
+        }),
+      },
+    })),
 
   setPanelRadiusConfig: (wallId: string, columnIndex: number, config: RadiusConfig | undefined) =>
     set((state) => ({

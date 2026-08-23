@@ -42,7 +42,7 @@ export const TopToolbar: React.FC = () => {
     toggleDimensions,
   } = useEditorStore();
 
-  const { project, addOpening, applyGridPreset, addRadiusColumn } = useProjectStore();
+  const { project, addOpening, applyGridPreset, addWallBend } = useProjectStore();
   const selectedWallId = project.selectedWallId;
 
   const handleAddOpening = (type: 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE') => {
@@ -53,7 +53,7 @@ export const TopToolbar: React.FC = () => {
 
   const handleAddRadius = (type: 'OUTER_CORNER' | 'INNER_CORNER' | 'ARCH_VAULT', radius: number, angleDeg?: number) => {
     if (selectedWallId) {
-      addRadiusColumn(selectedWallId, type, radius, angleDeg);
+      addWallBend(selectedWallId, type, undefined, radius, angleDeg);
     }
   };
 

@@ -45,14 +45,18 @@ export const RightSidebar: React.FC = () => {
     selectedCellKeys,
     selectedJointId,
     selectedJointIds,
+    selectedWallBendId,
     selectOpening,
     selectPanel,
     selectJoint,
+    selectWallBend,
     updateWallDimensions,
     setWallMaterial,
     setWallJointProfile,
     updateOpening,
     removeOpening,
+    updateWallBend,
+    deleteWallBend,
     mergeSelectedCells,
     setMaterialForSelectedCells,
     validateSelectedJoints,
@@ -79,6 +83,7 @@ export const RightSidebar: React.FC = () => {
 
   const currentWall = project.walls.find((w) => w.id === selectedWallId);
   const currentOpening = currentWall?.openings.find((op) => op.id === selectedOpeningId);
+  const currentWallBend = currentWall?.bends?.find((b) => b.id === selectedWallBendId);
   const currentMaterial = project.materials.find(
     (m) => m.id === (currentWall?.zone.materialId || 'mat-sheet-1220')
   );
@@ -661,6 +666,203 @@ export const RightSidebar: React.FC = () => {
   }
 
   // =========================================================================
+  // РЕЖИМ 2.2: Выбрана ЗОНА ИЗГИБА / УГОЛ СТЕНЫ (WallBend)
+  // =========================================================================
+  if (currentWallBend) {
+    const arcLen = Math.round((Math.PI * currentWallBend.radius * (currentWallBend.angleDeg || 90)) / 180);
+
+    return (
+      <Stack
+        h="100%"
+        gap="xs"
+        p="xs"
+        style={{
+          borderLeft: '1px solid #2C2E33',
+          backgroundColor: '#141517',
+          width: 320,
+          minWidth: 320,
+        }}
+      >
+        <ScrollArea style={{ flex: 1 }}>
+          <Stack gap="md" p="xs">
+            <Group justify="space-between" align="center">
+              <div>
+                <Title order={6} c="cyan.4">
+                  ⌒ ИЗГИБ / УГОЛ СТЕНЫ
+                </Title>
+                <Text size="xs" c="dimmed">
+                  Геометрическая зона изгиба стены
+                </Text>
+              </div>
+              <Group gap={6}>
+                <Badge size="xs" color="cyan">
+                  {currentWallBend.type === 'ARCH_VAULT' ? 'СВОД' : currentWallBend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'}
+                </Badge>
+                <Tooltip label="Снять выделение">
+                  <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectWallBend(null)}>
+                    <X size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
+            </Group>
+
+            <Divider color="#2C2E33" />
+
+            {/* Тип изгиба */}
+            <SegmentedControl
+              size="xs"
+              fullWidth
+              value={currentWallBend.type}
+              onChange={(val: any) =>
+                updateWallBend(currentWall.id, currentWallBend.id, {
+                  type: val,
+                  name: val === 'ARCH_VAULT' ? 'Арочный свод' : val === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол',
+                  angleDeg: val === 'ARCH_VAULT' ? 180 : (currentWallBend.angleDeg || 90),
+                })
+              }
+              data={[
+                { label: '⌒ Внешн 90°', value: 'OUTER_CORNER' },
+                { label: '╭ Внутр 90°', value: 'INNER_CORNER' },
+                { label: '🏛️ Свод', value: 'ARCH_VAULT' },
+              ]}
+            />
+
+            {/* Координата X на стене */}
+            <NumberInput
+              size="xs"
+              label="Позиция X от левого края (мм)"
+              description="Отступ начала зоны скругления"
+              value={currentWallBend.x}
+              clampBehavior="blur"
+              allowNegative={false}
+              allowDecimal={false}
+              min={0}
+              max={Math.max(0, currentWall.width - arcLen)}
+              step={10}
+              onChange={(val) =>
+                updateWallBend(currentWall.id, currentWallBend.id, {
+                  x: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
+                })
+              }
+            />
+
+            <Group grow>
+              <NumberInput
+                size="xs"
+                label="Радиус R (мм)"
+                value={currentWallBend.radius}
+                clampBehavior="blur"
+                allowNegative={false}
+                allowDecimal={false}
+                min={50}
+                max={2000}
+                step={25}
+                onChange={(val) =>
+                  updateWallBend(currentWall.id, currentWallBend.id, {
+                    radius: typeof val === 'number' ? val : 300,
+                  })
+                }
+              />
+              <NumberInput
+                size="xs"
+                label="Угол охвата (°)"
+                value={currentWallBend.angleDeg}
+                clampBehavior="blur"
+                allowNegative={false}
+                allowDecimal={false}
+                min={15}
+                max={180}
+                step={15}
+                onChange={(val) =>
+                  updateWallBend(currentWall.id, currentWallBend.id, {
+                    angleDeg: typeof val === 'number' ? val : 90,
+                  })
+                }
+              />
+            </Group>
+
+            {/* Интерактивная векторная мини-схема сечения сверху */}
+            <Paper p="xs" withBorder style={{ backgroundColor: '#141517', borderColor: '#2C2E33' }}>
+              <Text size="xs" fw={600} mb={6} c="dimmed">
+                Схема сечения (Вид сверху):
+              </Text>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 75 }}>
+                <svg width="220" height="65" viewBox="0 0 220 65">
+                  {currentWallBend.type === 'ARCH_VAULT' ? (
+                    <g>
+                      <path d="M 40 55 L 40 32 A 70 70 0 0 1 180 32 L 180 55" fill="none" stroke="#228be6" strokeWidth="4" strokeLinecap="round" />
+                      <line x1="40" y1="58" x2="180" y2="58" stroke="#868e96" strokeWidth="1" strokeDasharray="3 3" />
+                      <text x="110" y="22" fill="#74c0fc" fontSize="11" textAnchor="middle" fontFamily="JetBrains Mono" fontWeight="bold">
+                        ⌒ Свод R={currentWallBend.radius} ({currentWallBend.angleDeg ?? 180}°)
+                      </text>
+                      <text x="110" y="52" fill="#ced4da" fontSize="10" textAnchor="middle" fontFamily="JetBrains Mono">
+                        Развертка L = {arcLen} мм
+                      </text>
+                    </g>
+                  ) : currentWallBend.type === 'INNER_CORNER' ? (
+                    <g>
+                      <path d="M 30 15 L 80 15 A 50 50 0 0 1 130 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="round" />
+                      <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                        ╭ Внутр R={currentWallBend.radius}
+                      </text>
+                      <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                        L = {arcLen} мм
+                      </text>
+                    </g>
+                  ) : (
+                    <g>
+                      <path d="M 30 50 L 80 50 A 50 50 0 0 0 130 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="round" />
+                      <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                        ⌒ Внешн R={currentWallBend.radius}
+                      </text>
+                      <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                        L = {arcLen} мм
+                      </text>
+                    </g>
+                  )}
+                </svg>
+              </div>
+            </Paper>
+
+            {/* Информационная плашка с расчетом развертки дуги */}
+            <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
+              <Stack gap={4}>
+                <Group justify="space-between">
+                  <Text size="xs" c="dimmed">Развертка дуги (L):</Text>
+                  <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                    {arcLen} мм
+                  </Text>
+                </Group>
+                <Group justify="space-between">
+                  <Text size="xs" c="dimmed">Зона на стене:</Text>
+                  <Text size="xs" c="gray.3" style={{ fontFamily: 'JetBrains Mono' }}>
+                    от {currentWallBend.x} до {currentWallBend.x + arcLen} мм
+                  </Text>
+                </Group>
+                <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.3 }}>
+                  💡 Листы и рейки автоматически накладываются поверх этой зоны. Лист может начинаться до изгиба и продолжаться после него.
+                </Text>
+              </Stack>
+            </Paper>
+
+            {/* Кнопка удаления изгиба */}
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              fullWidth
+              leftSection={<Trash2 size={14} />}
+              onClick={() => deleteWallBend(currentWall.id, currentWallBend.id)}
+            >
+              Удалить изгиб со стены
+            </Button>
+          </Stack>
+        </ScrollArea>
+      </Stack>
+    );
+  }
+
+  // =========================================================================
   // РЕЖИМ 3.1: Выбрано НЕСКОЛЬКО блоков через Shift (Мульти-выбор & Объединение)
   // =========================================================================
   if (selectedCellKeys.length > 1) {
@@ -896,6 +1098,64 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </div>
 
+            {/* ТЕХНОЛОГИЧЕСКАЯ КАРТА ГИБКИ ЛИСТА (ЧПУ / КЕРФ-ПРОПИЛЫ) */}
+            {actualPanelPiece?.bendsInfo && actualPanelPiece.bendsInfo.length > 0 && (
+              <Paper p="xs" withBorder style={{ backgroundColor: '#101113', borderColor: '#339af0' }}>
+                <Stack gap="xs">
+                  <Group justify="space-between">
+                    <div>
+                      <Text size="xs" fw={700} c="cyan.4">
+                        ⌒ КАРТА ГИБКИ ЛИСТА
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        Деталь пересекает изгиб стены
+                      </Text>
+                    </div>
+                    <Badge size="xs" color="cyan" variant="filled">
+                      ГНУТЫЙ ЛИСТ
+                    </Badge>
+                  </Group>
+
+                  <Divider color="#2C2E33" />
+
+                  {actualPanelPiece.bendsInfo.map((bend, bIdx) => (
+                    <Stack key={`bend-info-${bIdx}`} gap={4}>
+                      <Group justify="space-between">
+                        <Text size="xs" c="dimmed">Тип угла:</Text>
+                        <Text size="xs" fw={600} c="gray.2">
+                          {bend.type === 'ARCH_VAULT' ? 'Арочный свод' : bend.type === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол'} (R={bend.radius} мм)
+                        </Text>
+                      </Group>
+                      <Group justify="space-between">
+                        <Text size="xs" c="dimmed">1. Левый прямой участок:</Text>
+                        <Text size="xs" fw={700} c="teal.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                          {bend.flatLeft} мм
+                        </Text>
+                      </Group>
+                      <Group justify="space-between">
+                        <Text size="xs" c="dimmed">2. Зона гибки (пропилы):</Text>
+                        <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                          {bend.bendWidth} мм ({Math.max(3, Math.floor(bend.bendWidth / 30))} пропилов)
+                        </Text>
+                      </Group>
+                      <Group justify="space-between">
+                        <Text size="xs" c="dimmed">3. Правый прямой участок:</Text>
+                        <Text size="xs" fw={700} c="teal.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                          {bend.flatRight} мм
+                        </Text>
+                      </Group>
+                    </Stack>
+                  ))}
+
+                  <Alert color="cyan" variant="light" p="xs">
+                    <Text size="xs">
+                      📐 <b>Габарит заготовки:</b> {Math.round(selectedPanelWidth)} × {Math.round(selectedPanelHeight)} мм
+                    </Text>
+                  </Alert>
+                </Stack>
+              </Paper>
+            )}
+
             {/* НАСТРОЙКА ФОРМЫ (ПЛОСКАЯ / РАДИУСНАЯ) */}
             {(() => {
               const radiusConfig = selectedCustomPanel?.radiusConfig;
@@ -907,10 +1167,10 @@ export const RightSidebar: React.FC = () => {
                     <Group justify="space-between">
                       <div>
                         <Text size="xs" fw={600} c={isRadius ? 'blue.4' : 'dimmed'}>
-                          Форма элемента:
+                          Индивидуальная форма колонки:
                         </Text>
                         <Text size="xs" c="dimmed">
-                          {isRadius ? 'Криволинейный изгиб / арка' : 'Стандартная плоская панель'}
+                          {isRadius ? 'Радиусный элемент' : 'По умолчанию'}
                         </Text>
                       </div>
                       <SegmentedControl
@@ -999,60 +1259,6 @@ export const RightSidebar: React.FC = () => {
                             }
                           />
                         </Group>
-
-                        {/* Интерактивная векторная мини-схема сечения сверху */}
-                        <Paper p="xs" withBorder style={{ backgroundColor: '#141517', borderColor: '#2C2E33' }}>
-                          <Text size="xs" fw={600} mb={6} c="dimmed">
-                            Схема сечения (Вид сверху):
-                          </Text>
-                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 75 }}>
-                            <svg width="220" height="65" viewBox="0 0 220 65">
-                              {radiusConfig.type === 'ARCH_VAULT' ? (
-                                <g>
-                                  <path d="M 40 55 L 40 32 A 70 70 0 0 1 180 32 L 180 55" fill="none" stroke="#228be6" strokeWidth="4" strokeLinecap="round" />
-                                  <line x1="40" y1="58" x2="180" y2="58" stroke="#868e96" strokeWidth="1" strokeDasharray="3 3" />
-                                  <text x="110" y="22" fill="#74c0fc" fontSize="11" textAnchor="middle" fontFamily="JetBrains Mono" fontWeight="bold">
-                                    ⌒ Свод R={radiusConfig.radius} ({radiusConfig.angleDeg ?? 180}°)
-                                  </text>
-                                  <text x="110" y="52" fill="#ced4da" fontSize="10" textAnchor="middle" fontFamily="JetBrains Mono">
-                                    Развертка L = {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 180)) / 180)} мм
-                                  </text>
-                                </g>
-                              ) : radiusConfig.type === 'INNER_CORNER' ? (
-                                <g>
-                                  <path d="M 30 15 L 80 15 A 50 50 0 0 1 130 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="round" />
-                                  <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                                    ╭ Внутр R={radiusConfig.radius}
-                                  </text>
-                                  <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
-                                    L = {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180)} мм
-                                  </text>
-                                </g>
-                              ) : (
-                                <g>
-                                  <path d="M 30 50 L 80 50 A 50 50 0 0 0 130 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="round" />
-                                  <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                                    ⌒ Внешн R={radiusConfig.radius}
-                                  </text>
-                                  <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
-                                    L = {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180)} мм
-                                  </text>
-                                </g>
-                              )}
-                            </svg>
-                          </div>
-                        </Paper>
-
-                        <Alert color="blue" variant="light" p="xs">
-                          <Text size="xs">
-                            📐 <b>Развертка в заготовке:</b> {Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180)} × {Math.round(selectedPanelHeight)} мм
-                            {selectedPanelMaterialId.includes('slat') && (
-                              <span style={{ display: 'block', marginTop: 4 }}>
-                                🪵 Количество ламелей: <b>{Math.ceil(Math.round((Math.PI * radiusConfig.radius * (radiusConfig.angleDeg ?? 90)) / 180) / 145)} шт</b> по 145 мм
-                              </span>
-                            )}
-                          </Text>
-                        </Alert>
                       </>
                     )}
                   </Stack>

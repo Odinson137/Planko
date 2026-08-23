@@ -1,4 +1,4 @@
-import { Wall, RadiusConfig } from '../models/Wall';
+import { Wall, RadiusConfig, PanelBendInfo } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
 
 export interface CalculatedPanelPiece {
@@ -15,8 +15,9 @@ export interface CalculatedPanelPiece {
   materialColor: string;
   materialType: string;
   partLabel: string;  // метка '1.1', '1.2' или 'ПУСТО'
-  radiusConfig?: RadiusConfig; // параметры радиуса/скругления если задано
+  radiusConfig?: RadiusConfig; // обратная совместимость
   arcLength?: number;          // длина развертки дуги в мм
+  bendsInfo?: PanelBendInfo[]; // информация обо всех сгибах, попадающих на этот лист
 }
 
 export interface CalculatedJointLine {
@@ -284,20 +285,71 @@ export class LayoutEngine {
           materialPiecesCount++;
         }
 
-        const radiusLabel = customConfig?.radiusConfig
-          ? (customConfig.radiusConfig.type === 'ARCH_VAULT'
-              ? `СВОД R=${customConfig.radiusConfig.radius}`
-              : customConfig.radiusConfig.type === 'INNER_CORNER'
-              ? `ВНУТР R=${customConfig.radiusConfig.radius}`
-              : `ВНЕШН R=${customConfig.radiusConfig.radius}`)
-          : null;
+        const pLeft = Math.round(currentX * 10) / 10;
+        const pRight = Math.round((currentX + panelWidth) * 10) / 10;
+        const panelBendsInfo: PanelBendInfo[] = [];
+
+        if (wall.bends && wall.bends.length > 0) {
+          wall.bends.forEach((bend) => {
+            const bendArcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
+            const bendLeft = bend.x;
+            const bendRight = bend.x + bendArcLen;
+
+            // Проверка пересечения отрезка панели [pLeft, pRight] и зоны изгиба [bendLeft, bendRight]
+            const overlapStart = Math.max(pLeft, bendLeft);
+            const overlapEnd = Math.min(pRight, bendRight);
+
+            if (overlapEnd > overlapStart + 0.5) {
+              const flatLeft = Math.max(0, bendLeft - pLeft);
+              const bendWidth = overlapEnd - overlapStart;
+              const flatRight = Math.max(0, pRight - bendRight);
+              const bendOffsetInSheet = Math.max(0, bendLeft - pLeft);
+
+              panelBendsInfo.push({
+                bendId: bend.id,
+                type: bend.type,
+                radius: bend.radius,
+                angleDeg: bend.angleDeg || 90,
+                flatLeft: Math.round(flatLeft * 10) / 10,
+                bendWidth: Math.round(bendWidth * 10) / 10,
+                flatRight: Math.round(flatRight * 10) / 10,
+                bendOffsetInSheet: Math.round(bendOffsetInSheet * 10) / 10,
+              });
+            }
+          });
+        }
+
+        // Обратная совместимость с кастомным радиусом колонки
+        if (panelBendsInfo.length === 0 && customConfig?.radiusConfig) {
+          panelBendsInfo.push({
+            bendId: `legacy-col-${columnIndex}`,
+            type: customConfig.radiusConfig.type,
+            radius: customConfig.radiusConfig.radius,
+            angleDeg: customConfig.radiusConfig.angleDeg || 90,
+            flatLeft: 0,
+            bendWidth: panelWidth,
+            flatRight: 0,
+            bendOffsetInSheet: 0,
+          });
+        }
+
+        let bendLabelStr = '';
+        if (panelBendsInfo.length > 0) {
+          const b = panelBendsInfo[0];
+          const typeStr = b.type === 'ARCH_VAULT' ? 'СВОД' : b.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН';
+          if (b.flatLeft > 10 || b.flatRight > 10) {
+            bendLabelStr = ` ⌒ ${typeStr} (${Math.round(b.flatLeft)}|${Math.round(b.bendWidth)}|${Math.round(b.flatRight)})`;
+          } else {
+            bendLabelStr = ` ⌒ ${typeStr} R=${b.radius}`;
+          }
+        }
 
         const defaultLabel = isVoid
           ? 'ПУСТО'
           : segConfig?.partLabel ||
             (segmentsConfig.length > 1
-              ? `1.${columnIndex + 1}.${segmentIndex + 1}${radiusLabel ? ` ⌒ ${radiusLabel}` : ''}`
-              : `1.${columnIndex + 1}${radiusLabel ? ` ⌒ ${radiusLabel}` : ''}`);
+              ? `1.${columnIndex + 1}.${segmentIndex + 1}${bendLabelStr}`
+              : `1.${columnIndex + 1}${bendLabelStr}`);
 
         panels.push({
           id: `panel-${columnIndex}-${segmentIndex}`,
@@ -313,8 +365,9 @@ export class LayoutEngine {
           materialColor: isVoid ? 'rgba(30, 31, 35, 0.45)' : segMaterial.color,
           materialType: segMaterial.type,
           partLabel: defaultLabel,
-          radiusConfig: customConfig?.radiusConfig,
+          radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
           arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
+          bendsInfo: panelBendsInfo.length > 0 ? panelBendsInfo : undefined,
         });
 
         currentY += segmentHeight + (isHorizInner ? horizJointWidth : 0);

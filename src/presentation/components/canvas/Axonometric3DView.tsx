@@ -4,6 +4,7 @@ import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-rea
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
+import { RadiusType } from '../../../core/models/Wall';
 
 interface Point3D {
   x: number;
@@ -73,93 +74,138 @@ export const Axonometric3DView: React.FC = () => {
     const cy = height * 0.68;
     const scale = zoomScale;
 
+    const wallW = selectedWall.width;
     const wallH = selectedWall.height;
     const wallThick = 150; // Толщина несущей стены (мм)
     const panelThick = 8;  // Толщина декоративной панели (мм)
 
     // =========================================================================
-    // 1. Построение непрерывного 3D пути стены (с поворотом на углах)
+    // 1. Построение непрерывной 3D траектории стены (с поворотами на WallBend)
     // =========================================================================
-    interface WallSegment3D {
-      colIdx: number;
-      isRadius: boolean;
-      radiusType?: string;
-      radiusVal?: number;
-      width: number;
-      // Функция получения точки на лицевой поверхности стены или с отступом вглубь (толщина)
-      getWallPoint: (u: number, y: number, depthOffset?: number) => Point3D;
+    interface ActiveBend3D {
+      id: string;
+      sStart: number;
+      sEnd: number;
+      arcLen: number;
+      radius: number;
+      angleDeg: number;
+      type: RadiusType;
     }
 
-    const wallSegments: WallSegment3D[] = [];
-    let curX = 0;
-    let curZ = 0;
-    let curHeading = 0; // угол направления стены (0 = вдоль +X)
+    const activeBends: ActiveBend3D[] = [];
 
+    if (selectedWall.bends && selectedWall.bends.length > 0) {
+      selectedWall.bends.forEach((b) => {
+        const arcLen = Math.round((Math.PI * b.radius * (b.angleDeg || 90)) / 180);
+        activeBends.push({
+          id: b.id,
+          sStart: b.x,
+          sEnd: b.x + arcLen,
+          arcLen,
+          radius: b.radius,
+          angleDeg: b.angleDeg || 90,
+          type: b.type,
+        });
+      });
+    } else {
+      // Обратная совместимость со старыми колонками
+      layout.panels.forEach((p) => {
+        if (p.radiusConfig && !activeBends.some((b) => b.sStart === p.x)) {
+          const arcLen = p.arcLength || Math.round((Math.PI * p.radiusConfig.radius * (p.radiusConfig.angleDeg || 90)) / 180);
+          activeBends.push({
+            id: `legacy-${p.id}`,
+            sStart: p.x,
+            sEnd: p.x + arcLen,
+            arcLen,
+            radius: p.radiusConfig.radius,
+            angleDeg: p.radiusConfig.angleDeg || 90,
+            type: p.radiusConfig.type,
+          });
+        }
+      });
+    }
+
+    activeBends.sort((a, b) => a.sStart - b.sStart);
+
+    interface PathSection3D {
+      sStart: number;
+      sEnd: number;
+      isBend: boolean;
+      bend?: ActiveBend3D;
+      startPoint: Point3D;
+      startHeading: number;
+      centerPoint?: Point3D;
+      totalTurn?: number;
+      getPoint: (s: number, y: number, depthOffset: number) => Point3D;
+    }
+
+    const pathSections: PathSection3D[] = [];
+    let curS = 0;
+    let curPt: Point3D = { x: 0, y: 0, z: 0 };
+    let curHeading = 0;
     const allPathPoints: Point3D[] = [{ x: 0, y: 0, z: 0 }];
 
-    const sortedPanels = [...layout.panels].sort((a, b) => a.originalColumnIndex - b.originalColumnIndex);
-    const uniqueCols = Array.from(new Set(sortedPanels.map((p) => p.originalColumnIndex))).sort((a, b) => a - b);
+    activeBends.forEach((bend) => {
+      // 1. Прямой участок стены до изгиба
+      if (bend.sStart > curS + 0.5) {
+        const straightLen = bend.sStart - curS;
+        const straightStartPt = { ...curPt };
+        const straightHeading = curHeading;
+        const sStart = curS;
+        const sEnd = bend.sStart;
 
-    uniqueCols.forEach((colIdx) => {
-      const colPanels = sortedPanels.filter((p) => p.originalColumnIndex === colIdx);
-      const firstPanel = colPanels[0];
-      const pWidth = firstPanel.width;
-      const radConfig = firstPanel.radiusConfig;
-
-      const segStartX = curX;
-      const segStartZ = curZ;
-      const psi = curHeading; // текущий угол ориентации стены
-
-      if (radConfig && radConfig.type === 'OUTER_CORNER') {
-        const R = radConfig.radius;
-        const arcDeg = radConfig.angleDeg ?? 90;
-        const totalTurn = (arcDeg * Math.PI) / 180;
-
-        // Центр скругления (справа по ходу движения стены)
-        const cX = segStartX - Math.sin(psi) * R;
-        const cZ = segStartZ - Math.cos(psi) * R;
-
-        wallSegments.push({
-          colIdx,
-          isRadius: true,
-          radiusType: radConfig.type,
-          radiusVal: R,
-          width: pWidth,
-          getWallPoint: (uRatio: number, y: number, depthOffset = 0) => {
-            const alpha = uRatio * totalTurn;
-            const phi = psi - Math.PI / 2 + alpha;
-            const effR = Math.max(5, R - depthOffset);
+        pathSections.push({
+          sStart,
+          sEnd,
+          isBend: false,
+          startPoint: straightStartPt,
+          startHeading: straightHeading,
+          getPoint: (s: number, y: number, depthOffset = 0) => {
+            const dist = Math.max(0, Math.min(straightLen, s - sStart));
+            const normX = -Math.sin(straightHeading) * depthOffset;
+            const normZ = -Math.cos(straightHeading) * depthOffset;
             return {
-              x: cX + Math.cos(phi) * effR,
+              x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
               y,
-              z: cZ - Math.sin(phi) * effR,
+              z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
             };
           },
         });
 
-        // Позиция в конце дуги
-        const endPhi = psi - Math.PI / 2 + totalTurn;
-        curX = cX + Math.cos(endPhi) * R;
-        curZ = cZ - Math.sin(endPhi) * R;
-        curHeading = psi + totalTurn;
-        allPathPoints.push({ x: curX, y: 0, z: curZ });
-      } else if (radConfig && radConfig.type === 'INNER_CORNER') {
-        const R = radConfig.radius;
-        const arcDeg = radConfig.angleDeg ?? 90;
-        const totalTurn = (arcDeg * Math.PI) / 180;
+        curPt = {
+          x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
+          y: 0,
+          z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
+        };
+        curS = sEnd;
+        allPathPoints.push({ ...curPt });
+      }
 
-        // Центр скругления (слева по ходу движения стены)
-        const cX = segStartX + Math.sin(psi) * R;
-        const cZ = segStartZ + Math.cos(psi) * R;
+      // 2. Участок изгиба
+      const R = bend.radius;
+      const totalTurn = ((bend.angleDeg || 90) * Math.PI) / 180;
+      const psi = curHeading;
+      const bendStartPt = { ...curPt };
+      const sStart = curS;
+      const sEnd = curS + bend.arcLen;
 
-        wallSegments.push({
-          colIdx,
-          isRadius: true,
-          radiusType: radConfig.type,
-          radiusVal: R,
-          width: pWidth,
-          getWallPoint: (uRatio: number, y: number, depthOffset = 0) => {
-            const alpha = uRatio * totalTurn;
+      if (bend.type === 'INNER_CORNER') {
+        const cX = bendStartPt.x + Math.sin(psi) * R;
+        const cZ = bendStartPt.z + Math.cos(psi) * R;
+        const centerPt = { x: cX, y: 0, z: cZ };
+
+        pathSections.push({
+          sStart,
+          sEnd,
+          isBend: true,
+          bend,
+          startPoint: bendStartPt,
+          startHeading: psi,
+          centerPoint: centerPt,
+          totalTurn,
+          getPoint: (s: number, y: number, depthOffset = 0) => {
+            const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
+            const alpha = u * totalTurn;
             const phi = psi + Math.PI / 2 - alpha;
             const effR = Math.max(5, R + depthOffset);
             return {
@@ -171,37 +217,93 @@ export const Axonometric3DView: React.FC = () => {
         });
 
         const endPhi = psi + Math.PI / 2 - totalTurn;
-        curX = cX + Math.cos(endPhi) * R;
-        curZ = cZ - Math.sin(endPhi) * R;
+        curPt = {
+          x: cX + Math.cos(endPhi) * R,
+          y: 0,
+          z: cZ - Math.sin(endPhi) * R,
+        };
         curHeading = psi - totalTurn;
-        allPathPoints.push({ x: curX, y: 0, z: curZ });
       } else {
-        // Прямая плоская секция
-        wallSegments.push({
-          colIdx,
-          isRadius: false,
-          width: pWidth,
-          getWallPoint: (uRatio: number, y: number, depthOffset = 0) => {
-            const dist = uRatio * pWidth;
-            // Вектор перпендикуляра внутрь стены (толщина)
-            const normX = -Math.sin(psi) * depthOffset;
-            const normZ = -Math.cos(psi) * depthOffset;
+        // OUTER_CORNER / ARCH_VAULT
+        const cX = bendStartPt.x - Math.sin(psi) * R;
+        const cZ = bendStartPt.z - Math.cos(psi) * R;
+        const centerPt = { x: cX, y: 0, z: cZ };
+
+        pathSections.push({
+          sStart,
+          sEnd,
+          isBend: true,
+          bend,
+          startPoint: bendStartPt,
+          startHeading: psi,
+          centerPoint: centerPt,
+          totalTurn,
+          getPoint: (s: number, y: number, depthOffset = 0) => {
+            const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
+            const alpha = u * totalTurn;
+            const phi = psi - Math.PI / 2 + alpha;
+            const effR = Math.max(5, R - depthOffset);
             return {
-              x: segStartX + Math.cos(psi) * dist + normX,
+              x: cX + Math.cos(phi) * effR,
               y,
-              z: segStartZ - Math.sin(psi) * dist + normZ,
+              z: cZ - Math.sin(phi) * effR,
             };
           },
         });
 
-        curX += Math.cos(psi) * pWidth;
-        curZ -= Math.sin(psi) * pWidth;
-        allPathPoints.push({ x: curX, y: 0, z: curZ });
+        const endPhi = psi - Math.PI / 2 + totalTurn;
+        curPt = {
+          x: cX + Math.cos(endPhi) * R,
+          y: 0,
+          z: cZ - Math.sin(endPhi) * R,
+        };
+        curHeading = psi + totalTurn;
       }
+
+      curS = sEnd;
+      allPathPoints.push({ ...curPt });
     });
 
-    const segmentMap = new Map<number, WallSegment3D>();
-    wallSegments.forEach((s) => segmentMap.set(s.colIdx, s));
+    // 3. Завершающий прямой участок стены
+    if (curS < wallW) {
+      const straightLen = wallW - curS;
+      const straightStartPt = { ...curPt };
+      const straightHeading = curHeading;
+      const sStart = curS;
+      const sEnd = wallW;
+
+      pathSections.push({
+        sStart,
+        sEnd,
+        isBend: false,
+        startPoint: straightStartPt,
+        startHeading: straightHeading,
+        getPoint: (s: number, y: number, depthOffset = 0) => {
+          const dist = Math.max(0, Math.min(straightLen, s - sStart));
+          const normX = -Math.sin(straightHeading) * depthOffset;
+          const normZ = -Math.cos(straightHeading) * depthOffset;
+          return {
+            x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
+            y,
+            z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
+          };
+        },
+      });
+
+      curPt = {
+        x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
+        y: 0,
+        z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
+      };
+      allPathPoints.push({ ...curPt });
+    }
+
+    const getPointAtS = (s: number, y: number, depthOffset = 0): Point3D => {
+      const clampedS = Math.max(0, Math.min(wallW, s));
+      const section = pathSections.find((sec) => clampedS >= sec.sStart && clampedS <= sec.sEnd) || pathSections[pathSections.length - 1];
+      if (!section) return { x: 0, y, z: 0 };
+      return section.getPoint(clampedS, y, depthOffset);
+    };
 
     // =========================================================================
     // 2. Отрисовка пола (охватывает всю площадь сложной стены)
@@ -248,18 +350,17 @@ export const Axonometric3DView: React.FC = () => {
     // =========================================================================
     // 3. Отрисовка МОНОЛИТНОЙ НЕСУЩЕЙ СТЕНЫ (Верхняя грань и глубина)
     // =========================================================================
-    // Отрисовываем непрерывный верхний срез стены (толщину) вдоль ВСЕХ сегментов
-    wallSegments.forEach((seg) => {
-      const steps = seg.isRadius ? 12 : 1;
+    pathSections.forEach((sec) => {
+      const steps = sec.isBend ? 14 : 1;
+      const len = sec.sEnd - sec.sStart;
       for (let i = 0; i < steps; i++) {
-        const u0 = i / steps;
-        const u1 = (i + 1) / steps;
+        const s0 = sec.sStart + (i / steps) * len;
+        const s1 = sec.sStart + ((i + 1) / steps) * len;
 
-        // 4 точки верхней крышки стены (толщина)
-        const topF0 = project3D(seg.getWallPoint(u0, wallH, 0), cx, cy, scale);
-        const topF1 = project3D(seg.getWallPoint(u1, wallH, 0), cx, cy, scale);
-        const topB1 = project3D(seg.getWallPoint(u1, wallH, wallThick), cx, cy, scale);
-        const topB0 = project3D(seg.getWallPoint(u0, wallH, wallThick), cx, cy, scale);
+        const topF0 = project3D(getPointAtS(s0, wallH, 0), cx, cy, scale);
+        const topF1 = project3D(getPointAtS(s1, wallH, 0), cx, cy, scale);
+        const topB1 = project3D(getPointAtS(s1, wallH, wallThick), cx, cy, scale);
+        const topB0 = project3D(getPointAtS(s0, wallH, wallThick), cx, cy, scale);
 
         ctx.fillStyle = '#2c2f35';
         ctx.strokeStyle = '#3a3e47';
@@ -275,119 +376,64 @@ export const Axonometric3DView: React.FC = () => {
       }
     });
 
-    // Левый торец стены (толщина)
-    const firstSeg = wallSegments[0];
-    if (firstSeg) {
-      const tL0 = project3D(firstSeg.getWallPoint(0, 0, 0), cx, cy, scale);
-      const tL1 = project3D(firstSeg.getWallPoint(0, wallH, 0), cx, cy, scale);
-      const tL2 = project3D(firstSeg.getWallPoint(0, wallH, wallThick), cx, cy, scale);
-      const tL3 = project3D(firstSeg.getWallPoint(0, 0, wallThick), cx, cy, scale);
+    // Левый торец стены
+    const tL0 = project3D(getPointAtS(0, 0, 0), cx, cy, scale);
+    const tL1 = project3D(getPointAtS(0, wallH, 0), cx, cy, scale);
+    const tL2 = project3D(getPointAtS(0, wallH, wallThick), cx, cy, scale);
+    const tL3 = project3D(getPointAtS(0, 0, wallThick), cx, cy, scale);
 
-      ctx.fillStyle = '#1c1e22';
-      ctx.beginPath();
-      ctx.moveTo(tL0.x, tL0.y);
-      ctx.lineTo(tL1.x, tL1.y);
-      ctx.lineTo(tL2.x, tL2.y);
-      ctx.lineTo(tL3.x, tL3.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
+    ctx.fillStyle = '#1c1e22';
+    ctx.beginPath();
+    ctx.moveTo(tL0.x, tL0.y);
+    ctx.lineTo(tL1.x, tL1.y);
+    ctx.lineTo(tL2.x, tL2.y);
+    ctx.lineTo(tL3.x, tL3.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
-    // Правый торец стены (в конце последнего сегмента)
-    const lastSeg = wallSegments[wallSegments.length - 1];
-    if (lastSeg) {
-      const tR0 = project3D(lastSeg.getWallPoint(1, 0, 0), cx, cy, scale);
-      const tR1 = project3D(lastSeg.getWallPoint(1, wallH, 0), cx, cy, scale);
-      const tR2 = project3D(lastSeg.getWallPoint(1, wallH, wallThick), cx, cy, scale);
-      const tR3 = project3D(lastSeg.getWallPoint(1, 0, wallThick), cx, cy, scale);
+    // Правый торец стены
+    const tR0 = project3D(getPointAtS(wallW, 0, 0), cx, cy, scale);
+    const tR1 = project3D(getPointAtS(wallW, wallH, 0), cx, cy, scale);
+    const tR2 = project3D(getPointAtS(wallW, wallH, wallThick), cx, cy, scale);
+    const tR3 = project3D(getPointAtS(wallW, 0, wallThick), cx, cy, scale);
 
-      ctx.fillStyle = '#222429';
-      ctx.beginPath();
-      ctx.moveTo(tR0.x, tR0.y);
-      ctx.lineTo(tR1.x, tR1.y);
-      ctx.lineTo(tR2.x, tR2.y);
-      ctx.lineTo(tR3.x, tR3.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
+    ctx.fillStyle = '#222429';
+    ctx.beginPath();
+    ctx.moveTo(tR0.x, tR0.y);
+    ctx.lineTo(tR1.x, tR1.y);
+    ctx.lineTo(tR2.x, tR2.y);
+    ctx.lineTo(tR3.x, tR3.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
     // =========================================================================
-    // 4. Отрисовка ДЕКОРАТИВНЫХ ПАНЕЛЕЙ И ИЗГИБОВ (с непрерывным стыком!)
+    // 4. Отрисовка ДЕКОРАТИВНЫХ ПАНЕЛЕЙ (непрерывно огибающих углы в 3D)
     // =========================================================================
     layout.panels.forEach((panel) => {
-      const seg = segmentMap.get(panel.originalColumnIndex);
-      if (!seg) return;
-
       const isVoid = panel.isVoid || panel.materialId === MATERIAL_NONE_ID;
       const isSlat = panel.materialType === 'SLAT';
       const baseColor = isVoid ? '#16171a' : (panel.materialColor || '#d6cbbe');
 
       const yBot = panel.y;
       const yTop = panel.y + panel.height;
+      const pStartS = panel.x;
+      const pEndS = panel.x + panel.width;
 
-      if (seg.isRadius) {
-        // Отрисовка цилиндрического изгиба через непрерывные фасеты
-        const steps = 16;
-        for (let s = 0; s < steps; s++) {
-          const u0 = s / steps;
-          const u1 = (s + 1) / steps;
-
-          // Лицевая поверхность панели
-          const p0 = project3D(seg.getWallPoint(u0, yBot, -panelThick), cx, cy, scale);
-          const p1 = project3D(seg.getWallPoint(u1, yBot, -panelThick), cx, cy, scale);
-          const p2 = project3D(seg.getWallPoint(u1, yTop, -panelThick), cx, cy, scale);
-          const p3 = project3D(seg.getWallPoint(u0, yTop, -panelThick), cx, cy, scale);
-
-          // Объемное цилиндрическое затенение
-          const lightFactor =
-            seg.radiusType === 'INNER_CORNER'
-              ? 0.5 + 0.45 * Math.abs(u0 - 0.5) * 2 // темнее в центре
-              : 0.65 + 0.35 * Math.sin(u0 * Math.PI); // яркий блик в центре
-
-          ctx.fillStyle = isVoid ? '#141517' : adjustBrightness(baseColor, lightFactor);
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.lineTo(p3.x, p3.y);
-          ctx.closePath();
-          ctx.fill();
-
-          // Тонкая линия фасета (направляющая сгиба)
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
-          ctx.lineWidth = 0.5;
-          ctx.stroke();
-
-          // Верхний торец панели (глубина 8 мм)
-          const pt0 = p3;
-          const pt1 = p2;
-          const pt2 = project3D(seg.getWallPoint(u1, yTop, 0), cx, cy, scale);
-          const pt3 = project3D(seg.getWallPoint(u0, yTop, 0), cx, cy, scale);
-
-          ctx.fillStyle = adjustBrightness(baseColor, 0.85);
-          ctx.beginPath();
-          ctx.moveTo(pt0.x, pt0.y);
-          ctx.lineTo(pt1.x, pt1.y);
-          ctx.lineTo(pt2.x, pt2.y);
-          ctx.lineTo(pt3.x, pt3.y);
-          ctx.closePath();
-          ctx.fill();
-        }
-      } else if (isSlat) {
-        // Отрисовка реек (ламелей) с выпуклым 3D-профилем
+      if (isSlat) {
+        // Реечные ламели
         const slatWidth = 145;
         const count = Math.max(1, Math.floor(panel.width / slatWidth));
 
         for (let i = 0; i < count; i++) {
-          const u0 = (i * slatWidth) / panel.width;
-          const u1 = Math.min(1, ((i + 1) * slatWidth - 8) / panel.width);
+          const s0 = pStartS + i * slatWidth;
+          const s1 = Math.min(pEndS, s0 + slatWidth - 8);
 
-          const p0 = project3D(seg.getWallPoint(u0, yBot, -16), cx, cy, scale);
-          const p1 = project3D(seg.getWallPoint(u1, yBot, -16), cx, cy, scale);
-          const p2 = project3D(seg.getWallPoint(u1, yTop, -16), cx, cy, scale);
-          const p3 = project3D(seg.getWallPoint(u0, yTop, -16), cx, cy, scale);
+          const p0 = project3D(getPointAtS(s0, yBot, -16), cx, cy, scale);
+          const p1 = project3D(getPointAtS(s1, yBot, -16), cx, cy, scale);
+          const p2 = project3D(getPointAtS(s1, yTop, -16), cx, cy, scale);
+          const p3 = project3D(getPointAtS(s0, yTop, -16), cx, cy, scale);
 
           ctx.fillStyle = '#6b4b32';
           ctx.strokeStyle = '#3e2a1b';
@@ -404,8 +450,8 @@ export const Axonometric3DView: React.FC = () => {
           // Верхний торец рейки
           const pt0 = p3;
           const pt1 = p2;
-          const pt2 = project3D(seg.getWallPoint(u1, yTop, 0), cx, cy, scale);
-          const pt3 = project3D(seg.getWallPoint(u0, yTop, 0), cx, cy, scale);
+          const pt2 = project3D(getPointAtS(s1, yTop, 0), cx, cy, scale);
+          const pt3 = project3D(getPointAtS(s0, yTop, 0), cx, cy, scale);
 
           ctx.fillStyle = '#8b6443';
           ctx.beginPath();
@@ -417,40 +463,80 @@ export const Axonometric3DView: React.FC = () => {
           ctx.fill();
         }
       } else {
-        // Обычная плоская монолитная панель (с толщиной)
-        const p0 = project3D(seg.getWallPoint(0, yBot, -panelThick), cx, cy, scale);
-        const p1 = project3D(seg.getWallPoint(1, yBot, -panelThick), cx, cy, scale);
-        const p2 = project3D(seg.getWallPoint(1, yTop, -panelThick), cx, cy, scale);
-        const p3 = project3D(seg.getWallPoint(0, yTop, -panelThick), cx, cy, scale);
+        // Листовые панели (разбиваем на фасеты на участках изгибов)
+        // Собираем ключевые точки s вдоль ширины панели
+        const slicePoints: number[] = [pStartS];
 
-        ctx.fillStyle = baseColor;
-        ctx.strokeStyle = isVoid ? '#2c2e33' : '#141517';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(p0.x, p0.y);
-        ctx.lineTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        pathSections.forEach((sec) => {
+          if (sec.sEnd > pStartS && sec.sStart < pEndS) {
+            const overlapStart = Math.max(pStartS, sec.sStart);
+            const overlapEnd = Math.min(pEndS, sec.sEnd);
+            if (sec.isBend) {
+              const bendSlices = 14;
+              for (let k = 1; k <= bendSlices; k++) {
+                const sVal = overlapStart + (k / bendSlices) * (overlapEnd - overlapStart);
+                slicePoints.push(sVal);
+              }
+            } else {
+              slicePoints.push(overlapEnd);
+            }
+          }
+        });
 
-        // Верхний торец панели (глубина)
-        const pt0 = p3;
-        const pt1 = p2;
-        const pt2 = project3D(seg.getWallPoint(1, yTop, 0), cx, cy, scale);
-        const pt3 = project3D(seg.getWallPoint(0, yTop, 0), cx, cy, scale);
+        slicePoints.push(pEndS);
+        const sortedSlices = Array.from(new Set(slicePoints.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
 
-        ctx.fillStyle = adjustBrightness(baseColor, 0.82);
-        ctx.beginPath();
-        ctx.moveTo(pt0.x, pt0.y);
-        ctx.lineTo(pt1.x, pt1.y);
-        ctx.lineTo(pt2.x, pt2.y);
-        ctx.lineTo(pt3.x, pt3.y);
-        ctx.closePath();
-        ctx.fill();
+        for (let i = 0; i < sortedSlices.length - 1; i++) {
+          const s0 = sortedSlices[i];
+          const s1 = sortedSlices[i + 1];
+          if (s1 - s0 <= 0.5) continue;
+
+          const p0 = project3D(getPointAtS(s0, yBot, -panelThick), cx, cy, scale);
+          const p1 = project3D(getPointAtS(s1, yBot, -panelThick), cx, cy, scale);
+          const p2 = project3D(getPointAtS(s1, yTop, -panelThick), cx, cy, scale);
+          const p3 = project3D(getPointAtS(s0, yTop, -panelThick), cx, cy, scale);
+
+          // Проверяем, находится ли этот срез внутри сгиба
+          const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);
+          let lightFactor = 0.95;
+          if (inBend) {
+            const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
+            lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.55 + 0.45 * Math.abs(u - 0.5) * 2 : 0.65 + 0.35 * Math.sin(u * Math.PI);
+          }
+
+          ctx.fillStyle = isVoid ? '#141517' : adjustBrightness(baseColor, lightFactor);
+          ctx.strokeStyle = isVoid ? '#2c2e33' : '#141517';
+          ctx.lineWidth = inBend ? 0.5 : 1.2;
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Верхний торец панели
+          const pt0 = p3;
+          const pt1 = p2;
+          const pt2 = project3D(getPointAtS(s1, yTop, 0), cx, cy, scale);
+          const pt3 = project3D(getPointAtS(s0, yTop, 0), cx, cy, scale);
+
+          ctx.fillStyle = adjustBrightness(baseColor, 0.82);
+          ctx.beginPath();
+          ctx.moveTo(pt0.x, pt0.y);
+          ctx.lineTo(pt1.x, pt1.y);
+          ctx.lineTo(pt2.x, pt2.y);
+          ctx.lineTo(pt3.x, pt3.y);
+          ctx.closePath();
+          ctx.fill();
+        }
 
         if (isVoid) {
+          const p0 = project3D(getPointAtS(pStartS, yBot, -panelThick), cx, cy, scale);
+          const p1 = project3D(getPointAtS(pEndS, yBot, -panelThick), cx, cy, scale);
+          const p2 = project3D(getPointAtS(pEndS, yTop, -panelThick), cx, cy, scale);
+          const p3 = project3D(getPointAtS(pStartS, yTop, -panelThick), cx, cy, scale);
           ctx.strokeStyle = '#343a40';
           ctx.setLineDash([4, 4]);
           ctx.beginPath();
@@ -465,39 +551,20 @@ export const Axonometric3DView: React.FC = () => {
     });
 
     // =========================================================================
-    // 5. Отрисовка проемов (Двери с 3D откосами и ТВ)
+    // 5. Отрисовка проемов (Двери, ТВ)
     // =========================================================================
     selectedWall.openings.forEach((op) => {
-      // Ищем позицию проема на стене
-      const opX = op.x;
-      let accumulatedW = 0;
-      let matchedSeg: WallSegment3D | undefined = wallSegments[0];
-      let uInSeg = 0;
-
-      for (const s of wallSegments) {
-        if (opX >= accumulatedW && opX <= accumulatedW + s.width) {
-          matchedSeg = s;
-          uInSeg = (opX - accumulatedW) / s.width;
-          break;
-        }
-        accumulatedW += s.width;
-      }
-
-      if (!matchedSeg) return;
-
-      const uEndInSeg = Math.min(1, uInSeg + op.width / matchedSeg.width);
-      const opP0 = project3D(matchedSeg.getWallPoint(uInSeg, op.y, -panelThick - 2), cx, cy, scale);
-      const opP1 = project3D(matchedSeg.getWallPoint(uEndInSeg, op.y, -panelThick - 2), cx, cy, scale);
-      const opP2 = project3D(matchedSeg.getWallPoint(uEndInSeg, op.y + op.height, -panelThick - 2), cx, cy, scale);
-      const opP3 = project3D(matchedSeg.getWallPoint(uInSeg, op.y + op.height, -panelThick - 2), cx, cy, scale);
+      const opP0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2), cx, cy, scale);
+      const opP1 = project3D(getPointAtS(op.x + op.width, op.y, -panelThick - 2), cx, cy, scale);
+      const opP2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, -panelThick - 2), cx, cy, scale);
+      const opP3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2), cx, cy, scale);
 
       if (op.type === 'DOOR') {
-        // Дверное полотно (утоплено внутрь стены на 70 мм)
         const doorDepth = 70;
-        const d0 = project3D(matchedSeg.getWallPoint(uInSeg, op.y, doorDepth), cx, cy, scale);
-        const d1 = project3D(matchedSeg.getWallPoint(uEndInSeg, op.y, doorDepth), cx, cy, scale);
-        const d2 = project3D(matchedSeg.getWallPoint(uEndInSeg, op.y + op.height, doorDepth), cx, cy, scale);
-        const d3 = project3D(matchedSeg.getWallPoint(uInSeg, op.y + op.height, doorDepth), cx, cy, scale);
+        const d0 = project3D(getPointAtS(op.x, op.y, doorDepth), cx, cy, scale);
+        const d1 = project3D(getPointAtS(op.x + op.width, op.y, doorDepth), cx, cy, scale);
+        const d2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, doorDepth), cx, cy, scale);
+        const d3 = project3D(getPointAtS(op.x, op.y + op.height, doorDepth), cx, cy, scale);
 
         // Откосы двери
         ctx.fillStyle = '#1c1e22';
@@ -533,13 +600,12 @@ export const Axonometric3DView: React.FC = () => {
         ctx.stroke();
 
         // Ручка
-        const handlePos = project3D(matchedSeg.getWallPoint(uEndInSeg - 0.05, op.y + 1000, doorDepth - 10), cx, cy, scale);
+        const handlePos = project3D(getPointAtS(op.x + op.width - 50, op.y + 1000, doorDepth - 10), cx, cy, scale);
         ctx.fillStyle = '#e9ecef';
         ctx.beginPath();
         ctx.arc(handlePos.x, handlePos.y, 4, 0, Math.PI * 2);
         ctx.fill();
       } else if (op.type === 'TV_ZONE') {
-        // ТВ накладной
         ctx.fillStyle = '#08080a';
         ctx.strokeStyle = '#343a40';
         ctx.lineWidth = 2;
@@ -552,7 +618,6 @@ export const Axonometric3DView: React.FC = () => {
         ctx.fill();
         ctx.stroke();
 
-        // Экранный блик
         ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
         ctx.beginPath();
         ctx.moveTo(opP0.x, opP0.y);
@@ -564,19 +629,16 @@ export const Axonometric3DView: React.FC = () => {
     });
 
     // =========================================================================
-    // 6. Отрисовка LED-линий и стыков со свечением
+    // 6. Отрисовка LED-линий со свечением
     // =========================================================================
     layout.joints.forEach((joint) => {
       if (!joint.isLED) return;
 
-      const seg = segmentMap.get(joint.columnIndex ?? 0) || wallSegments[0];
-      if (!seg) return;
-
-      const pStart = project3D(seg.getWallPoint(0, joint.y, -panelThick - 3), cx, cy, scale);
+      const pStart = project3D(getPointAtS(joint.x, joint.y, -panelThick - 3), cx, cy, scale);
       const pEnd =
         joint.orientation === 'VERTICAL'
-          ? project3D(seg.getWallPoint(0, joint.y + joint.length, -panelThick - 3), cx, cy, scale)
-          : project3D(seg.getWallPoint(1, joint.y, -panelThick - 3), cx, cy, scale);
+          ? project3D(getPointAtS(joint.x, joint.y + joint.length, -panelThick - 3), cx, cy, scale)
+          : project3D(getPointAtS(joint.x + joint.length, joint.y, -panelThick - 3), cx, cy, scale);
 
       ctx.save();
       ctx.strokeStyle = '#ffd43b';
