@@ -4,8 +4,9 @@ import { useElementSize } from '@mantine/hooks';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
-import { Opening } from '../../../core/models/Opening';
+import { Opening, ensureOpeningSlopes } from '../../../core/models/Opening';
 import { TextureRegistry } from '../../../core/textures/TextureRegistry';
+import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 
 const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
 const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
@@ -20,6 +21,7 @@ export const CadCanvas: React.FC = () => {
     selectedJointId,
     selectedJointIds,
     selectedWallBendId,
+    selectedSubPieceId,
     selectOpening,
     selectPanel,
     toggleCellSelection,
@@ -38,6 +40,7 @@ export const CadCanvas: React.FC = () => {
     showDimensions,
     showProfiles,
     activeTool,
+    editMode,
   } = useEditorStore();
 
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
@@ -203,57 +206,107 @@ export const CadCanvas: React.FC = () => {
             {layout?.panels.map((panel) => {
               const panelX = panel.x;
               const panelY = wallH - (panel.y + panel.height);
+              const isPolygon = Boolean(panel.polygonPoints && panel.polygonPoints.length >= 3);
+
               const isPanelSelected =
-                (selectedPieceIds.includes(panel.id) ||
-                  (selectedPieceIds.length === 0 &&
-                    selectedColumnIndex === panel.originalColumnIndex &&
-                    (selectedSegmentIndex === null || selectedSegmentIndex === panel.originalSegmentIndex))) &&
-                selectedJointId === null;
+                selectedJointId === null &&
+                (
+                  panel.subPieceId
+                    ? (selectedSubPieceId === panel.subPieceId || selectedPieceIds.includes(panel.id))
+                    : (!selectedSubPieceId && (
+                        selectedPieceIds.includes(panel.id) ||
+                        (selectedPieceIds.length === 0 &&
+                          selectedColumnIndex === panel.originalColumnIndex &&
+                          (selectedSegmentIndex === null || selectedSegmentIndex === panel.originalSegmentIndex))
+                      ))
+                );
 
               const isVoid = panel.isVoid;
               const isSlat = panel.materialType === 'SLAT';
               const patternCanvas = !isVoid
-                ? TextureRegistry.getPatternCanvas(
+                ? TextureRegistry.getPatternCanvasWithTransform(
                     panel.textureCategory || 'WOOD',
                     panel.materialColor || '#d6cbbe',
                     (panel.reliefType as any) || 'FLAT',
-                    panel.decorCode
+                    panel.decorCode,
+                    panel.patternAngleDeg || 0,
+                    panel.patternFlipX || false
                   )
                 : null;
+
+              const polyLinePoints = isPolygon
+                ? panel.polygonPoints!.flatMap((pt) => [pt.x, wallH - pt.y])
+                : [];
+
+              const isPanelsMode = editMode === 'PANELS';
 
               return (
                 <Group
                   key={panel.id}
+                  opacity={isPanelsMode ? 1 : 0.4}
+                  listening={isPanelsMode}
                   onClick={(e) => {
                     e.cancelBubble = true;
-                    toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, !!e.evt.shiftKey);
+                    if (panel.subPieceId) {
+                      selectPanel(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, panel.subPieceId);
+                    } else {
+                      toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, !!e.evt.shiftKey);
+                    }
                   }}
                 >
-                  <Rect
-                    x={panelX}
-                    y={panelY}
-                    width={panel.width}
-                    height={panel.height}
-                    fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
-                    fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
-                    fillPatternScale={
-                      patternCanvas
-                        ? {
-                            x: panel.width / patternCanvas.width,
-                            y: panel.height / patternCanvas.height,
-                          }
-                        : undefined
-                    }
-                    fillPatternRepeat="no-repeat"
-                    stroke={
-                      isPanelSelected
-                        ? '#40C057'
-                        : (isVoid ? '#373A40' : '#141517')
-                    }
-                    strokeWidth={isPanelSelected ? 3 / zoom : 1}
-                    dash={isVoid ? [12, 8] : undefined}
-                    opacity={isVoid ? 0.75 : 0.98}
-                  />
+                  {isPolygon ? (
+                    <Line
+                      points={polyLinePoints}
+                      closed
+                      fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (patternCanvas ? undefined : (panel.materialColor || '#d6cbbe'))}
+                      fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
+                      fillPatternX={panelX}
+                      fillPatternY={panelY}
+                      fillPatternScale={
+                        patternCanvas
+                          ? {
+                              x: Math.max(panel.width, 100) / patternCanvas.width,
+                              y: Math.max(panel.height, 100) / patternCanvas.height,
+                            }
+                          : undefined
+                      }
+                      fillPatternRepeat="repeat"
+                      stroke={
+                        isPanelSelected
+                          ? '#40C057'
+                          : (isVoid ? '#373A40' : '#141517')
+                      }
+                      strokeWidth={isPanelSelected ? 3 / zoom : 1}
+                      dash={isVoid ? [12, 8] : undefined}
+                      opacity={isVoid ? 0.75 : 0.98}
+                    />
+                  ) : (
+                    <Rect
+                      x={panelX}
+                      y={panelY}
+                      width={panel.width}
+                      height={panel.height}
+                      fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
+                      fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
+                      fillPatternScale={
+                        patternCanvas
+                          ? {
+                              x: panel.width / patternCanvas.width,
+                              y: panel.height / patternCanvas.height,
+                            }
+                          : undefined
+                      }
+                      fillPatternRepeat="no-repeat"
+                      stroke={
+                        isPanelSelected
+                          ? '#40C057'
+                          : (isVoid ? '#373A40' : '#141517')
+                      }
+                      strokeWidth={isPanelSelected ? 3 / zoom : 1}
+                      dash={isVoid ? [12, 8] : undefined}
+                      opacity={isVoid ? 0.75 : 0.98}
+                    />
+                  )}
 
                   {/* Рельефная светотень для рейки-волны (GW90) */}
                   {panel.reliefType === 'WAVE_GW90' && !isVoid && (
@@ -346,7 +399,39 @@ export const CadCanvas: React.FC = () => {
                       {panel.bendsInfo.map((bend, bIdx) => {
                         const bendSubX = panelX + bend.flatLeft;
                         const bendSubW = bend.bendWidth;
-                        if (bendSubW <= 1) return null;
+
+                        if (bend.radius <= 0 || bendSubW <= 1) {
+                          // Острый угол (R = 0): линия перегиба на листе и бейдж
+                          return (
+                            <Group key={`panel-bend-${panel.id}-${bIdx}`}>
+                              <Line
+                                points={[bendSubX, panelY, bendSubX, panelY + panel.height]}
+                                stroke="#339af0"
+                                strokeWidth={1.8 / zoom}
+                                dash={[6, 4]}
+                              />
+                              <Group x={bendSubX - 45} y={panelY + 8}>
+                                <Rect
+                                  width={90}
+                                  height={18}
+                                  fill="#101113"
+                                  stroke="#4dabf7"
+                                  strokeWidth={1.2 / zoom}
+                                  cornerRadius={3}
+                                />
+                                <Text
+                                  x={4}
+                                  y={3}
+                                  text={`📐 ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} ${bend.angleDeg || 90}°`}
+                                  fontSize={8.5}
+                                  fontFamily="JetBrains Mono"
+                                  fontStyle="bold"
+                                  fill="#74c0fc"
+                                />
+                              </Group>
+                            </Group>
+                          );
+                        }
 
                         return (
                           <Group key={`panel-bend-${panel.id}-${bIdx}`}>
@@ -394,7 +479,7 @@ export const CadCanvas: React.FC = () => {
                                 <Text
                                   x={6}
                                   y={4}
-                                  text={`⌒ ${bend.type === 'ARCH_VAULT' ? 'СВОД' : bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${bend.radius}`}
+                                  text={`⌒ ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${bend.radius}`}
                                   fontSize={9}
                                   fontFamily="JetBrains Mono"
                                   fontStyle="bold"
@@ -408,30 +493,64 @@ export const CadCanvas: React.FC = () => {
                     </Group>
                   )}
 
-                  {/* Текстовые метки ячейки (деталь, код декора и размеры) */}
-                  {panel.width > 70 && panel.height > 40 && (
-                    <Group x={panelX + 10} y={panelY + (panel.radiusConfig ? 38 : 10)} listening={false}>
-                      <Text
-                        text={
-                          isVoid
-                            ? '⭕ ПУСТОТА'
-                            : (isSlat
-                              ? `🪵 [${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
-                              : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`)
-                        }
-                        fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
-                        fill={isVoid ? '#868E96' : '#1A1B1E'}
-                        fontFamily="JetBrains Mono"
-                        fontStyle="bold"
-                      />
-                      <Text
-                        y={Math.max(14, 18 / Math.max(0.5, zoom))}
-                        text={`${Math.round(panel.width)} × ${Math.round(panel.height)}${panel.thickness ? ` × ${panel.thickness}мм` : ''}${panel.radiusConfig ? ` (⌒ R${panel.radiusConfig.radius})` : ''}`}
-                        fontSize={Math.max(10, 12 / Math.max(0.5, zoom))}
-                        fill={isVoid ? '#5C5F66' : '#2C2E33'}
-                        fontFamily="JetBrains Mono"
-                      />
-                    </Group>
+                  {/* Текстовые метки ячейки / полигона */}
+                  {isPolygon && panel.polygonPoints ? (
+                    (() => {
+                      const centroid = PolygonSlicingEngine.calculateCentroid(panel.polygonPoints);
+                      const cX = centroid.x;
+                      const cY = wallH - centroid.y;
+                      return (
+                        panel.width > 60 && panel.height > 35 && (
+                          <Group x={cX - 30} y={cY - 12} listening={false}>
+                            <Text
+                              text={
+                                isVoid
+                                  ? '⭕ ПУСТО'
+                                  : (isSlat
+                                    ? `🪵 [${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
+                                    : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`)
+                              }
+                              fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
+                              fill={isVoid ? '#868E96' : '#1A1B1E'}
+                              fontFamily="JetBrains Mono"
+                              fontStyle="bold"
+                            />
+                            <Text
+                              y={Math.max(14, 18 / Math.max(0.5, zoom))}
+                              text={`${Math.round(panel.width)} × ${Math.round(panel.height)}${panel.thickness ? ` × ${panel.thickness}мм` : ''}`}
+                              fontSize={Math.max(10, 12 / Math.max(0.5, zoom))}
+                              fill={isVoid ? '#5C5F66' : '#2C2E33'}
+                              fontFamily="JetBrains Mono"
+                            />
+                          </Group>
+                        )
+                      );
+                    })()
+                  ) : (
+                    panel.width > 70 && panel.height > 40 && (
+                      <Group x={panelX + 10} y={panelY + (panel.radiusConfig ? 38 : 10)} listening={false}>
+                        <Text
+                          text={
+                            isVoid
+                              ? '⭕ ПУСТОТА'
+                              : (isSlat
+                                ? `🪵 [${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`
+                                : `[${panel.partLabel}] ${panel.decorCode ? `(${panel.decorCode})` : ''}`)
+                          }
+                          fontSize={Math.max(11, 14 / Math.max(0.5, zoom))}
+                          fill={isVoid ? '#868E96' : '#1A1B1E'}
+                          fontFamily="JetBrains Mono"
+                          fontStyle="bold"
+                        />
+                        <Text
+                          y={Math.max(14, 18 / Math.max(0.5, zoom))}
+                          text={`${Math.round(panel.width)} × ${Math.round(panel.height)}${panel.thickness ? ` × ${panel.thickness}мм` : ''}${panel.radiusConfig ? ` (⌒ R${panel.radiusConfig.radius})` : ''}`}
+                          fontSize={Math.max(10, 12 / Math.max(0.5, zoom))}
+                          fill={isVoid ? '#5C5F66' : '#2C2E33'}
+                          fontFamily="JetBrains Mono"
+                        />
+                      </Group>
+                    )
                   )}
                 </Group>
               );
@@ -440,18 +559,94 @@ export const CadCanvas: React.FC = () => {
             {/* ИНТЕРАКТИВНЫЕ СТЫКИ И КРАЯ ПЛИТ */}
             {showProfiles &&
               layout?.joints.map((joint) => {
+                const isJointsMode = editMode === 'JOINTS';
                 const isHoriz = joint.orientation === 'HORIZONTAL';
                 const selectedJointConfig = selectedJointId ? selectedWall.customJoints[selectedJointId] : null;
                 const selectedGroupId = selectedJointConfig?.groupId;
 
                 const isJointSelected =
-                  selectedJointIds.includes(joint.id) ||
+                  isJointsMode &&
+                  (selectedJointIds.includes(joint.id) ||
                   selectedJointId === joint.id ||
-                  (Boolean(selectedGroupId) && joint.groupId === selectedGroupId);
+                  (Boolean(selectedGroupId) && joint.groupId === selectedGroupId));
 
                 const isLED = joint.isLED;
+                const visualWidth = isJointsMode
+                  ? Math.max(joint.width, 3.5 / zoom)
+                  : Math.max(joint.width, 1.5 / zoom);
 
-                const visualWidth = Math.max(joint.width, 2 / zoom);
+                const fillColor = isJointsMode
+                  ? (isJointSelected
+                      ? '#339AF0'
+                      : isLED
+                      ? '#FFD43B'
+                      : joint.width > 0
+                      ? '#4DABF7'
+                      : '#74C0FC')
+                  : (isJointSelected
+                      ? '#339AF0'
+                      : isLED
+                      ? '#FFD43B'
+                      : joint.width > 0
+                      ? '#343A40'
+                      : 'rgba(255, 255, 255, 0.08)');
+
+                // Наклонные / произвольные стыки раскроя
+                if (joint.p1 && joint.p2) {
+                  const p1C = { x: joint.p1.x, y: wallH - joint.p1.y };
+                  const p2C = { x: joint.p2.x, y: wallH - joint.p2.y };
+                  const midC = { x: (p1C.x + p2C.x) / 2, y: (p1C.y + p2C.y) / 2 };
+                  const hitPadding = Math.max(22 / zoom, 16);
+
+                  return (
+                    <Group
+                      key={joint.id}
+                      listening={isJointsMode}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        selectJoint(joint.id, !!e.evt.shiftKey);
+                      }}
+                    >
+                      {isJointsMode && (
+                        <Line
+                          points={[p1C.x, p1C.y, p2C.x, p2C.y]}
+                          stroke="rgba(0, 0, 0, 0.001)"
+                          strokeWidth={hitPadding}
+                          lineCap="round"
+                        />
+                      )}
+                      <Line
+                        points={[p1C.x, p1C.y, p2C.x, p2C.y]}
+                        stroke={fillColor}
+                        strokeWidth={visualWidth}
+                        lineCap="square"
+                      />
+
+                      {isJointSelected && (
+                        <Group x={midC.x + 10} y={midC.y - 12} listening={false}>
+                          <Rect
+                            width={120}
+                            height={22}
+                            fill="#1A1B1E"
+                            stroke="#339AF0"
+                            strokeWidth={1}
+                            cornerRadius={3}
+                          />
+                          <Text
+                            x={6}
+                            y={5}
+                            text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
+                            fontSize={11}
+                            fill="#74C0FC"
+                            fontFamily="JetBrains Mono"
+                            fontStyle="bold"
+                          />
+                        </Group>
+                      )}
+                    </Group>
+                  );
+                }
+
                 const jointX = joint.x;
                 const jointY = isHoriz
                   ? wallH - joint.y - (joint.width > 0 ? joint.width : 0)
@@ -465,37 +660,32 @@ export const CadCanvas: React.FC = () => {
                 const hitW = isHoriz ? joint.length : hitPadding;
                 const hitH = isHoriz ? hitPadding : joint.length;
 
-                const fillColor = isJointSelected
-                  ? '#339AF0'
-                  : isLED
-                  ? '#FFD43B'
-                  : joint.width > 0
-                  ? '#343A40'
-                  : 'rgba(255, 255, 255, 0.08)';
-
                 return (
                   <Group
                     key={joint.id}
+                    listening={isJointsMode}
                     onClick={(e) => {
                       e.cancelBubble = true;
                       selectJoint(joint.id, !!e.evt.shiftKey);
                     }}
                   >
-                    <Rect
-                      x={hitX}
-                      y={hitY}
-                      width={hitW}
-                      height={hitH}
-                      fill="rgba(0, 0, 0, 0.001)"
-                    />
+                    {isJointsMode && (
+                      <Rect
+                        x={hitX}
+                        y={hitY}
+                        width={hitW}
+                        height={hitH}
+                        fill="rgba(0, 0, 0, 0.001)"
+                      />
+                    )}
                     <Rect
                       x={jointX}
                       y={jointY}
                       width={jointW}
                       height={jointH}
                       fill={fillColor}
-                      stroke={isJointSelected ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
-                      strokeWidth={isJointSelected ? 2 / zoom : isLED ? 1 / zoom : 0}
+                      stroke={isJointSelected ? '#FFFFFF' : isJointsMode ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
+                      strokeWidth={isJointSelected ? 2 / zoom : isJointsMode ? 1 / zoom : isLED ? 1 / zoom : 0}
                     />
 
                     {isJointSelected && (
@@ -529,6 +719,7 @@ export const CadCanvas: React.FC = () => {
 
             {/* Отрисовка интерактивных проемов */}
             {selectedWall.openings.map((op) => {
+              const isPanelsMode = editMode === 'PANELS';
               const opX = op.x;
               const opY = wallH - (op.y + op.height);
               const isSelected = op.id === project.selectedOpeningId;
@@ -538,7 +729,8 @@ export const CadCanvas: React.FC = () => {
                   key={op.id}
                   x={opX}
                   y={opY}
-                  draggable
+                  draggable={isPanelsMode}
+                  listening={isPanelsMode}
                   onDragStart={(e) => {
                     e.cancelBubble = true;
                     selectOpening(op.id);
@@ -608,6 +800,134 @@ export const CadCanvas: React.FC = () => {
                   }}
 
                 >
+                  {/* 2D РАЗВЕРТКА ОТКОСОВ (Если включен показ развертки) */}
+                  {(() => {
+                    if (op.isCutout === false) return null;
+                    const slopes = ensureOpeningSlopes(op);
+                    if (!slopes.enabled || !slopes.showUnfold2D) return null;
+
+                    const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
+
+                    const getSideDepth = (sideDepthConfig: number) => {
+                      if (slopes.fitToOpeningDepth) return opDepth;
+                      return slopes.depthMode === 'SAME' ? slopes.depth : sideDepthConfig;
+                    };
+
+                    const getSideColor = (sideMatId?: string | null) => {
+                      const targetId =
+                        slopes.materialMode === 'SAME'
+                          ? slopes.materialId || selectedWall?.zone.materialId
+                          : sideMatId || slopes.materialId || selectedWall?.zone.materialId;
+                      const mat = project.materials.find((m) => m.id === targetId);
+                      return mat?.color || '#2A2B2F';
+                    };
+
+                    const topD = getSideDepth(slopes.top.depth);
+                    const bottomD = getSideDepth(slopes.bottom.depth);
+                    const leftD = getSideDepth(slopes.left.depth);
+                    const rightD = getSideDepth(slopes.right.depth);
+
+                    return (
+                      <Group listening={false}>
+                        {/* Верхняя развертка */}
+                        {slopes.top.enabled && topD > 0 && (
+                          <Group y={-topD}>
+                            <Rect
+                              width={op.width}
+                              height={topD}
+                              fill={getSideColor(slopes.top.materialId)}
+                              opacity={0.85}
+                              stroke="#339AF0"
+                              strokeWidth={1 / zoom}
+                              dash={[6, 4]}
+                            />
+                            <Text
+                              x={10}
+                              y={Math.max(4, topD / 2 - 6)}
+                              text={`⬆ Верхний откос: ${op.width} × ${topD} мм`}
+                              fontSize={Math.max(10, 13 / Math.max(0.5, zoom))}
+                              fill="#E9ECEF"
+                              fontFamily="Inter"
+                              fontStyle="bold"
+                            />
+                          </Group>
+                        )}
+
+                        {/* Нижняя развертка / Подоконник */}
+                        {slopes.bottom.enabled && bottomD > 0 && (
+                          <Group y={op.height}>
+                            <Rect
+                              width={op.width}
+                              height={bottomD}
+                              fill={getSideColor(slopes.bottom.materialId)}
+                              opacity={0.85}
+                              stroke="#339AF0"
+                              strokeWidth={1 / zoom}
+                              dash={[6, 4]}
+                            />
+                            <Text
+                              x={10}
+                              y={Math.max(4, bottomD / 2 - 6)}
+                              text={`⬇ ${op.type === 'WINDOW' ? 'Подоконник' : 'Низ'}: ${op.width} × ${bottomD} мм`}
+                              fontSize={Math.max(10, 13 / Math.max(0.5, zoom))}
+                              fill="#E9ECEF"
+                              fontFamily="Inter"
+                              fontStyle="bold"
+                            />
+                          </Group>
+                        )}
+
+                        {/* Левая развертка */}
+                        {slopes.left.enabled && leftD > 0 && (
+                          <Group x={-leftD}>
+                            <Rect
+                              width={leftD}
+                              height={op.height}
+                              fill={getSideColor(slopes.left.materialId)}
+                              opacity={0.85}
+                              stroke="#339AF0"
+                              strokeWidth={1 / zoom}
+                              dash={[6, 4]}
+                            />
+                            <Text
+                              x={6}
+                              y={op.height / 2 - 10}
+                              text={`⬅ Левый\n${leftD}×${op.height}`}
+                              fontSize={Math.max(9, 12 / Math.max(0.5, zoom))}
+                              fill="#E9ECEF"
+                              fontFamily="Inter"
+                              fontStyle="bold"
+                            />
+                          </Group>
+                        )}
+
+                        {/* Правая развертка */}
+                        {slopes.right.enabled && rightD > 0 && (
+                          <Group x={op.width}>
+                            <Rect
+                              width={rightD}
+                              height={op.height}
+                              fill={getSideColor(slopes.right.materialId)}
+                              opacity={0.85}
+                              stroke="#339AF0"
+                              strokeWidth={1 / zoom}
+                              dash={[6, 4]}
+                            />
+                            <Text
+                              x={6}
+                              y={op.height / 2 - 10}
+                              text={`➡ Правый\n${rightD}×${op.height}`}
+                              fontSize={Math.max(9, 12 / Math.max(0.5, zoom))}
+                              fill="#E9ECEF"
+                              fontFamily="Inter"
+                              fontStyle="bold"
+                            />
+                          </Group>
+                        )}
+                      </Group>
+                    );
+                  })()}
+
                   <Rect
                     width={op.width}
                     height={op.height}
@@ -617,6 +937,28 @@ export const CadCanvas: React.FC = () => {
                     dash={op.isCutout === false ? [10, 6] : undefined}
                     cornerRadius={op.type === 'TV_ZONE' ? 4 : 0}
                   />
+
+                  {/* Внутренняя рамка глубины откоса для визуализации объема */}
+                  {op.isCutout !== false && (() => {
+                    const slopes = ensureOpeningSlopes(op);
+                    if (!slopes.enabled) return null;
+                    const opDepth = op.depth ?? 150;
+                    const effectiveD = slopes.fitToOpeningDepth ? opDepth : (slopes.depth || 150);
+                    const frameD = Math.min(24, Math.max(8, effectiveD / 10));
+                    return (
+                      <Rect
+                        x={frameD}
+                        y={frameD}
+                        width={Math.max(10, op.width - frameD * 2)}
+                        height={Math.max(10, op.height - frameD * 2)}
+                        stroke="rgba(255, 255, 255, 0.12)"
+                        strokeWidth={1 / zoom}
+                        fill="rgba(0, 0, 0, 0.25)"
+                        listening={false}
+                      />
+                    );
+                  })()}
+
                   {op.type === 'TV_ZONE' && (
                     <Rect
                       x={6}
@@ -628,16 +970,48 @@ export const CadCanvas: React.FC = () => {
                       listening={false}
                     />
                   )}
-                  <Text
-                    x={15}
-                    y={15}
-                    text={`${op.isCutout === false ? '📺 ' : ''}${op.name}\n${op.width} × ${op.height} мм${op.isCutout === false ? '\n(поверх плит)' : ''}`}
-                    fontSize={Math.max(13, 18 / Math.max(0.5, zoom))}
-                    fill={op.isCutout === false ? '#FFD43B' : '#C1C2C5'}
-                    fontFamily="Inter"
-                    fontStyle="bold"
-                    listening={false}
-                  />
+
+                  {(() => {
+                    const slopes = ensureOpeningSlopes(op);
+                    const opDepth = op.depth ?? 150;
+                    const effectiveD = slopes.fitToOpeningDepth ? opDepth : slopes.depth;
+
+                    const slopeInfo =
+                      op.isCutout !== false && slopes.enabled
+                        ? `\n📐 Откосы: ${
+                            slopes.fitToOpeningDepth
+                              ? `${opDepth} мм (по проему)`
+                              : slopes.depthMode === 'SAME'
+                              ? `${effectiveD} мм`
+                              : `В:${slopes.top.depth} Н:${slopes.bottom.depth} Л:${slopes.left.depth} П:${slopes.right.depth}`
+                          }${
+                            slopes.jointProfileType && slopes.jointProfileType !== 'NONE'
+                              ? ` (${
+                                  slopes.jointProfileType === 'LED_10'
+                                    ? 'LED'
+                                    : slopes.jointProfileType === 'CORNER'
+                                    ? 'Уголок'
+                                    : 'Шов 8мм'
+                                })`
+                              : ''
+                          }`
+                        : '';
+
+                    return (
+                      <Text
+                        x={15}
+                        y={15}
+                        text={`${op.isCutout === false ? '📺 ' : ''}${op.name}\n${op.width} × ${op.height} мм${
+                          op.isCutout === false ? '\n(поверх плит)' : slopeInfo
+                        }`}
+                        fontSize={Math.max(12, 16 / Math.max(0.5, zoom))}
+                        fill={op.isCutout === false ? '#FFD43B' : '#C1C2C5'}
+                        fontFamily="Inter"
+                        fontStyle="bold"
+                        listening={false}
+                      />
+                    );
+                  })()}
                 </Group>
               );
             })}
@@ -677,36 +1051,70 @@ export const CadCanvas: React.FC = () => {
                     selectWallBend(bend.id);
                   }}
                 >
-                  {/* Полупрозрачная направляющая полоса зоны сгиба на стене */}
-                  <Rect
-                    width={arcLen}
-                    height={wallH}
-                    fill={isBendSelected ? 'rgba(51, 154, 240, 0.16)' : 'rgba(77, 171, 247, 0.07)'}
-                    stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
-                    strokeWidth={isBendSelected ? 2.5 / zoom : 1.2 / zoom}
-                    dash={[8, 6]}
-                  />
+                  {bend.radius <= 0 || arcLen <= 0 ? (
+                    <>
+                      {/* Острый угол (R = 0): вертикальная осевая линия перегиба стены */}
+                      <Line
+                        points={[0, 0, 0, wallH]}
+                        stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                        strokeWidth={isBendSelected ? 3 / zoom : 1.8 / zoom}
+                        dash={[8, 5]}
+                      />
+                      {/* Верхняя плашка с названием угла */}
+                      <Group x={-80} y={-36} listening={false}>
+                        <Rect
+                          width={160}
+                          height={24}
+                          fill="#141517"
+                          stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                          strokeWidth={1.5}
+                          cornerRadius={4}
+                        />
+                        <Text
+                          x={6}
+                          y={6}
+                          text={`📐 ${bend.name || (bend.type === 'INNER_CORNER' ? 'Внутр' : 'Внешн')} ${bend.angleDeg || 90}° (R=0)`}
+                          fontSize={9.5}
+                          fontFamily="JetBrains Mono"
+                          fontStyle="bold"
+                          fill="#74C0FC"
+                        />
+                      </Group>
+                    </>
+                  ) : (
+                    <>
+                      {/* Полупрозрачная направляющая полоса зоны сгиба на стене */}
+                      <Rect
+                        width={arcLen}
+                        height={wallH}
+                        fill={isBendSelected ? 'rgba(51, 154, 240, 0.16)' : 'rgba(77, 171, 247, 0.07)'}
+                        stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                        strokeWidth={isBendSelected ? 2.5 / zoom : 1.2 / zoom}
+                        dash={[8, 6]}
+                      />
 
-                  {/* Верхняя плашка с названием угла и радиусом */}
-                  <Group x={Math.max(4, (arcLen - 170) / 2)} y={-36} listening={false}>
-                    <Rect
-                      width={Math.min(arcLen - 8, 170)}
-                      height={24}
-                      fill="#141517"
-                      stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
-                      strokeWidth={1.5}
-                      cornerRadius={4}
-                    />
-                    <Text
-                      x={6}
-                      y={6}
-                      text={`⌒ ${bend.name || (bend.type === 'ARCH_VAULT' ? 'Свод' : bend.type === 'INNER_CORNER' ? 'Внутр' : 'Внешн')} R=${bend.radius} (${arcLen} мм)`}
-                      fontSize={10}
-                      fontFamily="JetBrains Mono"
-                      fontStyle="bold"
-                      fill="#74C0FC"
-                    />
-                  </Group>
+                      {/* Верхняя плашка с названием угла и радиусом */}
+                      <Group x={Math.max(4, (arcLen - 170) / 2)} y={-36} listening={false}>
+                        <Rect
+                          width={Math.min(arcLen - 8, 170)}
+                          height={24}
+                          fill="#141517"
+                          stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                          strokeWidth={1.5}
+                          cornerRadius={4}
+                        />
+                        <Text
+                          x={6}
+                          y={6}
+                          text={`⌒ ${bend.name || (bend.type === 'INNER_CORNER' ? 'Внутр' : 'Внешн')} R=${bend.radius} (${arcLen} мм)`}
+                          fontSize={10}
+                          fontFamily="JetBrains Mono"
+                          fontStyle="bold"
+                          fill="#74C0FC"
+                        />
+                      </Group>
+                    </>
+                  )}
                 </Group>
               );
             })}

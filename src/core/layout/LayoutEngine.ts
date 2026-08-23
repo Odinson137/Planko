@@ -1,5 +1,22 @@
 import { Wall, RadiusConfig, PanelBendInfo } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
+import { ensureOpeningSlopes } from '../models/Opening';
+import { Point2D, PolygonSlicingEngine } from '../geometry/PolygonSlicingEngine';
+
+export interface CalculatedSlopePiece {
+  id: string;
+  openingId: string;
+  openingName: string;
+  side: 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT';
+  sideLabel: string;
+  width: number;
+  depth: number;
+  areaSqM: number;
+  materialId: string;
+  materialName: string;
+  materialColor: string;
+  partLabel: string;
+}
 
 export interface CalculatedPanelPiece {
   id: string;
@@ -23,6 +40,11 @@ export interface CalculatedPanelPiece {
   radiusConfig?: RadiusConfig; // обратная совместимость
   arcLength?: number;          // длина развертки дуги в мм
   bendsInfo?: PanelBendInfo[]; // информация обо всех сгибах, попадающих на этот лист
+  polygonPoints?: Point2D[];   // абсолютные координаты вершин на стене в мм (если полигон)
+  patternAngleDeg?: number;    // угол поворота рисунка (0, 45, 90)
+  patternFlipX?: boolean;      // зеркалирование рисунка
+  subPieceId?: string;         // ID под-фрагмента
+  areaSqM?: number;            // площадь куска в кв.м
 }
 
 export interface CalculatedJointLine {
@@ -32,7 +54,9 @@ export interface CalculatedJointLine {
   y: number;
   width: number;      // толщина шва на чертеже в мм
   length: number;     // длина линии шва в мм
-  orientation: 'VERTICAL' | 'HORIZONTAL';
+  orientation: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
+  p1?: Point2D;
+  p2?: Point2D;
   isLED: boolean;     // true если включена светодиодная подсветка
   isOuterEdge: boolean; // true если это внешний край стены
   columnIndex?: number;
@@ -43,12 +67,16 @@ export interface CalculatedJointLine {
 export interface LayoutCalculationResult {
   panels: CalculatedPanelPiece[];
   joints: CalculatedJointLine[];
+  slopes?: CalculatedSlopePiece[];
   summary: {
     totalPanelsNeeded: number;
     profileLinearMeters: number;
+    slopeProfileLinearMeters?: number;
     wallAreaSqM: number;
     grossCoveredAreaSqM: number;
     coveredAreaSqM: number;
+    slopeAreaSqM?: number;
+    totalCoveredWithSlopesSqM?: number;
     voidAreaSqM: number;
     cutoutsAreaSqM: number;
   };
@@ -216,7 +244,7 @@ export class LayoutEngine {
 
       if (customConfig?.radiusConfig) {
         const rad = customConfig.radiusConfig.radius;
-        const angle = customConfig.radiusConfig.angleDeg ?? (customConfig.radiusConfig.type === 'ARCH_VAULT' ? 180 : 90);
+        const angle = customConfig.radiusConfig.angleDeg ?? 90;
         arcLength = Math.round((Math.PI * rad * angle) / 180);
         baseWidth = columnMaterial.isVoid ? arcLength : Math.min(arcLength, columnMaterial.width);
       } else if (customConfig?.customWidth !== undefined) {
@@ -306,26 +334,43 @@ export class LayoutEngine {
             const bendLeft = bend.x;
             const bendRight = bend.x + bendArcLen;
 
-            // Проверка пересечения отрезка панели [pLeft, pRight] и зоны изгиба [bendLeft, bendRight]
-            const overlapStart = Math.max(pLeft, bendLeft);
-            const overlapEnd = Math.min(pRight, bendRight);
+            if (bend.radius <= 0 || bendArcLen <= 0) {
+              if (bend.x >= pLeft - 0.5 && bend.x <= pRight + 0.5) {
+                const flatLeft = Math.max(0, bend.x - pLeft);
+                const flatRight = Math.max(0, pRight - bend.x);
+                panelBendsInfo.push({
+                  bendId: bend.id,
+                  type: bend.type,
+                  radius: 0,
+                  angleDeg: bend.angleDeg || 90,
+                  flatLeft: Math.round(flatLeft * 10) / 10,
+                  bendWidth: 0,
+                  flatRight: Math.round(flatRight * 10) / 10,
+                  bendOffsetInSheet: Math.round(flatLeft * 10) / 10,
+                });
+              }
+            } else {
+              // Проверка пересечения отрезка панели [pLeft, pRight] и зоны изгиба [bendLeft, bendRight]
+              const overlapStart = Math.max(pLeft, bendLeft);
+              const overlapEnd = Math.min(pRight, bendRight);
 
-            if (overlapEnd > overlapStart + 0.5) {
-              const flatLeft = Math.max(0, bendLeft - pLeft);
-              const bendWidth = overlapEnd - overlapStart;
-              const flatRight = Math.max(0, pRight - bendRight);
-              const bendOffsetInSheet = Math.max(0, bendLeft - pLeft);
+              if (overlapEnd > overlapStart + 0.5) {
+                const flatLeft = Math.max(0, bendLeft - pLeft);
+                const bendWidth = overlapEnd - overlapStart;
+                const flatRight = Math.max(0, pRight - bendRight);
+                const bendOffsetInSheet = Math.max(0, bendLeft - pLeft);
 
-              panelBendsInfo.push({
-                bendId: bend.id,
-                type: bend.type,
-                radius: bend.radius,
-                angleDeg: bend.angleDeg || 90,
-                flatLeft: Math.round(flatLeft * 10) / 10,
-                bendWidth: Math.round(bendWidth * 10) / 10,
-                flatRight: Math.round(flatRight * 10) / 10,
-                bendOffsetInSheet: Math.round(bendOffsetInSheet * 10) / 10,
-              });
+                panelBendsInfo.push({
+                  bendId: bend.id,
+                  type: bend.type,
+                  radius: bend.radius,
+                  angleDeg: bend.angleDeg || 90,
+                  flatLeft: Math.round(flatLeft * 10) / 10,
+                  bendWidth: Math.round(bendWidth * 10) / 10,
+                  flatRight: Math.round(flatRight * 10) / 10,
+                  bendOffsetInSheet: Math.round(bendOffsetInSheet * 10) / 10,
+                });
+              }
             }
           });
         }
@@ -347,8 +392,10 @@ export class LayoutEngine {
         let bendLabelStr = '';
         if (panelBendsInfo.length > 0) {
           const b = panelBendsInfo[0];
-          const typeStr = b.type === 'ARCH_VAULT' ? 'СВОД' : b.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН';
-          if (b.flatLeft > 10 || b.flatRight > 10) {
+          const typeStr = b.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН';
+          if (b.radius === 0) {
+            bendLabelStr = ` 📐 ${typeStr} ${b.angleDeg || 90}°`;
+          } else if (b.flatLeft > 10 || b.flatRight > 10) {
             bendLabelStr = ` ⌒ ${typeStr} (${Math.round(b.flatLeft)}|${Math.round(b.bendWidth)}|${Math.round(b.flatRight)})`;
           } else {
             bendLabelStr = ` ⌒ ${typeStr} R=${b.radius}`;
@@ -362,31 +409,155 @@ export class LayoutEngine {
               ? `1.${columnIndex + 1}.${segmentIndex + 1}${bendLabelStr}`
               : `1.${columnIndex + 1}${bendLabelStr}`);
 
-        panels.push({
-          id: `panel-${columnIndex}-${segmentIndex}`,
-          x: Math.round(currentX * 10) / 10,
-          y: Math.round(currentY * 10) / 10,
-          width: Math.round(panelWidth * 10) / 10,
-          height: Math.round(segmentHeight * 10) / 10,
-          isCut: !isVoid && (panelWidth < baseWidth || segmentHeight < segMaterial.height),
-          isVoid,
-          originalColumnIndex: columnIndex,
-          originalSegmentIndex: segmentIndex,
-          materialId: segMaterial.id,
-          materialColor: isVoid
-            ? 'rgba(30, 31, 35, 0.45)'
-            : (segConfig?.customColor || customConfig?.customColor || segMaterial.color),
-          materialType: segMaterial.type,
-          decorCode: segConfig?.customDecorCode || customConfig?.customDecorCode || segMaterial.decorCode,
-          decorName: segMaterial.decorName,
-          thickness: isVoid ? 0 : (segConfig?.customThickness || customConfig?.customThickness || segMaterial.thickness),
-          reliefType: segConfig?.customReliefType || customConfig?.customReliefType || segMaterial.reliefType || 'FLAT',
-          textureCategory: segConfig?.customTextureCategory || customConfig?.customTextureCategory || segMaterial.textureCategory || 'FABRIC',
-          partLabel: defaultLabel,
-          radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
-          arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
-          bendsInfo: panelBendsInfo.length > 0 ? panelBendsInfo : undefined,
-        });
+        const effectiveSubPieces = segConfig?.subPieces || (segmentsConfig.length === 0 ? customConfig?.subPieces : undefined);
+        const hasSubPieces = effectiveSubPieces && effectiveSubPieces.length > 0;
+
+        if (hasSubPieces) {
+          effectiveSubPieces.forEach((sub, subIdx) => {
+            const subMat = (sub.materialId && materialsMap.get(sub.materialId)) || segMaterial;
+            const isSubVoid = sub.isVoid || subMat.id === MATERIAL_NONE_ID || subMat.isVoid === true;
+
+            const polyPoints: Point2D[] = sub.points.map((pt) => ({
+              x: Math.round((currentX + pt.x) * 10) / 10,
+              y: Math.round((currentY + pt.y) * 10) / 10,
+            }));
+
+            const xs = polyPoints.map((p) => p.x);
+            const ys = polyPoints.map((p) => p.y);
+            const minX = Math.min(...xs);
+            const maxXPt = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxYPt = Math.max(...ys);
+            const pieceW = Math.round((maxXPt - minX) * 10) / 10;
+            const pieceH = Math.round((maxYPt - minY) * 10) / 10;
+
+            const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(polyPoints) / 1_000_000) * 1000) / 1000;
+            const subLabel = isSubVoid
+              ? 'ПУСТО'
+              : (sub.partLabel || `${columnIndex + 1}.${segmentIndex + 1}.${subIdx + 1}`);
+
+            panels.push({
+              id: `panel-${columnIndex}-${segmentIndex}-${sub.id}`,
+              subPieceId: sub.id,
+              x: minX,
+              y: minY,
+              width: pieceW,
+              height: pieceH,
+              isCut: true,
+              isVoid: isSubVoid,
+              originalColumnIndex: columnIndex,
+              originalSegmentIndex: segmentIndex,
+              materialId: subMat.id,
+              materialColor: isSubVoid
+                ? 'rgba(30, 31, 35, 0.45)'
+                : (sub.color || subMat.color),
+              materialType: subMat.type,
+              decorCode: sub.decorCode || subMat.decorCode,
+              thickness: isSubVoid ? 0 : (sub.thickness || subMat.thickness),
+              reliefType: sub.reliefType || subMat.reliefType || 'FLAT',
+              textureCategory: sub.textureCategory || subMat.textureCategory || 'WOOD',
+              partLabel: subLabel,
+              polygonPoints: polyPoints,
+              patternAngleDeg: sub.patternAngleDeg !== undefined ? sub.patternAngleDeg : (segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0),
+              patternFlipX: sub.patternFlipX !== undefined ? sub.patternFlipX : (segConfig?.patternFlipX || customConfig?.patternFlipX || false),
+              areaSqM,
+            });
+          });
+
+          // Генерация интерактивных стыков раскроя между соседними полигонами
+          for (let i = 0; i < effectiveSubPieces.length; i++) {
+            for (let j = i + 1; j < effectiveSubPieces.length; j++) {
+              const subA = effectiveSubPieces[i];
+              const subB = effectiveSubPieces[j];
+
+              const ptsA = subA.points;
+              const ptsB = subB.points;
+              const nA = ptsA.length;
+              const nB = ptsB.length;
+
+              for (let a = 0; a < nA; a++) {
+                const a1 = ptsA[a];
+                const a2 = ptsA[(a + 1) % nA];
+                for (let b = 0; b < nB; b++) {
+                  const b1 = ptsB[b];
+                  const b2 = ptsB[(b + 1) % nB];
+
+                  const d1 = Math.hypot(a1.x - b2.x, a1.y - b2.y) + Math.hypot(a2.x - b1.x, a2.y - b1.y);
+                  const d2 = Math.hypot(a1.x - b1.x, a1.y - b1.y) + Math.hypot(a2.x - b2.x, a2.y - b2.y);
+                  if (d1 < 1.5 || d2 < 1.5) {
+                    const worldP1: Point2D = {
+                      x: Math.round((currentX + a1.x) * 10) / 10,
+                      y: Math.round((currentY + a1.y) * 10) / 10,
+                    };
+                    const worldP2: Point2D = {
+                      x: Math.round((currentX + a2.x) * 10) / 10,
+                      y: Math.round((currentY + a2.y) * 10) / 10,
+                    };
+
+                    const edgeLen = Math.round(Math.hypot(worldP2.x - worldP1.x, worldP2.y - worldP1.y) * 10) / 10;
+                    if (edgeLen > 5) {
+                      const cutJointId = `edge-cut-${columnIndex}-${segmentIndex}-${subA.id}-${subB.id}`;
+                      const customJointCfg = wall.customJoints[cutJointId];
+                      const isCutLED = customJointCfg?.isLED ?? false;
+                      const jWidth = customJointCfg?.width ?? 8;
+
+                      const isPureVert = Math.abs(worldP1.x - worldP2.x) < 0.5;
+                      const isPureHoriz = Math.abs(worldP1.y - worldP2.y) < 0.5;
+
+                      rawJoints.push({
+                        id: cutJointId,
+                        name: `Стык раскроя (${subA.partLabel || 'A'} / ${subB.partLabel || 'B'})`,
+                        x: Math.min(worldP1.x, worldP2.x),
+                        y: Math.min(worldP1.y, worldP2.y),
+                        width: jWidth,
+                        length: edgeLen,
+                        orientation: isPureVert ? 'VERTICAL' : (isPureHoriz ? 'HORIZONTAL' : 'DIAGONAL'),
+                        p1: worldP1,
+                        p2: worldP2,
+                        isLED: isCutLED,
+                        isOuterEdge: false,
+                        columnIndex,
+                        segmentIndex,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          const patternAngle = segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0;
+          const patternFlip = segConfig?.patternFlipX || customConfig?.patternFlipX || false;
+
+          panels.push({
+            id: `panel-${columnIndex}-${segmentIndex}`,
+            x: Math.round(currentX * 10) / 10,
+            y: Math.round(currentY * 10) / 10,
+            width: Math.round(panelWidth * 10) / 10,
+            height: Math.round(segmentHeight * 10) / 10,
+            isCut: !isVoid && (panelWidth < baseWidth || segmentHeight < segMaterial.height),
+            isVoid,
+            originalColumnIndex: columnIndex,
+            originalSegmentIndex: segmentIndex,
+            materialId: segMaterial.id,
+            materialColor: isVoid
+              ? 'rgba(30, 31, 35, 0.45)'
+              : (segConfig?.customColor || customConfig?.customColor || segMaterial.color),
+            materialType: segMaterial.type,
+            decorCode: segConfig?.customDecorCode || customConfig?.customDecorCode || segMaterial.decorCode,
+            decorName: segMaterial.decorName,
+            thickness: isVoid ? 0 : (segConfig?.customThickness || customConfig?.customThickness || segMaterial.thickness),
+            reliefType: segConfig?.customReliefType || customConfig?.customReliefType || segMaterial.reliefType || 'FLAT',
+            textureCategory: segConfig?.customTextureCategory || customConfig?.customTextureCategory || segMaterial.textureCategory || 'FABRIC',
+            partLabel: defaultLabel,
+            radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
+            arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
+            bendsInfo: panelBendsInfo.length > 0 ? panelBendsInfo : undefined,
+            patternAngleDeg: patternAngle,
+            patternFlipX: patternFlip,
+            areaSqM: Math.round(((panelWidth * segmentHeight) / 1_000_000) * 1000) / 1000,
+          });
+        }
 
         currentY += segmentHeight + (isHorizInner ? horizJointWidth : 0);
         segmentIndex++;
@@ -653,19 +824,154 @@ export class LayoutEngine {
       0
     );
 
-    const profileLinearMeters = finalJoints
+    let profileLinearMeters = finalJoints
       .filter((j) => j.width > 0 || j.isLED)
       .reduce((acc, j) => acc + j.length / 1000, 0);
+
+    // =========================================================================
+    // Расчет параметров и деталей откосов
+    // =========================================================================
+    const slopePieces: CalculatedSlopePiece[] = [];
+    let slopeProfileLinearMeters = 0;
+
+    cutoutOpenings.forEach((op, opIdx) => {
+      const slopes = ensureOpeningSlopes(op);
+      if (!slopes.enabled) return;
+
+      const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
+
+      const getSideDepth = (sideDepthConfig: number) => {
+        if (slopes.fitToOpeningDepth) return opDepth;
+        return slopes.depthMode === 'SAME' ? slopes.depth : sideDepthConfig;
+      };
+
+      const getSideMat = (sideMatId?: string | null) => {
+        const targetId =
+          slopes.materialMode === 'SAME'
+            ? slopes.materialId || wall.zone.materialId
+            : sideMatId || slopes.materialId || wall.zone.materialId;
+        const found = allMaterials.find((m) => m.id === targetId) || defaultMaterial;
+        return found;
+      };
+
+      // 1. Верхний откос
+      if (slopes.top.enabled) {
+        const d = getSideDepth(slopes.top.depth);
+        if (d > 0) {
+          const mat = getSideMat(slopes.top.materialId);
+          slopePieces.push({
+            id: `slope-${op.id}-top`,
+            openingId: op.id,
+            openingName: op.name || `Проем ${opIdx + 1}`,
+            side: 'TOP',
+            sideLabel: 'Верхний откос',
+            width: op.width,
+            depth: d,
+            areaSqM: (op.width * d) / 1_000_000,
+            materialId: mat.id,
+            materialName: mat.name,
+            materialColor: mat.color,
+            partLabel: `ОТК-В.${opIdx + 1}`,
+          });
+        }
+      }
+
+      // 2. Нижний откос / Подоконник
+      if (slopes.bottom.enabled) {
+        const d = getSideDepth(slopes.bottom.depth);
+        if (d > 0) {
+          const mat = getSideMat(slopes.bottom.materialId);
+          slopePieces.push({
+            id: `slope-${op.id}-bottom`,
+            openingId: op.id,
+            openingName: op.name || `Проем ${opIdx + 1}`,
+            side: 'BOTTOM',
+            sideLabel: op.type === 'WINDOW' ? 'Подоконник' : 'Нижний откос',
+            width: op.width,
+            depth: d,
+            areaSqM: (op.width * d) / 1_000_000,
+            materialId: mat.id,
+            materialName: mat.name,
+            materialColor: mat.color,
+            partLabel: `ОТК-Н.${opIdx + 1}`,
+          });
+        }
+      }
+
+      // 3. Левый откос
+      if (slopes.left.enabled) {
+        const d = getSideDepth(slopes.left.depth);
+        if (d > 0) {
+          const mat = getSideMat(slopes.left.materialId);
+          slopePieces.push({
+            id: `slope-${op.id}-left`,
+            openingId: op.id,
+            openingName: op.name || `Проем ${opIdx + 1}`,
+            side: 'LEFT',
+            sideLabel: 'Левый откос',
+            width: op.height,
+            depth: d,
+            areaSqM: (op.height * d) / 1_000_000,
+            materialId: mat.id,
+            materialName: mat.name,
+            materialColor: mat.color,
+            partLabel: `ОТК-Л.${opIdx + 1}`,
+          });
+        }
+      }
+
+      // 4. Правый откос
+      if (slopes.right.enabled) {
+        const d = getSideDepth(slopes.right.depth);
+        if (d > 0) {
+          const mat = getSideMat(slopes.right.materialId);
+          slopePieces.push({
+            id: `slope-${op.id}-right`,
+            openingId: op.id,
+            openingName: op.name || `Проем ${opIdx + 1}`,
+            side: 'RIGHT',
+            sideLabel: 'Правый откос',
+            width: op.height,
+            depth: d,
+            areaSqM: (op.height * d) / 1_000_000,
+            materialId: mat.id,
+            materialName: mat.name,
+            materialColor: mat.color,
+            partLabel: `ОТК-П.${opIdx + 1}`,
+          });
+        }
+      }
+
+      // Расчет погонажа профиля между откосами (внутренние углы коробки)
+      if (slopes.jointProfileType && slopes.jointProfileType !== 'NONE') {
+        const topD = getSideDepth(slopes.top.depth);
+        const bottomD = getSideDepth(slopes.bottom.depth);
+        const leftD = getSideDepth(slopes.left.depth);
+        const rightD = getSideDepth(slopes.right.depth);
+
+        // Внутренние углы:
+        if (slopes.top.enabled && slopes.left.enabled) slopeProfileLinearMeters += Math.max(topD, leftD) / 1000;
+        if (slopes.top.enabled && slopes.right.enabled) slopeProfileLinearMeters += Math.max(topD, rightD) / 1000;
+        if (slopes.bottom.enabled && slopes.left.enabled) slopeProfileLinearMeters += Math.max(bottomD, leftD) / 1000;
+        if (slopes.bottom.enabled && slopes.right.enabled) slopeProfileLinearMeters += Math.max(bottomD, rightD) / 1000;
+      }
+    });
+
+    const totalSlopeAreaSqM = slopePieces.reduce((acc, p) => acc + p.areaSqM, 0);
 
     return {
       panels,
       joints: finalJoints,
+      slopes: slopePieces,
       summary: {
         totalPanelsNeeded: coveredPanels.length,
-        profileLinearMeters: Math.round(profileLinearMeters * 10) / 10,
+        profileLinearMeters: Math.round((profileLinearMeters + slopeProfileLinearMeters) * 10) / 10,
+        slopeProfileLinearMeters: Math.round(slopeProfileLinearMeters * 10) / 10,
         wallAreaSqM: Math.round(wallAreaSqM * 100) / 100,
         grossCoveredAreaSqM: Math.round(grossCoveredAreaSqM * 100) / 100,
         coveredAreaSqM: Math.round(netCoveredAreaSqM * 100) / 100,
+        slopeAreaSqM: Math.round(totalSlopeAreaSqM * 100) / 100,
+        totalCoveredWithSlopesSqM: Math.round((netCoveredAreaSqM + totalSlopeAreaSqM) * 100) / 100,
         voidAreaSqM: Math.round(voidAreaSqM * 100) / 100,
         cutoutsAreaSqM: Math.round(cutoutsAreaSqM * 100) / 100,
       },

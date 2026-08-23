@@ -53,17 +53,62 @@ export class TextureRegistry {
     category: string,
     baseColor: string,
     reliefType: SlatProfileShape = 'FLAT',
-    decorCode?: string
+    decorCode?: string,
+    angleDeg: number = 0,
+    flipX: boolean = false
   ): HTMLImageElement | null {
-    const cacheKey = `${category}_${baseColor}_${reliefType}_${decorCode || ''}`;
+    const cacheKey = `${category}_${baseColor}_${reliefType}_${decorCode || ''}_rot_${angleDeg}_flip_${flipX}`;
     const cached = this.imageCache.get(cacheKey);
     if (cached) return cached;
 
-    const canvas = this.getPatternCanvas(category, baseColor, reliefType, decorCode);
+    const canvas = this.getPatternCanvasWithTransform(category, baseColor, reliefType, decorCode, angleDeg, flipX);
     const img = new Image();
     img.src = canvas.toDataURL();
     this.imageCache.set(cacheKey, img);
     return img;
+  }
+
+  /**
+   * Получить процедурный Canvas с учетом поворота рисунка и зеркалирования
+   */
+  public static getPatternCanvasWithTransform(
+    category: string,
+    baseColor: string,
+    reliefType: SlatProfileShape = 'FLAT',
+    decorCode?: string,
+    angleDeg: number = 0,
+    flipX: boolean = false
+  ): HTMLCanvasElement {
+    const baseCanvas = this.getPatternCanvas(category, baseColor, reliefType, decorCode);
+    if (angleDeg === 0 && !flipX) return baseCanvas;
+
+    const cacheKey = `${category}_${baseColor}_${reliefType}_${decorCode || ''}_rot_${angleDeg}_flip_${flipX}`;
+    const cached = this.canvasCache.get(cacheKey);
+    if (cached) return cached;
+
+    const w = baseCanvas.width;
+    const h = baseCanvas.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return baseCanvas;
+
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    if (flipX) {
+      ctx.scale(-1, 1);
+    }
+    if (angleDeg !== 0) {
+      ctx.rotate((angleDeg * Math.PI) / 180);
+    }
+    // Заливаем базовым холстом с запасом для покрытия повернутых углов
+    const diag = Math.hypot(w, h);
+    ctx.drawImage(baseCanvas, -diag / 2, -diag / 2, diag, diag);
+    ctx.restore();
+
+    this.canvasCache.set(cacheKey, canvas);
+    return canvas;
   }
 
   /**

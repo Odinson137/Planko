@@ -19,6 +19,7 @@ import {
   Switch,
   Alert,
   Box,
+  Slider,
 } from '@mantine/core';
 import {
   Split,
@@ -33,13 +34,23 @@ import {
   CheckCircle2,
   Link,
   Search,
+  Scissors,
 } from 'lucide-react';
 import { useProjectStore, JointPreset } from '../../../application/stores/useProjectStore';
+import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { findDecorByCode } from '../../../core/models/AllWallCatalog';
+import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
+import {
+  ensureOpeningSlopes,
+  SlopeConfig,
+  SlopeSideConfig,
+  SlopeJointProfileType,
+} from '../../../core/models/Opening';
 
 export const RightSidebar: React.FC = () => {
+  const { editMode } = useEditorStore();
   const {
     project,
     selectedColumnIndex,
@@ -48,10 +59,12 @@ export const RightSidebar: React.FC = () => {
     selectedJointId,
     selectedJointIds,
     selectedWallBendId,
+    selectedSubPieceId,
     selectOpening,
     selectPanel,
     selectJoint,
     selectWallBend,
+    openSlicingModal,
     updateWallDimensions,
     updateOpening,
     removeOpening,
@@ -66,7 +79,6 @@ export const RightSidebar: React.FC = () => {
     setJointWidthForSelected,
     setJointLEDForSelected,
     setJointWidth,
-    setJointLED,
     setJointPreset,
     updatePanelConfig,
     updatePanelSegment,
@@ -74,6 +86,8 @@ export const RightSidebar: React.FC = () => {
     clearCellMaterial,
     splitPanelHorizontally,
     splitColumnVertically,
+    setPiecePatternAngle,
+    updateSubPieceLabel,
   } = useProjectStore();
 
   const selectedWallId = project.selectedWallId;
@@ -427,11 +441,10 @@ export const RightSidebar: React.FC = () => {
               </Button>
             </div>
 
-            {/* Произвольный ввод ширины шва (мм). Ввод 10 НЕ включает LED! */}
+            {/* Произвольный ввод ширины шва (мм) */}
             <NumberInput
               size="xs"
               label="Точная ширина шва (мм)"
-              description="Ввод любого значения (например, 10 мм — это обычный шов, не LED)"
               value={currentWidth}
               clampBehavior="blur"
               allowNegative={false}
@@ -447,27 +460,6 @@ export const RightSidebar: React.FC = () => {
                 )
               }
             />
-
-            {/* Переключатель светодиодной подсветки */}
-            <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
-              <Group justify="space-between">
-                <div>
-                  <Text size="xs" fw={500}>
-                    Светодиодная лента (LED)
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Подсветка профиля в стыке
-                  </Text>
-                </div>
-                <Switch
-                  checked={isLED}
-                  color="yellow"
-                  onChange={(e) =>
-                    setJointLED(currentWall.id, selectedJointId, e.currentTarget.checked)
-                  }
-                />
-              </Group>
-            </Paper>
 
             {/* Информация о стыке */}
             {selectedJoint && (
@@ -607,24 +599,6 @@ export const RightSidebar: React.FC = () => {
               />
             </Group>
 
-            <NumberInput
-              size="xs"
-              label="Глубина откоса (мм)"
-              value={currentOpening.slopeDepth ?? 0}
-              clampBehavior="blur"
-              allowNegative={false}
-              allowDecimal={false}
-              min={0}
-              max={1000}
-              step={10}
-              onChange={(val) =>
-                updateOpening(currentWall.id, {
-                  id: currentOpening.id,
-                  slopeDepth: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                })
-              }
-            />
-
             <div>
               <Text size="xs" mb={4} c="dimmed">
                 Режим размещения:
@@ -645,6 +619,439 @@ export const RightSidebar: React.FC = () => {
                 ]}
               />
             </div>
+
+            {/* Глубина проема в стене (для вырезов) */}
+            {currentOpening.isCutout !== false && (
+              <div>
+                <Group justify="space-between" mb={2}>
+                  <Text size="xs" c="dimmed" fw={500}>
+                    Глубина проема в стене:
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {currentOpening.depth ?? (currentOpening.type === 'DOOR' ? 150 : currentOpening.type === 'WINDOW' ? 200 : 150)} мм
+                  </Text>
+                </Group>
+                <NumberInput
+                  size="xs"
+                  value={currentOpening.depth ?? (currentOpening.type === 'DOOR' ? 150 : currentOpening.type === 'WINDOW' ? 200 : 150)}
+                  clampBehavior="blur"
+                  allowNegative={false}
+                  allowDecimal={false}
+                  min={0}
+                  max={1000}
+                  step={10}
+                  onChange={(val) => {
+                    const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
+                    updateOpening(currentWall.id, {
+                      id: currentOpening.id,
+                      depth: num,
+                    });
+                  }}
+                />
+                <Group gap={4} mt={3}>
+                  {[100, 150, 200, 250, 300].map((dPreset) => (
+                    <Button
+                      key={dPreset}
+                      size="compact-xs"
+                      variant="subtle"
+                      color="gray"
+                      onClick={() =>
+                        updateOpening(currentWall.id, {
+                          id: currentOpening.id,
+                          depth: dPreset,
+                        })
+                      }
+                    >
+                      {dPreset} мм
+                    </Button>
+                  ))}
+                </Group>
+              </div>
+            )}
+
+            {/* БЛОК НАСТРОЙКИ ОТКОСОВ (Только для режима Выреза) */}
+            {currentOpening.isCutout !== false && (() => {
+              const slopes = ensureOpeningSlopes(currentOpening);
+              const defaultOpDepth = currentOpening.depth ?? (currentOpening.type === 'DOOR' ? 150 : currentOpening.type === 'WINDOW' ? 200 : 150);
+
+              const handleUpdateSlopes = (patch: Partial<SlopeConfig>) => {
+                const next: SlopeConfig = { ...slopes, ...patch };
+                updateOpening(currentWall.id, {
+                  id: currentOpening.id,
+                  slopes: next,
+                  slopeDepth: next.depth,
+                });
+              };
+
+              const handleUpdateSide = (
+                side: 'top' | 'bottom' | 'left' | 'right',
+                patch: Partial<SlopeSideConfig>
+              ) => {
+                const next: SlopeConfig = {
+                  ...slopes,
+                  [side]: { ...slopes[side], ...patch },
+                };
+                updateOpening(currentWall.id, {
+                  id: currentOpening.id,
+                  slopes: next,
+                });
+              };
+
+              const materialOptions = [
+                { value: '', label: `📌 Как у стены (${currentMaterial?.name || 'Основной'})` },
+                ...project.materials
+                  .filter((m) => !m.isVoid)
+                  .map((m) => ({
+                    value: m.id,
+                    label: m.decorName ? `${m.name} (${m.decorName})` : m.name,
+                  })),
+              ];
+
+              return (
+                <Paper
+                  p="xs"
+                  withBorder
+                  style={{
+                    backgroundColor: '#1A1B1E',
+                    borderColor: slopes.enabled ? '#1971c2' : '#2C2E33',
+                  }}
+                >
+                  <Stack gap="xs">
+                    <Group justify="space-between" align="center">
+                      <Group gap={6}>
+                        <Title order={6} size="xs" c={slopes.enabled ? 'blue.4' : 'dimmed'}>
+                          📐 Облицовка откосов
+                        </Title>
+                        {slopes.enabled && (
+                          <Badge size="xs" color="blue" variant="light">
+                            ВКЛ
+                          </Badge>
+                        )}
+                      </Group>
+                      <Switch
+                        size="xs"
+                        checked={slopes.enabled}
+                        onChange={(e) => handleUpdateSlopes({ enabled: e.currentTarget.checked })}
+                      />
+                    </Group>
+
+                    {slopes.enabled && (
+                      <>
+                        <Divider color="#2C2E33" />
+
+                        {/* Активные грани откоса */}
+                        <div>
+                          <Text size="xs" mb={4} c="dimmed" fw={500}>
+                            Облицовываемые стороны:
+                          </Text>
+                          <Group gap={4} grow>
+                            <Button
+                              size="compact-xs"
+                              variant={slopes.top.enabled ? 'filled' : 'default'}
+                              color={slopes.top.enabled ? 'blue' : 'gray'}
+                              onClick={() => handleUpdateSide('top', { enabled: !slopes.top.enabled })}
+                            >
+                              ⬆ Верх
+                            </Button>
+                            <Button
+                              size="compact-xs"
+                              variant={slopes.bottom.enabled ? 'filled' : 'default'}
+                              color={slopes.bottom.enabled ? 'blue' : 'gray'}
+                              onClick={() => handleUpdateSide('bottom', { enabled: !slopes.bottom.enabled })}
+                            >
+                              ⬇ Низ
+                            </Button>
+                            <Button
+                              size="compact-xs"
+                              variant={slopes.left.enabled ? 'filled' : 'default'}
+                              color={slopes.left.enabled ? 'blue' : 'gray'}
+                              onClick={() => handleUpdateSide('left', { enabled: !slopes.left.enabled })}
+                            >
+                              ⬅ Лево
+                            </Button>
+                            <Button
+                              size="compact-xs"
+                              variant={slopes.right.enabled ? 'filled' : 'default'}
+                              color={slopes.right.enabled ? 'blue' : 'gray'}
+                              onClick={() => handleUpdateSide('right', { enabled: !slopes.right.enabled })}
+                            >
+                              ➡ Право
+                            </Button>
+                          </Group>
+                        </div>
+
+                        {/* Селектор: Откосы под глубину проема */}
+                        <Paper p={8} withBorder style={{ backgroundColor: '#141517' }}>
+                          <Group justify="space-between" align="center">
+                            <div>
+                              <Text size="xs" fw={500}>
+                                🔗 Откосы под глубину проема
+                              </Text>
+                              <Text size="10px" c="dimmed">
+                                {slopes.fitToOpeningDepth !== false
+                                  ? `Авто = ${defaultOpDepth} мм`
+                                  : 'Ручная ширина откосов'}
+                              </Text>
+                            </div>
+                            <Switch
+                              size="xs"
+                              checked={slopes.fitToOpeningDepth !== false}
+                              onChange={(e) =>
+                                handleUpdateSlopes({ fitToOpeningDepth: e.currentTarget.checked })
+                              }
+                            />
+                          </Group>
+                        </Paper>
+
+                        {/* Ручной ввод ширины откосов (только если fitToOpeningDepth выключен) */}
+                        {slopes.fitToOpeningDepth === false && (
+                          <div>
+                            <Text size="xs" mb={4} c="dimmed" fw={500}>
+                              Ширина откосов:
+                            </Text>
+                            <SegmentedControl
+                              size="xs"
+                              fullWidth
+                              mb={6}
+                              value={slopes.depthMode}
+                              onChange={(val) =>
+                                handleUpdateSlopes({ depthMode: val as 'SAME' | 'CUSTOM' })
+                              }
+                              data={[
+                                { label: '🔗 Одинаковая', value: 'SAME' },
+                                { label: '🔀 Раздельно', value: 'CUSTOM' },
+                              ]}
+                            />
+
+                            {slopes.depthMode === 'SAME' ? (
+                              <Stack gap={4}>
+                                <NumberInput
+                                  size="xs"
+                                  label="Общая ширина откоса (мм)"
+                                  value={slopes.depth ?? 0}
+                                  clampBehavior="blur"
+                                  allowNegative={false}
+                                  allowDecimal={false}
+                                  min={0}
+                                  max={1000}
+                                  step={10}
+                                  onChange={(val) => {
+                                    const num =
+                                      typeof val === 'number' ? val : val === '' ? 0 : Number(val);
+                                    handleUpdateSlopes({ depth: num });
+                                  }}
+                                />
+                                <Group gap={4} mt={2}>
+                                  {[100, 150, 200, 250].map((preset) => (
+                                    <Button
+                                      key={preset}
+                                      size="compact-xs"
+                                      variant="subtle"
+                                      color="gray"
+                                      onClick={() => handleUpdateSlopes({ depth: preset })}
+                                    >
+                                      {preset}
+                                    </Button>
+                                  ))}
+                                </Group>
+                              </Stack>
+                            ) : (
+                              <Stack gap={6}>
+                                {slopes.top.enabled && (
+                                  <NumberInput
+                                    size="xs"
+                                    label="⬆ Верхний откос (мм)"
+                                    value={slopes.top.depth ?? slopes.depth}
+                                    clampBehavior="blur"
+                                    allowNegative={false}
+                                    allowDecimal={false}
+                                    min={0}
+                                    max={1000}
+                                    step={10}
+                                    onChange={(val) =>
+                                      handleUpdateSide('top', {
+                                        depth:
+                                          typeof val === 'number' ? val : val === '' ? 0 : Number(val),
+                                      })
+                                    }
+                                  />
+                                )}
+                                {slopes.bottom.enabled && (
+                                  <NumberInput
+                                    size="xs"
+                                    label="⬇ Подоконник / Низ (мм)"
+                                    value={slopes.bottom.depth ?? slopes.depth}
+                                    clampBehavior="blur"
+                                    allowNegative={false}
+                                    allowDecimal={false}
+                                    min={0}
+                                    max={1000}
+                                    step={10}
+                                    onChange={(val) =>
+                                      handleUpdateSide('bottom', {
+                                        depth:
+                                          typeof val === 'number' ? val : val === '' ? 0 : Number(val),
+                                      })
+                                    }
+                                  />
+                                )}
+                                {slopes.left.enabled && (
+                                  <NumberInput
+                                    size="xs"
+                                    label="⬅ Левый откос (мм)"
+                                    value={slopes.left.depth ?? slopes.depth}
+                                    clampBehavior="blur"
+                                    allowNegative={false}
+                                    allowDecimal={false}
+                                    min={0}
+                                    max={1000}
+                                    step={10}
+                                    onChange={(val) =>
+                                      handleUpdateSide('left', {
+                                        depth:
+                                          typeof val === 'number' ? val : val === '' ? 0 : Number(val),
+                                      })
+                                    }
+                                  />
+                                )}
+                                {slopes.right.enabled && (
+                                  <NumberInput
+                                    size="xs"
+                                    label="➡ Правый откос (мм)"
+                                    value={slopes.right.depth ?? slopes.depth}
+                                    clampBehavior="blur"
+                                    allowNegative={false}
+                                    allowDecimal={false}
+                                    min={0}
+                                    max={1000}
+                                    step={10}
+                                    onChange={(val) =>
+                                      handleUpdateSide('right', {
+                                        depth:
+                                          typeof val === 'number' ? val : val === '' ? 0 : Number(val),
+                                      })
+                                    }
+                                  />
+                                )}
+                              </Stack>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Режим материалов: Одинаковый / Раздельно по граням */}
+                        <div>
+                          <Text size="xs" mb={4} c="dimmed" fw={500}>
+                            Материал откосов:
+                          </Text>
+                          <SegmentedControl
+                            size="xs"
+                            fullWidth
+                            mb={6}
+                            value={slopes.materialMode}
+                            onChange={(val) =>
+                              handleUpdateSlopes({ materialMode: val as 'SAME' | 'CUSTOM' })
+                            }
+                            data={[
+                              { label: '🎨 Одинаковый', value: 'SAME' },
+                              { label: '🎭 Раздельно', value: 'CUSTOM' },
+                            ]}
+                          />
+
+                          {slopes.materialMode === 'SAME' ? (
+                            <Select
+                              size="xs"
+                              label="Материал всех откосов"
+                              data={materialOptions}
+                              value={slopes.materialId || ''}
+                              onChange={(val) => handleUpdateSlopes({ materialId: val || null })}
+                              searchable
+                            />
+                          ) : (
+                            <Stack gap={6}>
+                              {slopes.top.enabled && (
+                                <Select
+                                  size="xs"
+                                  label="⬆ Верхний материал"
+                                  data={materialOptions}
+                                  value={slopes.top.materialId || slopes.materialId || ''}
+                                  onChange={(val) => handleUpdateSide('top', { materialId: val || null })}
+                                  searchable
+                                />
+                              )}
+                              {slopes.bottom.enabled && (
+                                <Select
+                                  size="xs"
+                                  label="⬇ Подоконник (материал)"
+                                  data={materialOptions}
+                                  value={slopes.bottom.materialId || slopes.materialId || ''}
+                                  onChange={(val) => handleUpdateSide('bottom', { materialId: val || null })}
+                                  searchable
+                                />
+                              )}
+                              {slopes.left.enabled && (
+                                <Select
+                                  size="xs"
+                                  label="⬅ Левый откос (материал)"
+                                  data={materialOptions}
+                                  value={slopes.left.materialId || slopes.materialId || ''}
+                                  onChange={(val) => handleUpdateSide('left', { materialId: val || null })}
+                                  searchable
+                                />
+                              )}
+                              {slopes.right.enabled && (
+                                <Select
+                                  size="xs"
+                                  label="➡ Правый откос (материал)"
+                                  data={materialOptions}
+                                  value={slopes.right.materialId || slopes.materialId || ''}
+                                  onChange={(val) => handleUpdateSide('right', { materialId: val || null })}
+                                  searchable
+                                />
+                              )}
+                            </Stack>
+                          )}
+                        </div>
+
+                        {/* Профиль внутренних стыков откосов */}
+                        <div>
+                          <Select
+                            size="xs"
+                            label="Профиль между откосами"
+                            description="Стык планок во внутренних углах"
+                            value={slopes.jointProfileType || 'NONE'}
+                            onChange={(val) =>
+                              handleUpdateSlopes({
+                                jointProfileType: (val as SlopeJointProfileType) || 'NONE',
+                              })
+                            }
+                            data={[
+                              { value: 'NONE', label: '🔘 Без профиля (встык 0 мм)' },
+                              { value: 'CORNER', label: '📐 Внутренний угловой профиль (2 мм)' },
+                              { value: 'LED_10', label: '💡 LED-профиль (10 мм подсветка)' },
+                              { value: 'JOINT_8', label: '⬛ Шов 8 мм (стандартный зазор)' },
+                            ]}
+                          />
+                        </div>
+
+                        {/* Развертка на 2D-чертеже */}
+                        <Group justify="space-between" align="center" mt={4}>
+                          <Text size="xs" c="dimmed">
+                            Развертка на 2D-чертеже:
+                          </Text>
+                          <Switch
+                            size="xs"
+                            checked={slopes.showUnfold2D}
+                            onChange={(e) =>
+                              handleUpdateSlopes({ showUnfold2D: e.currentTarget.checked })
+                            }
+                          />
+                        </Group>
+                      </>
+                    )}
+                  </Stack>
+                </Paper>
+              );
+            })()}
 
             <Divider color="#2C2E33" />
 
@@ -694,7 +1101,7 @@ export const RightSidebar: React.FC = () => {
               </div>
               <Group gap={6}>
                 <Badge size="xs" color="cyan">
-                  {currentWallBend.type === 'ARCH_VAULT' ? 'СВОД' : currentWallBend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'}
+                  {currentWallBend.radius === 0 ? 'ОСТРЫЙ' : currentWallBend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'}
                 </Badge>
                 <Tooltip label="Снять выделение">
                   <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectWallBend(null)}>
@@ -714,14 +1121,13 @@ export const RightSidebar: React.FC = () => {
               onChange={(val: any) =>
                 updateWallBend(currentWall.id, currentWallBend.id, {
                   type: val,
-                  name: val === 'ARCH_VAULT' ? 'Арочный свод' : val === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол',
-                  angleDeg: val === 'ARCH_VAULT' ? 180 : (currentWallBend.angleDeg || 90),
+                  name: val === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол',
+                  angleDeg: currentWallBend.angleDeg || 90,
                 })
               }
               data={[
                 { label: '⌒ Внешн 90°', value: 'OUTER_CORNER' },
                 { label: '╭ Внутр 90°', value: 'INNER_CORNER' },
-                { label: '🏛️ Свод', value: 'ARCH_VAULT' },
               ]}
             />
 
@@ -729,7 +1135,7 @@ export const RightSidebar: React.FC = () => {
             <NumberInput
               size="xs"
               label="Позиция X от левого края (мм)"
-              description="Отступ начала зоны скругления"
+              description={currentWallBend.radius === 0 ? 'Точка перегиба / угла' : 'Отступ начала зоны скругления'}
               value={currentWallBend.x}
               clampBehavior="blur"
               allowNegative={false}
@@ -752,12 +1158,12 @@ export const RightSidebar: React.FC = () => {
                 clampBehavior="blur"
                 allowNegative={false}
                 allowDecimal={false}
-                min={50}
+                min={0}
                 max={2000}
                 step={25}
                 onChange={(val) =>
                   updateWallBend(currentWall.id, currentWallBend.id, {
-                    radius: typeof val === 'number' ? val : 300,
+                    radius: typeof val === 'number' ? val : 0,
                   })
                 }
               />
@@ -786,37 +1192,52 @@ export const RightSidebar: React.FC = () => {
               </Text>
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 75 }}>
                 <svg width="220" height="65" viewBox="0 0 220 65">
-                  {currentWallBend.type === 'ARCH_VAULT' ? (
-                    <g>
-                      <path d="M 40 55 L 40 32 A 70 70 0 0 1 180 32 L 180 55" fill="none" stroke="#228be6" strokeWidth="4" strokeLinecap="round" />
-                      <line x1="40" y1="58" x2="180" y2="58" stroke="#868e96" strokeWidth="1" strokeDasharray="3 3" />
-                      <text x="110" y="22" fill="#74c0fc" fontSize="11" textAnchor="middle" fontFamily="JetBrains Mono" fontWeight="bold">
-                        ⌒ Свод R={currentWallBend.radius} ({currentWallBend.angleDeg ?? 180}°)
-                      </text>
-                      <text x="110" y="52" fill="#ced4da" fontSize="10" textAnchor="middle" fontFamily="JetBrains Mono">
-                        Развертка L = {arcLen} мм
-                      </text>
-                    </g>
-                  ) : currentWallBend.type === 'INNER_CORNER' ? (
-                    <g>
-                      <path d="M 30 15 L 80 15 A 50 50 0 0 1 130 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="round" />
-                      <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                        ╭ Внутр R={currentWallBend.radius}
-                      </text>
-                      <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
-                        L = {arcLen} мм
-                      </text>
-                    </g>
+                  {currentWallBend.type === 'INNER_CORNER' ? (
+                    currentWallBend.radius === 0 ? (
+                      <g>
+                        <path d="M 30 15 L 100 15 L 100 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="square" strokeLinejoin="miter" />
+                        <rect x="90" y="15" width="10" height="10" fill="none" stroke="#69db7c" strokeWidth="1.5" />
+                        <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                          ╭ Внутр {currentWallBend.angleDeg || 90}°
+                        </text>
+                        <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                          Острый (R = 0)
+                        </text>
+                      </g>
+                    ) : (
+                      <g>
+                        <path d="M 30 15 L 80 15 A 50 50 0 0 1 130 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="round" />
+                        <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                          ╭ Внутр R={currentWallBend.radius}
+                        </text>
+                        <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                          L = {arcLen} мм
+                        </text>
+                      </g>
+                    )
                   ) : (
-                    <g>
-                      <path d="M 30 50 L 80 50 A 50 50 0 0 0 130 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="round" />
-                      <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                        ⌒ Внешн R={currentWallBend.radius}
-                      </text>
-                      <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
-                        L = {arcLen} мм
-                      </text>
-                    </g>
+                    currentWallBend.radius === 0 ? (
+                      <g>
+                        <path d="M 30 50 L 100 50 L 100 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="square" strokeLinejoin="miter" />
+                        <rect x="90" y="40" width="10" height="10" fill="none" stroke="#74c0fc" strokeWidth="1.5" />
+                        <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                          ⌒ Внешн {currentWallBend.angleDeg || 90}°
+                        </text>
+                        <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                          Острый (R = 0)
+                        </text>
+                      </g>
+                    ) : (
+                      <g>
+                        <path d="M 30 50 L 80 50 A 50 50 0 0 0 130 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="round" />
+                        <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
+                          ⌒ Внешн R={currentWallBend.radius}
+                        </text>
+                        <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                          L = {arcLen} мм
+                        </text>
+                      </g>
+                    )
                   )}
                 </svg>
               </div>
@@ -825,21 +1246,43 @@ export const RightSidebar: React.FC = () => {
             {/* Информационная плашка с расчетом развертки дуги */}
             <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
               <Stack gap={4}>
-                <Group justify="space-between">
-                  <Text size="xs" c="dimmed">Развертка дуги (L):</Text>
-                  <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
-                    {arcLen} мм
-                  </Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text size="xs" c="dimmed">Зона на стене:</Text>
-                  <Text size="xs" c="gray.3" style={{ fontFamily: 'JetBrains Mono' }}>
-                    от {currentWallBend.x} до {currentWallBend.x + arcLen} мм
-                  </Text>
-                </Group>
-                <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.3 }}>
-                  💡 Листы и рейки автоматически накладываются поверх этой зоны. Лист может начинаться до изгиба и продолжаться после него.
-                </Text>
+                {currentWallBend.radius === 0 ? (
+                  <>
+                    <Group justify="space-between">
+                      <Text size="xs" c="dimmed">Тип угла:</Text>
+                      <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                        Острый угол (R = 0)
+                      </Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text size="xs" c="dimmed">Вершина перегиба:</Text>
+                      <Text size="xs" c="gray.3" style={{ fontFamily: 'JetBrains Mono' }}>
+                        {currentWallBend.x} мм от края
+                      </Text>
+                    </Group>
+                    <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.3 }}>
+                      💡 Прямой поворот стены (запил под 45° или фрезеровка V-паза). Скругление отсутствует.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Group justify="space-between">
+                      <Text size="xs" c="dimmed">Развертка дуги (L):</Text>
+                      <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                        {arcLen} мм
+                      </Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text size="xs" c="dimmed">Зона скругления:</Text>
+                      <Text size="xs" c="gray.3" style={{ fontFamily: 'JetBrains Mono' }}>
+                        от {currentWallBend.x} до {currentWallBend.x + arcLen} мм
+                      </Text>
+                    </Group>
+                    <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.3 }}>
+                      💡 Листы и рейки автоматически огибают радиус с керф-пропилами.
+                    </Text>
+                  </>
+                )}
               </Stack>
             </Paper>
 
@@ -1008,164 +1451,231 @@ export const RightSidebar: React.FC = () => {
       >
         <ScrollArea style={{ flex: 1 }}>
           <Stack gap="md" p="xs">
-            <Group justify="space-between" align="center">
-              <div>
-                <Title order={6} c={isCellVoid ? 'gray.4' : 'green.4'}>
-                  ЯЧЕЙКА: К#{selectedColumnIndex + 1} Р#{activeSegmentIndex + 1}
-                </Title>
-                <Text size="xs" c="dimmed">
-                  {isCellVoid ? 'Пустое пространство' : `Деталь ${selectedSegment?.partLabel || `1.${selectedColumnIndex + 1}`}`}
-                </Text>
-              </div>
-              <Group gap={6}>
-                <Badge size="xs" color={isCellVoid ? 'gray' : 'green'}>
-                  {isCellVoid ? 'Пустота' : 'Плита'}
-                </Badge>
-                <Tooltip label="Снять выделение">
-                  <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectPanel(null, null)}>
-                    <X size={14} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
-            </Group>
-
-            <Divider color="#2C2E33" />
-
-            {/* 1. Габариты выбранной панели */}
             {(() => {
-              const targetModel = project.materials.find((m) => m.id === selectedPanelMaterialId);
-              const maxAllowedWidth = targetModel && !targetModel.isVoid ? targetModel.width : currentWall.width;
-              const maxAllowedHeight = targetModel && !targetModel.isVoid ? targetModel.height : currentWall.height;
+              const activeSubPieces = (
+                selectedSegment?.subPieces ||
+                selectedCustomPanel?.subPieces ||
+                []
+              ).filter((sp) => !sp.isVoid);
+
+              const isSubPieceActive = Boolean(
+                selectedSubPieceId && activeSubPieces.some((sp) => sp.id === selectedSubPieceId)
+              );
+              const activeSub = isSubPieceActive
+                ? activeSubPieces.find((sp) => sp.id === selectedSubPieceId)!
+                : (activeSubPieces.length > 0 ? activeSubPieces[0] : null);
+
+              const activeMaterialId = activeSub ? activeSub.materialId : selectedPanelMaterialId;
+              const isCurrentVoid = isCellVoid || activeSub?.isVoid || activeMaterialId === MATERIAL_NONE_ID;
+              const activePartLabel = activeSub
+                ? activeSub.partLabel
+                : (selectedSegment?.partLabel || `1.${selectedColumnIndex + 1}.${activeSegmentIndex + 1}`);
+
+              // Bounding box / Dimensions
+              const subXs = activeSub ? activeSub.points.map((p) => p.x) : [];
+              const subYs = activeSub ? activeSub.points.map((p) => p.y) : [];
+              const activeW = activeSub ? Math.round(Math.max(...subXs) - Math.min(...subXs)) : selectedPanelWidth;
+              const activeH = activeSub ? Math.round(Math.max(...subYs) - Math.min(...subYs)) : selectedPanelHeight;
+              const activeAreaSqM = activeSub
+                ? Math.round((PolygonSlicingEngine.calculatePolygonArea(activeSub.points) / 1_000_000) * 1000) / 1000
+                : Math.round(((activeW * activeH) / 1_000_000) * 1000) / 1000;
 
               return (
-                <Stack gap="xs">
+                <Stack gap="md">
                   <Group justify="space-between" align="center">
-                    <Text size="xs" fw={600} c="dimmed">
-                      Габариты плиты:
-                    </Text>
-                    <Badge size="xs" variant="outline" color="blue">
-                      {selectedPanelWidth} × {selectedPanelHeight} мм
-                    </Badge>
+                    <div>
+                      <Title order={6} c={isCurrentVoid ? 'gray.4' : 'green.4'}>
+                        ПАНЕЛЬ: {activePartLabel}
+                      </Title>
+                      <Text size="xs" c="dimmed">
+                        {isCurrentVoid ? 'Пустое пространство' : `Площадь: ${activeAreaSqM} м²`}
+                      </Text>
+                    </div>
+                    <Group gap={6}>
+                      <Badge size="xs" color={isCurrentVoid ? 'gray' : 'green'}>
+                        {isCurrentVoid ? 'Пустота' : 'Плита'}
+                      </Badge>
+                      <Tooltip label="Снять выделение">
+                        <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectPanel(null, null)}>
+                          <X size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
                   </Group>
 
-                  <Group grow gap="xs">
-                    <NumberInput
+                  <Divider color="#2C2E33" />
+
+                  {/* 1. Габариты и маркировка детали */}
+                  <Stack gap="xs">
+                    <Group justify="space-between" align="center">
+                      <Text size="xs" fw={600} c="dimmed">
+                        Габариты и площадь:
+                      </Text>
+                      <Badge size="xs" variant="outline" color="blue">
+                        {activeW} × {activeH} мм ({activeAreaSqM} м²)
+                      </Badge>
+                    </Group>
+
+                    <TextInput
                       size="xs"
-                      label="Ширина (мм)"
-                      description={targetModel && !targetModel.isVoid ? `макс. физический лист: ${maxAllowedWidth} мм` : undefined}
-                      value={selectedPanelWidth || ''}
-                      clampBehavior="blur"
-                      allowNegative={false}
-                      allowDecimal={false}
-                      min={50}
-                      max={10000}
-                      step={10}
-                      onChange={(val) => {
-                        if (selectedColumnIndex === null) return;
-                        const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
-                        const clamped = Math.min(10000, num);
-                        updatePanelConfig(currentWall.id, selectedColumnIndex, {
-                          customWidth: clamped,
-                        });
+                      label="Маркировка детали (номер)"
+                      value={activePartLabel || ''}
+                      onChange={(e) => {
+                        if (activeSub) {
+                          updateSubPieceLabel(
+                            currentWall.id,
+                            selectedColumnIndex,
+                            activeSegmentIndex,
+                            activeSub.id,
+                            e.currentTarget.value
+                          );
+                        } else {
+                          updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            partLabel: e.currentTarget.value,
+                          });
+                        }
                       }}
+                      styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
                     />
-                    <NumberInput
-                      size="xs"
-                      label="Высота (мм)"
-                      description={targetModel && !targetModel.isVoid ? `макс. физический лист: ${maxAllowedHeight} мм` : undefined}
-                      value={selectedPanelHeight || ''}
-                      clampBehavior="blur"
-                      allowNegative={false}
-                      allowDecimal={false}
-                      min={50}
-                      max={10000}
-                      step={10}
-                      onChange={(val) => {
-                        if (selectedColumnIndex === null) return;
-                        const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
-                        const clamped = Math.min(10000, num);
-                        updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                          height: clamped,
-                        });
-                      }}
-                    />
-                  </Group>
+
+                    {!activeSub && (
+                      <Group grow gap="xs">
+                        <NumberInput
+                          size="xs"
+                          label="Ширина (мм)"
+                          value={selectedPanelWidth || ''}
+                          clampBehavior="blur"
+                          allowNegative={false}
+                          allowDecimal={false}
+                          min={50}
+                          max={10000}
+                          step={10}
+                          onChange={(val) => {
+                            if (selectedColumnIndex === null) return;
+                            const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
+                            updatePanelConfig(currentWall.id, selectedColumnIndex, {
+                              customWidth: Math.min(10000, num),
+                            });
+                          }}
+                        />
+                        <NumberInput
+                          size="xs"
+                          label="Высота (мм)"
+                          value={selectedPanelHeight || ''}
+                          clampBehavior="blur"
+                          allowNegative={false}
+                          allowDecimal={false}
+                          min={50}
+                          max={10000}
+                          step={10}
+                          onChange={(val) => {
+                            if (selectedColumnIndex === null) return;
+                            const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
+                            updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                              height: Math.min(10000, num),
+                            });
+                          }}
+                        />
+                      </Group>
+                    )}
+                  </Stack>
                 </Stack>
               );
             })()}
 
             <Divider color="#2C2E33" />
 
-            {/* Выбор модели панели AllWall */}
-            <Stack gap="xs">
-              <Group justify="space-between" align="center">
-                <Text size="xs" fw={600} c="dimmed">
-                  Модель панели AllWall:
-                </Text>
-                {isCellVoid && <Badge size="xs" color="gray">Пустота</Badge>}
-              </Group>
+            {(() => {
+              const activeSubPieces = (
+                selectedSegment?.subPieces ||
+                selectedCustomPanel?.subPieces ||
+                []
+              ).filter((sp) => !sp.isVoid);
 
-              <Select
-                size="xs"
-                value={selectedPanelMaterialId}
-                onChange={(val) => {
-                  if (!val) return;
-                  if (val === MATERIAL_NONE_ID) {
-                    clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex);
-                    return;
-                  }
-                  const chosenModel = project.materials.find((m) => m.id === val);
-                  const firstDecor = chosenModel?.availableDecors?.[0];
-                  setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                    materialId: val,
-                    customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
-                    customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
-                    customDecorCode: firstDecor?.code || chosenModel?.decorCode || '',
-                    customTextureCategory: chosenModel?.textureCategory || 'WOOD',
-                    customReliefType: chosenModel?.reliefType || 'FLAT',
-                  });
-                }}
-                data={[
-                  {
-                    group: 'Сплошные панели AllWall',
-                    items: project.materials
-                      .filter((m) => m.type === 'SHEET' && !m.isVoid)
-                      .map((m) => ({ value: m.id, label: `📄 ${m.name}` })),
-                  },
-                  {
-                    group: 'Реечные панели GW10–GW99',
-                    items: project.materials
-                      .filter((m) => m.type === 'SLAT' && !m.isVoid)
-                      .map((m) => ({ value: m.id, label: `🪵 ${m.name}` })),
-                  },
-                  {
-                    group: 'HQ-панели (Глянец & Золото)',
-                    items: project.materials
-                      .filter((m) => m.type === 'HQ' && !m.isVoid)
-                      .map((m) => ({ value: m.id, label: `✨ ${m.name}` })),
-                  },
-                  {
-                    group: 'Специальные зоны',
-                    items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
-                  },
-                ]}
-                styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
-              />
-            </Stack>
+              const isSubPieceActive = Boolean(
+                selectedSubPieceId && activeSubPieces.some((sp) => sp.id === selectedSubPieceId)
+              );
+              const activeSub = isSubPieceActive
+                ? activeSubPieces.find((sp) => sp.id === selectedSubPieceId)!
+                : (activeSubPieces.length > 0 ? activeSubPieces[0] : null);
 
-            {!isCellVoid && (
-              <>
-                {/* 2. Выбор толщины панели (только из доступных для этой модели) */}
-                {(() => {
-                  const targetMat = project.materials.find((m) => m.id === selectedPanelMaterialId);
-                  const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
-                    ? targetMat.thicknessOptions
-                    : [targetMat?.thickness || 5];
-                  const currentThick = selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
+              const effectiveMaterialId = activeSub ? activeSub.materialId : selectedPanelMaterialId;
+              const effectiveIsVoid = isCellVoid || activeSub?.isVoid || effectiveMaterialId === MATERIAL_NONE_ID;
+              const effectiveColor = activeSub
+                ? activeSub.color || '#d6cbbe'
+                : (selectedSegment?.customColor || selectedCustomPanel?.customColor || currentMaterial?.color || '#d6cbbe');
+              const effectiveDecorCode = activeSub
+                ? activeSub.decorCode || ''
+                : (selectedSegment?.customDecorCode || selectedCustomPanel?.customDecorCode || currentMaterial?.decorCode || '');
 
-                  return (
-                    <Stack gap={4}>
-                      <Group justify="space-between" align="center">
+              const targetMat = project.materials.find((m) => m.id === effectiveMaterialId);
+              const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
+                ? targetMat.thicknessOptions
+                : [targetMat?.thickness || 5];
+              const currentThick = selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
+              const decorsList = targetMat?.availableDecors || [];
+
+              return (
+                <Stack gap="xs">
+                  {/* Выбор модели панели AllWall */}
+                  <Group justify="space-between" align="center">
+                    <Text size="xs" fw={600} c="dimmed">
+                      Модель панели AllWall:
+                    </Text>
+                    {effectiveIsVoid && <Badge size="xs" color="gray">Пустота</Badge>}
+                  </Group>
+
+                  <Select
+                    size="xs"
+                    value={effectiveMaterialId}
+                    onChange={(val) => {
+                      if (!val) return;
+                      if (val === MATERIAL_NONE_ID) {
+                        clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex);
+                        return;
+                      }
+                      const chosenModel = project.materials.find((m) => m.id === val);
+                      const firstDecor = chosenModel?.availableDecors?.[0];
+                      setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                        materialId: val,
+                        customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
+                        customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
+                        customDecorCode: firstDecor?.code || chosenModel?.decorCode || '',
+                        customTextureCategory: chosenModel?.textureCategory || 'WOOD',
+                        customReliefType: chosenModel?.reliefType || 'FLAT',
+                      });
+                    }}
+                    data={[
+                      {
+                        group: 'Сплошные панели AllWall',
+                        items: project.materials
+                          .filter((m) => m.type === 'SHEET' && !m.isVoid)
+                          .map((m) => ({ value: m.id, label: `📄 ${m.name}` })),
+                      },
+                      {
+                        group: 'Реечные панели GW10–GW99',
+                        items: project.materials
+                          .filter((m) => m.type === 'SLAT' && !m.isVoid)
+                          .map((m) => ({ value: m.id, label: `🪵 ${m.name}` })),
+                      },
+                      {
+                        group: 'HQ-панели (Глянец & Золото)',
+                        items: project.materials
+                          .filter((m) => m.type === 'HQ' && !m.isVoid)
+                          .map((m) => ({ value: m.id, label: `✨ ${m.name}` })),
+                      },
+                      {
+                        group: 'Специальные зоны',
+                        items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
+                      },
+                    ]}
+                    styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
+                  />
+
+                  {!effectiveIsVoid && (
+                    <>
+                      {/* Толщина */}
+                      <Group justify="space-between" align="center" mt={4}>
                         <Text size="xs" fw={600} c="dimmed">
                           Толщина панели:
                         </Text>
@@ -1192,35 +1702,23 @@ export const RightSidebar: React.FC = () => {
                           </Text>
                         </Paper>
                       )}
-                    </Stack>
-                  );
-                })()}
 
-                {/* 3. Декор и цвет AllWall (ввод заводского кода + свотчи) */}
-                {(() => {
-                  const targetMat = project.materials.find((m) => m.id === selectedPanelMaterialId);
-                  const decorsList = targetMat?.availableDecors || [];
-                  const activeColor = selectedSegment?.customColor || selectedCustomPanel?.customColor || targetMat?.color || '#d6cbbe';
-                  const activeCode = selectedSegment?.customDecorCode || selectedCustomPanel?.customDecorCode || targetMat?.decorCode || '';
-
-                  return (
-                    <Stack gap="xs">
-                      <Group justify="space-between" align="center">
+                      {/* Декор и цвет AllWall */}
+                      <Group justify="space-between" align="center" mt={4}>
                         <Text size="xs" fw={600} c="dimmed">
                           Декор и цвет AllWall:
                         </Text>
-                        {activeCode && (
+                        {effectiveDecorCode && (
                           <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                            {activeCode}
+                            {effectiveDecorCode}
                           </Badge>
                         )}
                       </Group>
 
-                      {/* Быстрый ввод заводского кода AllWall */}
                       <TextInput
                         size="xs"
                         placeholder="Введите код декора AllWall (напр: 7029, 5134, RY8056)..."
-                        value={activeCode}
+                        value={effectiveDecorCode}
                         onChange={(e) => {
                           const val = e.currentTarget.value.trim();
                           const found = findDecorByCode(val);
@@ -1241,7 +1739,9 @@ export const RightSidebar: React.FC = () => {
                           </Text>
                           <Group gap={6} style={{ flexWrap: 'wrap' }}>
                             {decorsList.map((decor) => {
-                              const isSelected = activeCode === decor.code || activeColor.toLowerCase() === decor.color.toLowerCase();
+                              const isSelected =
+                                effectiveDecorCode === decor.code ||
+                                effectiveColor.toLowerCase() === decor.color.toLowerCase();
                               return (
                                 <Tooltip
                                   key={decor.code}
@@ -1280,21 +1780,11 @@ export const RightSidebar: React.FC = () => {
                           </Group>
                         </div>
                       )}
-                    </Stack>
-                  );
-                })()}
-              </>
-            )}
-
-            <Button
-              size="xs"
-              variant={isCellVoid ? 'filled' : 'subtle'}
-              color="gray"
-              leftSection={<Ban size={12} />}
-              onClick={() => clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex)}
-            >
-              {isCellVoid ? 'Сделать активной плитой' : 'Убрать материал (Сделать пустотой)'}
-            </Button>
+                    </>
+                  )}
+                </Stack>
+              );
+            })()}
 
             {/* ТЕХНОЛОГИЧЕСКАЯ КАРТА ГИБКИ ЛИСТА (ЧПУ / КЕРФ-ПРОПИЛЫ) */}
             {actualPanelPiece?.bendsInfo && actualPanelPiece.bendsInfo.length > 0 && (
@@ -1321,23 +1811,34 @@ export const RightSidebar: React.FC = () => {
                       <Group justify="space-between">
                         <Text size="xs" c="dimmed">Тип угла:</Text>
                         <Text size="xs" fw={600} c="gray.2">
-                          {bend.type === 'ARCH_VAULT' ? 'Арочный свод' : bend.type === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол'} (R={bend.radius} мм)
+                          {bend.radius === 0
+                            ? (bend.type === 'INNER_CORNER' ? 'Внутренний острый угол (R=0)' : 'Внешний острый угол (R=0)')
+                            : (bend.type === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол') + ` (R=${bend.radius} мм)`}
                         </Text>
                       </Group>
                       <Group justify="space-between">
-                        <Text size="xs" c="dimmed">1. Левый прямой участок:</Text>
+                        <Text size="xs" c="dimmed">1. Левый участок:</Text>
                         <Text size="xs" fw={700} c="teal.4" style={{ fontFamily: 'JetBrains Mono' }}>
                           {bend.flatLeft} мм
                         </Text>
                       </Group>
+                      {bend.radius === 0 ? (
+                        <Group justify="space-between">
+                          <Text size="xs" c="dimmed">2. Линия перегиба (V-паз/45°):</Text>
+                          <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                            {bend.bendOffsetInSheet} мм от левого края
+                          </Text>
+                        </Group>
+                      ) : (
+                        <Group justify="space-between">
+                          <Text size="xs" c="dimmed">2. Зона гибки (пропилы):</Text>
+                          <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
+                            {bend.bendWidth} мм ({Math.max(3, Math.floor(bend.bendWidth / 30))} пропилов)
+                          </Text>
+                        </Group>
+                      )}
                       <Group justify="space-between">
-                        <Text size="xs" c="dimmed">2. Зона гибки (пропилы):</Text>
-                        <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
-                          {bend.bendWidth} мм ({Math.max(3, Math.floor(bend.bendWidth / 30))} пропилов)
-                        </Text>
-                      </Group>
-                      <Group justify="space-between">
-                        <Text size="xs" c="dimmed">3. Правый прямой участок:</Text>
+                        <Text size="xs" c="dimmed">3. Правый участок:</Text>
                         <Text size="xs" fw={700} c="teal.4" style={{ fontFamily: 'JetBrains Mono' }}>
                           {bend.flatRight} мм
                         </Text>
@@ -1459,13 +1960,149 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color="#2C2E33" />
 
-            {/* Инструменты деления сетки */}
-            <Group grow>
+            {/* НАПРАВЛЕНИЕ РИСУНКА И ВОЛОКОН */}
+            {(() => {
+              const activeSubPieces = (
+                selectedSegment?.subPieces ||
+                selectedCustomPanel?.subPieces ||
+                []
+              ).filter((sp) => !sp.isVoid);
+              const targetSub = activeSubPieces.find((sp) => sp.id === selectedSubPieceId);
+
+              const currentPatternAngle =
+                targetSub?.patternAngleDeg !== undefined
+                  ? targetSub.patternAngleDeg
+                  : (selectedSegment?.patternAngleDeg !== undefined
+                    ? selectedSegment.patternAngleDeg
+                    : selectedCustomPanel?.patternAngleDeg || 0);
+
+              return (
+                <Stack gap="xs">
+                  <Group justify="space-between" align="center">
+                    <Text size="xs" fw={700} c="dimmed">
+                      НАПРАВЛЕНИЕ РИСУНКА (УГОЛ ВОЛОКОН)
+                    </Text>
+                    <Badge size="xs" color="indigo" variant="light">
+                      {currentPatternAngle}°
+                    </Badge>
+                  </Group>
+
+                  {/* Быстрые пресеты углов */}
+                  <Group grow gap={4}>
+                    {[
+                      { label: '0°', val: 0 },
+                      { label: '45° ↗', val: 45 },
+                      { label: '90° ➔', val: 90 },
+                      { label: '-45° ↘', val: 135 },
+                    ].map((p) => {
+                      const isActive =
+                        currentPatternAngle === p.val ||
+                        (p.val === 135 && (currentPatternAngle === -45 || currentPatternAngle === 135));
+                      return (
+                        <Button
+                          key={p.label}
+                          size="xs"
+                          variant={isActive ? 'filled' : 'light'}
+                          color={isActive ? 'blue' : 'gray'}
+                          p={4}
+                          onClick={() =>
+                            setPiecePatternAngle(
+                              currentWall.id,
+                              selectedColumnIndex,
+                              activeSegmentIndex,
+                              selectedSubPieceId,
+                              p.val,
+                              false
+                            )
+                          }
+                        >
+                          {p.label}
+                        </Button>
+                      );
+                    })}
+                  </Group>
+
+                  {/* Ручной ввод любого произвольного угла + интерактивный слайдер */}
+                  <Group gap="xs" align="center" mt={2}>
+                    <Box style={{ flex: 1 }}>
+                      <Slider
+                        size="xs"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={currentPatternAngle > 180 ? currentPatternAngle - 360 : currentPatternAngle}
+                        onChange={(val) =>
+                          setPiecePatternAngle(
+                            currentWall.id,
+                            selectedColumnIndex,
+                            activeSegmentIndex,
+                            selectedSubPieceId,
+                            val,
+                            false
+                          )
+                        }
+                        marks={[
+                          { value: -90, label: '-90°' },
+                          { value: 0, label: '0°' },
+                          { value: 90, label: '90°' },
+                        ]}
+                        mb="xs"
+                      />
+                    </Box>
+                    <NumberInput
+                      size="xs"
+                      suffix="°"
+                      min={-360}
+                      max={360}
+                      step={1}
+                      value={currentPatternAngle}
+                      onChange={(val) => {
+                        const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
+                        setPiecePatternAngle(
+                          currentWall.id,
+                          selectedColumnIndex,
+                          activeSegmentIndex,
+                          selectedSubPieceId,
+                          num,
+                          false
+                        );
+                      }}
+                      style={{ width: '85px' }}
+                      styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', textAlign: 'center' } }}
+                    />
+                  </Group>
+                </Stack>
+              );
+            })()}
+
+            <Divider color="#2C2E33" />
+
+            {/* ИНСТРУМЕНТЫ РАЗРЕЗА И ДЕЛЕНИЯ ПАНЕЛИ */}
+            <Stack gap="xs">
+              <Text size="xs" fw={700} c="dimmed">
+                РАЗРЕЗ И ДЕЛЕНИЕ ДЕТАЛИ
+              </Text>
+
+              {/* Акцентная кнопка Редактора раскроя (Нож) */}
+              <Button
+                size="sm"
+                variant="filled"
+                color="blue"
+                leftSection={<Scissors size={16} />}
+                onClick={() =>
+                  openSlicingModal(currentWall.id, selectedColumnIndex, activeSegmentIndex)
+                }
+                style={{ fontWeight: 600 }}
+              >
+                Редактор раскроя (CAD-Нож)
+              </Button>
+
+              {/* Быстрые кнопки разрезов вертикальным списком */}
               <Button
                 size="xs"
                 variant="light"
                 color="blue"
-                leftSection={<Split size={12} />}
+                leftSection={<Split size={14} />}
                 onClick={() =>
                   splitPanelHorizontally(
                     currentWall.id,
@@ -1475,13 +2112,14 @@ export const RightSidebar: React.FC = () => {
                   )
                 }
               >
-                Разрез по гориз.
+                Разрез по горизонтали (Пополам)
               </Button>
+
               <Button
                 size="xs"
                 variant="light"
                 color="cyan"
-                leftSection={<Columns2 size={12} />}
+                leftSection={<Columns2 size={14} />}
                 onClick={() =>
                   splitColumnVertically(
                     currentWall.id,
@@ -1490,9 +2128,23 @@ export const RightSidebar: React.FC = () => {
                   )
                 }
               >
-                Разрез по верт.
+                Разрез по вертикали (Пополам)
               </Button>
-            </Group>
+
+              <Divider color="#2C2E33" my={4} />
+
+              <Button
+                size="xs"
+                variant="subtle"
+                color="red"
+                leftSection={<Trash2 size={14} />}
+                onClick={() =>
+                  clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex)
+                }
+              >
+                Удалить деталь (Сделать ПУСТО)
+              </Button>
+            </Stack>
           </Stack>
         </ScrollArea>
       </Stack>
@@ -1516,6 +2168,12 @@ export const RightSidebar: React.FC = () => {
     >
       <ScrollArea style={{ flex: 1 }}>
         <Stack gap="md" p="xs">
+          {editMode === 'JOINTS' && (
+            <Alert color="yellow" variant="light" title="⚡ Режим «Стыки и профили»" icon={<Sparkles size={16} />}>
+              Все стыки подсвечены на чертеже. Кликните по любому стыку или зажмите Shift для выбора нескольких, чтобы настроить ширину шва, профиль или включить LED-подсветку.
+            </Alert>
+          )}
+
           <div>
             <Title order={6} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
               Параметры стены
@@ -1588,6 +2246,18 @@ export const RightSidebar: React.FC = () => {
                   <Text size="xs" c="green.4">Чистая зашивка (Нетто):</Text>
                   <Text size="xs" fw={600} c="green.4">{layoutResult.summary.coveredAreaSqM} м²</Text>
                 </Group>
+                {(layoutResult.summary.slopeAreaSqM ?? 0) > 0 && (
+                  <Group justify="space-between" mb={4}>
+                    <Text size="xs" c="cyan.4">Площадь откосов:</Text>
+                    <Text size="xs" fw={600} c="cyan.4">+{layoutResult.summary.slopeAreaSqM} м²</Text>
+                  </Group>
+                )}
+                {(layoutResult.summary.totalCoveredWithSlopesSqM ?? 0) > 0 && (
+                  <Group justify="space-between" mb={4}>
+                    <Text size="xs" c="teal.3">Итого облицовка (со стеной):</Text>
+                    <Text size="xs" fw={700} c="teal.3">{layoutResult.summary.totalCoveredWithSlopesSqM} м²</Text>
+                  </Group>
+                )}
                 {layoutResult.summary.cutoutsAreaSqM > 0 && (
                   <Group justify="space-between" mb={4}>
                     <Text size="xs" c="blue.4">Площадь проемов (вырезы):</Text>
@@ -1611,10 +2281,16 @@ export const RightSidebar: React.FC = () => {
                     <Text size="xs" fw={600}>{layoutResult.summary.grossCoveredAreaSqM} м²</Text>
                   </Group>
                 )}
-                <Group justify="space-between">
+                <Group justify="space-between" mb={4}>
                   <Text size="xs" c="dimmed">Погонаж профилей (В+Г):</Text>
                   <Text size="xs" fw={600} c="yellow.4">{layoutResult.summary.profileLinearMeters} пог. м</Text>
                 </Group>
+                {(layoutResult.summary.slopeProfileLinearMeters ?? 0) > 0 && (
+                  <Group justify="space-between">
+                    <Text size="xs" c="dimmed">В т.ч. профиль откосов:</Text>
+                    <Text size="xs" fw={600} c="orange.4">{layoutResult.summary.slopeProfileLinearMeters} пог. м</Text>
+                  </Group>
+                )}
 
               </Paper>
             </Stack>

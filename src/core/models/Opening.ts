@@ -1,5 +1,29 @@
 export type OpeningType = 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE';
 
+export type SlopeJointProfileType = 'NONE' | 'CORNER' | 'LED_10' | 'JOINT_8';
+
+export interface SlopeSideConfig {
+  enabled: boolean;          // Включена ли данная грань откоса
+  depth: number;             // Ширина/глубина грани (мм)
+  materialId?: string | null;// ID материала (null = как у стены / общий)
+}
+
+export interface SlopeConfig {
+  enabled: boolean;                  // Включена ли облицовка откосов
+  fitToOpeningDepth?: boolean;       // Откосы под глубину проема (автоматически равны глубине проема)
+  depthMode: 'SAME' | 'CUSTOM';      // Одинаковая ширина для всех или раздельная
+  depth: number;                     // Общая ширина откоса (при SAME, мм)
+  materialMode: 'SAME' | 'CUSTOM';   // Одинаковый материал для всех или раздельный
+  materialId?: string | null;        // Общий материал откосов (null = материал стены)
+  jointProfileType?: SlopeJointProfileType; // Профиль внутренних стыков между откосами
+  showUnfold2D?: boolean;            // Показывать ли интерактивную развертку на 2D-чертеже
+
+  top: SlopeSideConfig;              // Верхний откос
+  bottom: SlopeSideConfig;           // Нижний откос / Подоконник
+  left: SlopeSideConfig;             // Левый откос
+  right: SlopeSideConfig;            // Правый откос
+}
+
 export interface Opening {
   id: string;
   name: string;
@@ -8,8 +32,64 @@ export interface Opening {
   y: number;          // расстояние от пола (мм)
   width: number;      // ширина проема/декора (мм)
   height: number;     // высота проема/декора (мм)
-  slopeDepth?: number;// глубина откоса (мм)
+  depth?: number;     // глубина проема в стене (мм)
+  slopeDepth?: number;// глубина/ширина откоса (мм) (для обратной совместимости)
   isCutout: boolean;  // true - вырез в плитах (дверь/окно), false - декор поверх плит (ТВ/зеркало)
+  slopes?: SlopeConfig;
+}
+
+export function ensureOpeningSlopes(op: Opening): SlopeConfig {
+  const defaultOpeningDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 0);
+  const baseDepth = op.slopes?.depth ?? op.slopeDepth ?? defaultOpeningDepth;
+  const isDoor = op.type === 'DOOR';
+
+  if (!op.slopes) {
+    return {
+      enabled: op.isCutout && baseDepth > 0,
+      fitToOpeningDepth: true,
+      depthMode: 'SAME',
+      depth: baseDepth,
+      materialMode: 'SAME',
+      materialId: null,
+      jointProfileType: 'NONE',
+      showUnfold2D: false,
+      top: { enabled: true, depth: baseDepth, materialId: null },
+      bottom: { enabled: !isDoor, depth: baseDepth, materialId: null },
+      left: { enabled: true, depth: baseDepth, materialId: null },
+      right: { enabled: true, depth: baseDepth, materialId: null },
+    };
+  }
+
+  return {
+    enabled: op.slopes.enabled ?? (op.isCutout && baseDepth > 0),
+    fitToOpeningDepth: op.slopes.fitToOpeningDepth ?? true,
+    depthMode: op.slopes.depthMode || 'SAME',
+    depth: op.slopes.depth ?? baseDepth,
+    materialMode: op.slopes.materialMode || 'SAME',
+    materialId: op.slopes.materialId ?? null,
+    jointProfileType: op.slopes.jointProfileType || 'NONE',
+    showUnfold2D: !!op.slopes.showUnfold2D,
+    top: {
+      enabled: op.slopes.top?.enabled ?? true,
+      depth: op.slopes.top?.depth ?? baseDepth,
+      materialId: op.slopes.top?.materialId ?? null,
+    },
+    bottom: {
+      enabled: op.slopes.bottom?.enabled ?? !isDoor,
+      depth: op.slopes.bottom?.depth ?? baseDepth,
+      materialId: op.slopes.bottom?.materialId ?? null,
+    },
+    left: {
+      enabled: op.slopes.left?.enabled ?? true,
+      depth: op.slopes.left?.depth ?? baseDepth,
+      materialId: op.slopes.left?.materialId ?? null,
+    },
+    right: {
+      enabled: op.slopes.right?.enabled ?? true,
+      depth: op.slopes.right?.depth ?? baseDepth,
+      materialId: op.slopes.right?.materialId ?? null,
+    },
+  };
 }
 
 export function createDefaultOpening(type: OpeningType, wallWidth: number, _wallHeight: number): Opening {
@@ -24,8 +104,23 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         y: 0,
         width: 900,
         height: 2100,
+        depth: 150,
         slopeDepth: 150,
         isCutout: true,
+        slopes: {
+          enabled: true,
+          fitToOpeningDepth: true,
+          depthMode: 'SAME',
+          depth: 150,
+          materialMode: 'SAME',
+          materialId: null,
+          jointProfileType: 'NONE',
+          showUnfold2D: false,
+          top: { enabled: true, depth: 150, materialId: null },
+          bottom: { enabled: false, depth: 150, materialId: null },
+          left: { enabled: true, depth: 150, materialId: null },
+          right: { enabled: true, depth: 150, materialId: null },
+        },
       };
     case 'WINDOW':
       return {
@@ -36,8 +131,23 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         y: 800,
         width: 1400,
         height: 1500,
+        depth: 200,
         slopeDepth: 200,
         isCutout: true,
+        slopes: {
+          enabled: true,
+          fitToOpeningDepth: true,
+          depthMode: 'SAME',
+          depth: 200,
+          materialMode: 'SAME',
+          materialId: null,
+          jointProfileType: 'NONE',
+          showUnfold2D: false,
+          top: { enabled: true, depth: 200, materialId: null },
+          bottom: { enabled: true, depth: 200, materialId: null },
+          left: { enabled: true, depth: 200, materialId: null },
+          right: { enabled: true, depth: 200, materialId: null },
+        },
       };
     case 'TV_ZONE':
       return {
@@ -48,8 +158,23 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         y: 1000,
         width: 1200,
         height: 700,
+        depth: 0,
         slopeDepth: 0,
         isCutout: false, // по умолчанию поверх плит
+        slopes: {
+          enabled: false,
+          fitToOpeningDepth: true,
+          depthMode: 'SAME',
+          depth: 0,
+          materialMode: 'SAME',
+          materialId: null,
+          jointProfileType: 'NONE',
+          showUnfold2D: false,
+          top: { enabled: false, depth: 0, materialId: null },
+          bottom: { enabled: false, depth: 0, materialId: null },
+          left: { enabled: false, depth: 0, materialId: null },
+          right: { enabled: false, depth: 0, materialId: null },
+        },
       };
     case 'NICHE':
       return {
@@ -60,8 +185,23 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         y: 900,
         width: 600,
         height: 1200,
-        slopeDepth: 100,
+        depth: 150,
+        slopeDepth: 150,
         isCutout: true,
+        slopes: {
+          enabled: true,
+          fitToOpeningDepth: true,
+          depthMode: 'SAME',
+          depth: 150,
+          materialMode: 'SAME',
+          materialId: null,
+          jointProfileType: 'NONE',
+          showUnfold2D: false,
+          top: { enabled: true, depth: 150, materialId: null },
+          bottom: { enabled: true, depth: 150, materialId: null },
+          left: { enabled: true, depth: 150, materialId: null },
+          right: { enabled: true, depth: 150, materialId: null },
+        },
       };
   }
 }

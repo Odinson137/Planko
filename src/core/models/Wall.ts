@@ -2,6 +2,7 @@ import { Opening } from './Opening';
 import { ProfileType } from './Profile';
 import { SlatProfileShape } from './AllWallCatalog';
 import { MATERIAL_NONE_ID } from './Material';
+import { PolygonSubPiece } from '../geometry/PolygonSlicingEngine';
 
 export type LayoutOrientation = 'VERTICAL' | 'HORIZONTAL';
 
@@ -15,14 +16,17 @@ export interface PanelSegmentConfig {
   customTextureCategory?: string; // категория текстуры (FABRIC, WOOD, STONE, etc.)
   customReliefType?: SlatProfileShape; // форма рельефа реек
   partLabel?: string;          // метка детали (например '1.1', '1.2' или 'ПУСТО')
+  patternAngleDeg?: number;    // угол поворота рисунка/волокон (0, 45, 90, etc.)
+  patternFlipX?: boolean;      // зеркалирование текстуры по горизонтали
+  subPieces?: PolygonSubPiece[]; // массив полигональных частей, если панель была фигурно разрезана
 }
 
-export type RadiusType = 'OUTER_CORNER' | 'INNER_CORNER' | 'ARCH_VAULT';
+export type RadiusType = 'OUTER_CORNER' | 'INNER_CORNER';
 
 export interface RadiusConfig {
   type: RadiusType;
   radius: number;                  // радиус скругления в мм (например 300)
-  angleDeg?: number;               // угол дуги в градусах (по умолчанию 90° для угла, 180° для арки)
+  angleDeg?: number;               // угол дуги в градусах (по умолчанию 90° для угла)
 }
 
 /**
@@ -31,9 +35,9 @@ export interface RadiusConfig {
 export interface WallBend {
   id: string;
   x: number;                       // отступ начала изгиба от левого края стены в мм
-  type: RadiusType;                // Внешний, внутренний, арочный свод
+  type: RadiusType;                // Внешний, внутренний угол
   radius: number;                  // радиус скругления в мм
-  angleDeg: number;                // угол дуги в градусах (по умолчанию 90°, для арки 180°)
+  angleDeg: number;                // угол дуги в градусах (по умолчанию 90°)
   name?: string;                   // метка угла
 }
 
@@ -60,13 +64,16 @@ export interface CustomPanelConfig {
   customDecorCode?: string;
   customTextureCategory?: string;
   customReliefType?: SlatProfileShape;
+  patternAngleDeg?: number;
+  patternFlipX?: boolean;
+  subPieces?: PolygonSubPiece[];
   segments?: PanelSegmentConfig[]; // вертикальные ячейки в этой колонке
   radiusConfig?: RadiusConfig;     // обратная совместимость
 }
 
 export interface JointEdgeConfig {
   id: string;
-  orientation: 'VERTICAL' | 'HORIZONTAL';
+  orientation: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
   width: number;                   // ширина шва в мм (0, 5, 8, 10, или любое введенное число)
   isLED: boolean;                  // true ТОЛЬКО если пользователь явно включил LED
   groupId?: string;                // идентификатор группы объединенных швов

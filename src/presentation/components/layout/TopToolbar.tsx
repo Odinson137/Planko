@@ -34,6 +34,8 @@ export const TopToolbar: React.FC = () => {
     setActiveTool,
     viewMode,
     setViewMode,
+    editMode,
+    setEditMode,
     zoom,
     setZoom,
     resetView,
@@ -53,7 +55,7 @@ export const TopToolbar: React.FC = () => {
     }
   };
 
-  const handleAddRadius = (type: 'OUTER_CORNER' | 'INNER_CORNER' | 'ARCH_VAULT', radius: number, angleDeg?: number) => {
+  const handleAddRadius = (type: 'OUTER_CORNER' | 'INNER_CORNER', radius: number, angleDeg?: number) => {
     if (selectedWallId) {
       addWallBend(selectedWallId, type, undefined, radius, angleDeg);
     }
@@ -81,6 +83,22 @@ export const TopToolbar: React.FC = () => {
             ]}
           />
 
+          {viewMode === '2D' && (
+            <>
+              <Divider orientation="vertical" />
+              <SegmentedControl
+                size="xs"
+                value={editMode}
+                onChange={(val: any) => setEditMode(val)}
+                data={[
+                  { label: '📄 Панели', value: 'PANELS' },
+                  { label: '⚡ Стыки & LED', value: 'JOINTS' },
+                ]}
+                color={editMode === 'JOINTS' ? 'yellow' : 'blue'}
+              />
+            </>
+          )}
+
           {/* Кнопка открытия каталога AllWall */}
           <Button
             size="xs"
@@ -107,8 +125,8 @@ export const TopToolbar: React.FC = () => {
 
           <Divider orientation="vertical" />
 
-          {/* Меню добавления радиусных элементов и арок */}
-          <Menu shadow="md" width={270} position="bottom-start">
+          {/* Меню добавления углов и поворотов */}
+          <Menu shadow="md" width={200} position="bottom-start">
             <Menu.Target>
               <Button
                 size="xs"
@@ -117,77 +135,66 @@ export const TopToolbar: React.FC = () => {
                 leftSection={<Text size="xs" fw={700} style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
                 disabled={!selectedWallId}
               >
-                + Радиус / Арка
+                + Угол стены
               </Button>
             </Menu.Target>
 
             <Menu.Dropdown>
-              <Menu.Label>Криволинейные элементы</Menu.Label>
-              <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 300, 90)}>
-                ⌒ Внешний угол 90° (R = 300 мм)
+              <Menu.Label>Углы и повороты</Menu.Label>
+              <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 0, 90)}>
+                ⌒ Внешний угол
               </Menu.Item>
-              <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 500, 90)}>
-                ⌒ Внешний угол 90° (R = 500 мм)
-              </Menu.Item>
-              <Menu.Item onClick={() => handleAddRadius('INNER_CORNER', 300, 90)}>
-                ╭ Внутренний угол 90° (R = 300 мм)
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Item onClick={() => handleAddRadius('ARCH_VAULT', 800, 180)}>
-                🏛️ Арочный свод 180° (R = 800 мм)
+              <Menu.Item onClick={() => handleAddRadius('INNER_CORNER', 0, 90)}>
+                ╭ Внутренний угол
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
 
           <Divider orientation="vertical" />
 
-          <Tooltip label="Добавить дверь" position="bottom">
-            <Button
-              size="xs"
-              variant="default"
-              leftSection={<DoorOpen size={14} />}
-              onClick={() => handleAddOpening('DOOR')}
-              disabled={!selectedWallId}
-            >
-              + Дверь
-            </Button>
-          </Tooltip>
+          {/* Меню добавления проемов и зон */}
+          <Menu shadow="md" width={200} position="bottom-start">
+            <Menu.Target>
+              <Button
+                size="xs"
+                variant="default"
+                leftSection={<DoorOpen size={14} />}
+                disabled={!selectedWallId}
+              >
+                + Проём / Зона
+              </Button>
+            </Menu.Target>
 
-          <Tooltip label="Добавить окно" position="bottom">
-            <Button
-              size="xs"
-              variant="default"
-              leftSection={<AppWindow size={14} />}
-              onClick={() => handleAddOpening('WINDOW')}
-              disabled={!selectedWallId}
-            >
-              + Окно
-            </Button>
-          </Tooltip>
-
-          <Tooltip label="Добавить ТВ-зону" position="bottom">
-            <Button
-              size="xs"
-              variant="default"
-              leftSection={<Tv size={14} />}
-              onClick={() => handleAddOpening('TV_ZONE')}
-              disabled={!selectedWallId}
-            >
-              + ТВ-зона
-            </Button>
-          </Tooltip>
-
-          <Tooltip label="Добавить нишу" position="bottom">
-            <Button
-              size="xs"
-              variant="default"
-              leftSection={<Square size={14} />}
-              onClick={() => handleAddOpening('NICHE')}
-              disabled={!selectedWallId}
-            >
-              + Ниша
-            </Button>
-          </Tooltip>
+            <Menu.Dropdown>
+              <Menu.Label>Вырезы и проёмы</Menu.Label>
+              <Menu.Item
+                leftSection={<DoorOpen size={15} />}
+                onClick={() => handleAddOpening('DOOR')}
+              >
+                Дверь
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<AppWindow size={15} />}
+                onClick={() => handleAddOpening('WINDOW')}
+              >
+                Окно
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<Square size={15} />}
+                onClick={() => handleAddOpening('NICHE')}
+              >
+                Ниша
+              </Menu.Item>
+              <Menu.Divider />
+              <Menu.Label>Декоративные зоны</Menu.Label>
+              <Menu.Item
+                leftSection={<Tv size={15} />}
+                onClick={() => handleAddOpening('TV_ZONE')}
+              >
+                ТВ-зона
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
         </Group>
 
         {/* Управление холстом (зум, сетка, размеры) */}

@@ -5,6 +5,7 @@ import { LeftSidebar } from './LeftSidebar';
 import { RightSidebar } from './RightSidebar';
 import { CadCanvas } from '../canvas/CadCanvas';
 import { Axonometric3DView } from '../canvas/Axonometric3DView';
+import { PanelSlicingModal } from '../catalog/PanelSlicingModal';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 
 export const MainLayout: React.FC = () => {
@@ -28,6 +29,9 @@ export const MainLayout: React.FC = () => {
         {/* Правая панель инспектора */}
         <RightSidebar />
       </Flex>
+
+      {/* Модальное окно CAD-раскроя панели (Нож) */}
+      <PanelSlicingModal />
     </Flex>
   );
 };

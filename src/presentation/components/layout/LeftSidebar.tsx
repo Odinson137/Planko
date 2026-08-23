@@ -99,13 +99,13 @@ export const LeftSidebar: React.FC = () => {
                         <NavLink
                           key={bend.id}
                           active={bend.id === selectedWallBendId}
-                          label={bend.name || (bend.type === 'ARCH_VAULT' ? 'Свод' : 'Угол')}
-                          description={`X: ${bend.x} мм, R: ${bend.radius}`}
-                          leftSection={<Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
+                          label={bend.name || 'Угол'}
+                          description={bend.radius === 0 ? `X: ${bend.x} мм, Острый (R=0)` : `X: ${bend.x} мм, R: ${bend.radius}`}
+                          leftSection={<Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>{bend.radius === 0 ? '📐' : '⌒'}</Text>}
                           rightSection={
                             <Group gap={4}>
                               <Badge size="xs" variant="light" color="cyan">
-                                {arcLen} мм
+                                {bend.radius === 0 ? `${bend.angleDeg || 90}°` : `${arcLen} мм`}
                               </Badge>
                               <Tooltip label="Удалить">
                                 <ActionIcon
@@ -151,9 +151,9 @@ export const LeftSidebar: React.FC = () => {
                             <Badge
                               size="xs"
                               variant="light"
-                              color={op.isCutout === false ? 'yellow' : 'gray'}
+                              color={op.isCutout === false ? 'yellow' : (op.slopes?.enabled ? 'blue' : 'gray')}
                             >
-                              {op.isCutout === false ? 'Декор' : 'Вырез'}
+                              {op.isCutout === false ? 'Декор' : (op.slopes?.enabled ? 'Откос' : 'Вырез')}
                             </Badge>
                             <Tooltip label="Удалить">
                               <ActionIcon

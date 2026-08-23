@@ -5,6 +5,7 @@ import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { RadiusType } from '../../../core/models/Wall';
+import { ensureOpeningSlopes } from '../../../core/models/Opening';
 
 interface Point3D {
   x: number;
@@ -194,6 +195,29 @@ export const Axonometric3DView: React.FC = () => {
     ctx.restore();
   };
 
+  // Расчет угловой биссектрисы (Miter Joint) для стыковки стен и панелей под произвольным углом
+  const computeMiterVector = (psi1: number, psi2: number, d: number): { x: number; z: number } => {
+    const n1x = -Math.sin(psi1);
+    const n1z = -Math.cos(psi1);
+    const n2x = -Math.sin(psi2);
+    const n2z = -Math.cos(psi2);
+
+    const sumX = n1x + n2x;
+    const sumZ = n1z + n2z;
+    const len = Math.sqrt(sumX * sumX + sumZ * sumZ);
+
+    if (len < 0.001) {
+      return { x: n1x * d, z: n1z * d };
+    }
+
+    const mX = sumX / len;
+    const mZ = sumZ / len;
+    const dot = n1x * mX + n1z * mZ;
+    const scale = Math.abs(dot) > 0.05 ? d / dot : d;
+
+    return { x: mX * scale, z: mZ * scale };
+  };
+
   // Отрисовка всей монолитной 3D-сцены
   const renderScene = useCallback(() => {
     const canvas = canvasRef.current;
@@ -269,7 +293,9 @@ export const Axonometric3DView: React.FC = () => {
       isBend: boolean;
       bend?: ActiveBend3D;
       startPoint: Point3D;
+      endPoint: Point3D;
       startHeading: number;
+      endHeading: number;
       centerPoint?: Point3D;
       totalTurn?: number;
       getPoint: (s: number, y: number, depthOffset: number) => Point3D;
@@ -289,13 +315,20 @@ export const Axonometric3DView: React.FC = () => {
         const straightHeading = curHeading;
         const sStart = curS;
         const sEnd = bend.sStart;
+        const straightEndPt = {
+          x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
+          y: 0,
+          z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
+        };
 
         pathSections.push({
           sStart,
           sEnd,
           isBend: false,
           startPoint: straightStartPt,
+          endPoint: straightEndPt,
           startHeading: straightHeading,
+          endHeading: straightHeading,
           getPoint: (s: number, y: number, depthOffset = 0) => {
             const dist = Math.max(0, Math.min(straightLen, s - sStart));
             const normX = -Math.sin(straightHeading) * depthOffset;
@@ -308,96 +341,112 @@ export const Axonometric3DView: React.FC = () => {
           },
         });
 
-        curPt = {
-          x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
-          y: 0,
-          z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
-        };
+        curPt = { ...straightEndPt };
         curS = sEnd;
         allPathPoints.push({ ...curPt });
       }
 
-      // 2. Участок изгиба
+      // 2. Участок изгиба / угла
       const R = bend.radius;
       const totalTurn = ((bend.angleDeg || 90) * Math.PI) / 180;
       const psi = curHeading;
       const bendStartPt = { ...curPt };
-      const sStart = curS;
-      const sEnd = curS + bend.arcLen;
 
-      if (bend.type === 'INNER_CORNER') {
-        const cX = bendStartPt.x + Math.sin(psi) * R;
-        const cZ = bendStartPt.z + Math.cos(psi) * R;
-        const centerPt = { x: cX, y: 0, z: cZ };
-
-        pathSections.push({
-          sStart,
-          sEnd,
-          isBend: true,
-          bend,
-          startPoint: bendStartPt,
-          startHeading: psi,
-          centerPoint: centerPt,
-          totalTurn,
-          getPoint: (s: number, y: number, depthOffset = 0) => {
-            const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
-            const alpha = u * totalTurn;
-            const phi = psi + Math.PI / 2 - alpha;
-            const effR = Math.max(5, R + depthOffset);
-            return {
-              x: cX + Math.cos(phi) * effR,
-              y,
-              z: cZ - Math.sin(phi) * effR,
-            };
-          },
-        });
-
-        const endPhi = psi + Math.PI / 2 - totalTurn;
-        curPt = {
-          x: cX + Math.cos(endPhi) * R,
-          y: 0,
-          z: cZ - Math.sin(endPhi) * R,
-        };
-        curHeading = psi - totalTurn;
+      if (R <= 0 || bend.arcLen <= 0) {
+        // Острый угол (R = 0): мгновенный поворот направления в текущей точке
+        if (bend.type === 'INNER_CORNER') {
+          curHeading = psi - totalTurn;
+        } else {
+          curHeading = psi + totalTurn;
+        }
+        curS = bend.sStart;
+        allPathPoints.push({ ...curPt });
       } else {
-        // OUTER_CORNER / ARCH_VAULT
-        const cX = bendStartPt.x - Math.sin(psi) * R;
-        const cZ = bendStartPt.z - Math.cos(psi) * R;
-        const centerPt = { x: cX, y: 0, z: cZ };
+        const sStart = curS;
+        const sEnd = curS + bend.arcLen;
 
-        pathSections.push({
-          sStart,
-          sEnd,
-          isBend: true,
-          bend,
-          startPoint: bendStartPt,
-          startHeading: psi,
-          centerPoint: centerPt,
-          totalTurn,
-          getPoint: (s: number, y: number, depthOffset = 0) => {
-            const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
-            const alpha = u * totalTurn;
-            const phi = psi - Math.PI / 2 + alpha;
-            const effR = Math.max(5, R - depthOffset);
-            return {
-              x: cX + Math.cos(phi) * effR,
-              y,
-              z: cZ - Math.sin(phi) * effR,
-            };
-          },
-        });
+        if (bend.type === 'INNER_CORNER') {
+          const cX = bendStartPt.x + Math.sin(psi) * R;
+          const cZ = bendStartPt.z + Math.cos(psi) * R;
+          const centerPt = { x: cX, y: 0, z: cZ };
+          const endPhi = psi + Math.PI / 2 - totalTurn;
+          const bendEndPt = {
+            x: cX + Math.cos(endPhi) * R,
+            y: 0,
+            z: cZ - Math.sin(endPhi) * R,
+          };
+          const endHeading = psi - totalTurn;
 
-        const endPhi = psi - Math.PI / 2 + totalTurn;
-        curPt = {
-          x: cX + Math.cos(endPhi) * R,
-          y: 0,
-          z: cZ - Math.sin(endPhi) * R,
-        };
-        curHeading = psi + totalTurn;
+          pathSections.push({
+            sStart,
+            sEnd,
+            isBend: true,
+            bend,
+            startPoint: bendStartPt,
+            endPoint: bendEndPt,
+            startHeading: psi,
+            endHeading,
+            centerPoint: centerPt,
+            totalTurn,
+            getPoint: (s: number, y: number, depthOffset = 0) => {
+              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
+              const alpha = u * totalTurn;
+              const phi = psi + Math.PI / 2 - alpha;
+              const effR = Math.max(5, R + depthOffset);
+              return {
+                x: cX + Math.cos(phi) * effR,
+                y,
+                z: cZ - Math.sin(phi) * effR,
+              };
+            },
+          });
+
+          curPt = { ...bendEndPt };
+          curHeading = endHeading;
+        } else {
+          // OUTER_CORNER
+          const cX = bendStartPt.x - Math.sin(psi) * R;
+          const cZ = bendStartPt.z - Math.cos(psi) * R;
+          const centerPt = { x: cX, y: 0, z: cZ };
+          const endPhi = psi - Math.PI / 2 + totalTurn;
+          const bendEndPt = {
+            x: cX + Math.cos(endPhi) * R,
+            y: 0,
+            z: cZ - Math.sin(endPhi) * R,
+          };
+          const endHeading = psi + totalTurn;
+
+          pathSections.push({
+            sStart,
+            sEnd,
+            isBend: true,
+            bend,
+            startPoint: bendStartPt,
+            endPoint: bendEndPt,
+            startHeading: psi,
+            endHeading,
+            centerPoint: centerPt,
+            totalTurn,
+            getPoint: (s: number, y: number, depthOffset = 0) => {
+              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
+              const alpha = u * totalTurn;
+              const phi = psi - Math.PI / 2 + alpha;
+              const effR = Math.max(5, R - depthOffset);
+              return {
+                x: cX + Math.cos(phi) * effR,
+                y,
+                z: cZ - Math.sin(phi) * effR,
+              };
+            },
+          });
+
+          curPt = { ...bendEndPt };
+          curHeading = endHeading;
+        }
+
+        curS = sEnd;
+        allPathPoints.push({ ...curPt });
       }
-
-      curS = sEnd;
-      allPathPoints.push({ ...curPt });
     });
 
     // 3. Завершающий прямой участок стены
@@ -407,13 +456,20 @@ export const Axonometric3DView: React.FC = () => {
       const straightHeading = curHeading;
       const sStart = curS;
       const sEnd = wallW;
+      const straightEndPt = {
+        x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
+        y: 0,
+        z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
+      };
 
       pathSections.push({
         sStart,
         sEnd,
         isBend: false,
         startPoint: straightStartPt,
+        endPoint: straightEndPt,
         startHeading: straightHeading,
+        endHeading: straightHeading,
         getPoint: (s: number, y: number, depthOffset = 0) => {
           const dist = Math.max(0, Math.min(straightLen, s - sStart));
           const normX = -Math.sin(straightHeading) * depthOffset;
@@ -426,13 +482,35 @@ export const Axonometric3DView: React.FC = () => {
         },
       });
 
-      curPt = {
-        x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
-        y: 0,
-        z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
-      };
+      curPt = { ...straightEndPt };
       allPathPoints.push({ ...curPt });
     }
+
+    // 4. Постобработка прямых секций: точный расчет Miter Joint биссектрисы для бесшовных углов
+    pathSections.forEach((sec, idx) => {
+      if (!sec.isBend) {
+        const psiBefore = idx > 0 ? pathSections[idx - 1].endHeading : sec.startHeading;
+        const psiAfter = idx < pathSections.length - 1 ? pathSections[idx + 1].startHeading : sec.endHeading;
+        const sLen = Math.max(0.1, sec.sEnd - sec.sStart);
+
+        sec.getPoint = (s: number, y: number, depthOffset = 0) => {
+          const u = Math.max(0, Math.min(1, (s - sec.sStart) / sLen));
+          const vStart = computeMiterVector(psiBefore, sec.startHeading, depthOffset);
+          const vEnd = computeMiterVector(sec.endHeading, psiAfter, depthOffset);
+
+          const fx = (1 - u) * sec.startPoint.x + u * sec.endPoint.x;
+          const fz = (1 - u) * sec.startPoint.z + u * sec.endPoint.z;
+          const ox = (1 - u) * vStart.x + u * vEnd.x;
+          const oz = (1 - u) * vStart.z + u * vEnd.z;
+
+          return {
+            x: fx + ox,
+            y,
+            z: fz + oz,
+          };
+        };
+      }
+    });
 
     const getPointAtS = (s: number, y: number, depthOffset = 0): Point3D => {
       const clampedS = Math.max(0, Math.min(wallW, s));
@@ -484,8 +562,10 @@ export const Axonometric3DView: React.FC = () => {
     }
 
     // =========================================================================
-    // 3. Отрисовка МОНОЛИТНОЙ НЕСУЩЕЙ СТЕНЫ (Верхняя грань и глубина)
+    // 3. Отрисовка МОНОЛИТНОЙ НЕСУЩЕЙ СТЕНЫ (Задняя грань, Верхний срез и торцы)
     // =========================================================================
+
+    // 3.1. Задняя грань стены (Back Wall Faces)
     pathSections.forEach((sec) => {
       const steps = sec.isBend ? 14 : 1;
       const len = sec.sEnd - sec.sStart;
@@ -493,10 +573,37 @@ export const Axonometric3DView: React.FC = () => {
         const s0 = sec.sStart + (i / steps) * len;
         const s1 = sec.sStart + ((i + 1) / steps) * len;
 
-        const topF0 = project3D(getPointAtS(s0, wallH, 0), cx, cy, scale);
-        const topF1 = project3D(getPointAtS(s1, wallH, 0), cx, cy, scale);
-        const topB1 = project3D(getPointAtS(s1, wallH, wallThick), cx, cy, scale);
-        const topB0 = project3D(getPointAtS(s0, wallH, wallThick), cx, cy, scale);
+        const b0_bot = project3D(sec.getPoint(s0, 0, wallThick), cx, cy, scale);
+        const b1_bot = project3D(sec.getPoint(s1, 0, wallThick), cx, cy, scale);
+        const b1_top = project3D(sec.getPoint(s1, wallH, wallThick), cx, cy, scale);
+        const b0_top = project3D(sec.getPoint(s0, wallH, wallThick), cx, cy, scale);
+
+        ctx.fillStyle = '#1c1e22';
+        ctx.strokeStyle = '#25272c';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(b0_bot.x, b0_bot.y);
+        ctx.lineTo(b1_bot.x, b1_bot.y);
+        ctx.lineTo(b1_top.x, b1_top.y);
+        ctx.lineTo(b0_top.x, b0_top.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    });
+
+    // 3.2. Верхняя грань несущей стены (Бесшовный Miter Joint)
+    pathSections.forEach((sec) => {
+      const steps = sec.isBend ? 14 : 1;
+      const len = sec.sEnd - sec.sStart;
+      for (let i = 0; i < steps; i++) {
+        const s0 = sec.sStart + (i / steps) * len;
+        const s1 = sec.sStart + ((i + 1) / steps) * len;
+
+        const topF0 = project3D(sec.getPoint(s0, wallH, 0), cx, cy, scale);
+        const topF1 = project3D(sec.getPoint(s1, wallH, 0), cx, cy, scale);
+        const topB1 = project3D(sec.getPoint(s1, wallH, wallThick), cx, cy, scale);
+        const topB0 = project3D(sec.getPoint(s0, wallH, wallThick), cx, cy, scale);
 
         ctx.fillStyle = '#2c2f35';
         ctx.strokeStyle = '#3a3e47';
@@ -512,7 +619,7 @@ export const Axonometric3DView: React.FC = () => {
       }
     });
 
-    // Левый торец стены
+    // 3.3. Левый торец стены
     const tL0 = project3D(getPointAtS(0, 0, 0), cx, cy, scale);
     const tL1 = project3D(getPointAtS(0, wallH, 0), cx, cy, scale);
     const tL2 = project3D(getPointAtS(0, wallH, wallThick), cx, cy, scale);
@@ -528,7 +635,7 @@ export const Axonometric3DView: React.FC = () => {
     ctx.fill();
     ctx.stroke();
 
-    // Правый торец стены
+    // 3.4. Правый торец стены
     const tR0 = project3D(getPointAtS(wallW, 0, 0), cx, cy, scale);
     const tR1 = project3D(getPointAtS(wallW, wallH, 0), cx, cy, scale);
     const tR2 = project3D(getPointAtS(wallW, wallH, wallThick), cx, cy, scale);
@@ -604,8 +711,28 @@ export const Axonometric3DView: React.FC = () => {
           ctx.fill();
         }
       } else {
-        // Листовые панели (разбиваем на фасеты на участках изгибов)
+        // Листовые панели
         const thisPanelThick = isVoid ? 0 : (panel.thickness || 5);
+
+        // Если это полигональная деталь (треугольник, трапеция после раскроя)
+        if (panel.polygonPoints && panel.polygonPoints.length >= 3) {
+          const poly3D = panel.polygonPoints.map((pt) =>
+            project3D(getPointAtS(pt.x, pt.y, -thisPanelThick), cx, cy, scale)
+          );
+          ctx.fillStyle = isVoid ? 'rgba(20, 21, 24, 0.7)' : adjustBrightness(baseColor, 0.96);
+          ctx.strokeStyle = isVoid ? '#2C2E33' : adjustBrightness(baseColor, 0.7);
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(poly3D[0].x, poly3D[0].y);
+          for (let i = 1; i < poly3D.length; i++) {
+            ctx.lineTo(poly3D[i].x, poly3D[i].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          return;
+        }
+
         const slicePoints: number[] = [pStartS];
 
         pathSections.forEach((sec) => {
@@ -621,6 +748,12 @@ export const Axonometric3DView: React.FC = () => {
             } else {
               slicePoints.push(overlapEnd);
             }
+          }
+        });
+
+        activeBends.forEach((b) => {
+          if (b.sStart > pStartS && b.sStart < pEndS) {
+            slicePoints.push(b.sStart);
           }
         });
 
@@ -643,6 +776,13 @@ export const Axonometric3DView: React.FC = () => {
           if (inBend) {
             const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
             lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.55 + 0.45 * Math.abs(u - 0.5) * 2 : 0.65 + 0.35 * Math.sin(u * Math.PI);
+          } else {
+            const sec = pathSections.find((s) => s0 >= s.sStart - 0.1 && s1 <= s.sEnd + 0.1);
+            if (sec) {
+              const sunAngle = -Math.PI / 4;
+              const angleDiff = sec.startHeading - sunAngle;
+              lightFactor = 0.86 + 0.14 * Math.cos(angleDiff);
+            }
           }
 
           ctx.fillStyle = isVoid ? '#141517' : adjustBrightness(baseColor, lightFactor);
@@ -698,59 +838,16 @@ export const Axonometric3DView: React.FC = () => {
     // =========================================================================
     // 5. Отрисовка проемов (Двери, ТВ)
     // =========================================================================
+    // 5. Отрисовка проемов и откосов в 3D
+    // =========================================================================
     selectedWall.openings.forEach((op) => {
       const opP0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2), cx, cy, scale);
       const opP1 = project3D(getPointAtS(op.x + op.width, op.y, -panelThick - 2), cx, cy, scale);
       const opP2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, -panelThick - 2), cx, cy, scale);
       const opP3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2), cx, cy, scale);
 
-      if (op.type === 'DOOR') {
-        const doorDepth = 70;
-        const d0 = project3D(getPointAtS(op.x, op.y, doorDepth), cx, cy, scale);
-        const d1 = project3D(getPointAtS(op.x + op.width, op.y, doorDepth), cx, cy, scale);
-        const d2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, doorDepth), cx, cy, scale);
-        const d3 = project3D(getPointAtS(op.x, op.y + op.height, doorDepth), cx, cy, scale);
-
-        // Откосы двери
-        ctx.fillStyle = '#1c1e22';
-        ctx.beginPath();
-        ctx.moveTo(opP0.x, opP0.y);
-        ctx.lineTo(d0.x, d0.y);
-        ctx.lineTo(d3.x, d3.y);
-        ctx.lineTo(opP3.x, opP3.y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Верхний откос
-        ctx.fillStyle = '#262930';
-        ctx.beginPath();
-        ctx.moveTo(opP3.x, opP3.y);
-        ctx.lineTo(d3.x, d3.y);
-        ctx.lineTo(d2.x, d2.y);
-        ctx.lineTo(opP2.x, opP2.y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Полотно двери
-        ctx.fillStyle = '#453325';
-        ctx.strokeStyle = '#251b14';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(d0.x, d0.y);
-        ctx.lineTo(d1.x, d1.y);
-        ctx.lineTo(d2.x, d2.y);
-        ctx.lineTo(d3.x, d3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Ручка
-        const handlePos = project3D(getPointAtS(op.x + op.width - 50, op.y + 1000, doorDepth - 10), cx, cy, scale);
-        ctx.fillStyle = '#e9ecef';
-        ctx.beginPath();
-        ctx.arc(handlePos.x, handlePos.y, 4, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (op.type === 'TV_ZONE') {
+      if (op.isCutout === false) {
+        // Декор поверх плит (ТВ-зона / зеркало)
         ctx.fillStyle = '#08080a';
         ctx.strokeStyle = '#343a40';
         ctx.lineWidth = 2;
@@ -770,6 +867,303 @@ export const Axonometric3DView: React.FC = () => {
         ctx.lineTo(opP3.x, opP3.y);
         ctx.closePath();
         ctx.fill();
+        return;
+      }
+
+      // Для вырезов в плитах:
+      const slopes = ensureOpeningSlopes(op);
+      const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
+
+      const getSideDepth = (sideDepthConfig: number) => {
+        if (slopes.fitToOpeningDepth) return opDepth;
+        return slopes.depthMode === 'SAME' ? slopes.depth : sideDepthConfig;
+      };
+
+      const topD = getSideDepth(slopes.top.depth);
+      const bottomD = getSideDepth(slopes.bottom.depth);
+      const leftD = getSideDepth(slopes.left.depth);
+      const rightD = getSideDepth(slopes.right.depth);
+
+      const getSideMatColor = (sideMatId?: string | null) => {
+        const targetId =
+          slopes.materialMode === 'SAME'
+            ? slopes.materialId || selectedWall?.zone.materialId
+            : sideMatId || slopes.materialId || selectedWall?.zone.materialId;
+        const mat = project.materials.find((m) => m.id === targetId);
+        return mat?.color || '#2A2B2F';
+      };
+
+      const zWall = -panelThick - 2;
+
+      const getSideZ = (sideD: number) => {
+        if (sideD <= opDepth) {
+          return {
+            zFront: zWall,
+            zBack: Math.min(opDepth, sideD),
+            isProtruding: false,
+          };
+        } else {
+          const extra = sideD - opDepth;
+          return {
+            zFront: zWall - extra,
+            zBack: opDepth,
+            isProtruding: true,
+          };
+        }
+      };
+
+      if (slopes.enabled) {
+        // 1. Левый откос (внутренняя грань)
+        if (slopes.left.enabled && leftD > 0) {
+          const lZ = getSideZ(leftD);
+          const col = getSideMatColor(slopes.left.materialId);
+          const f0 = project3D(getPointAtS(op.x, op.y, lZ.zFront), cx, cy, scale);
+          const f3 = project3D(getPointAtS(op.x, op.y + op.height, lZ.zFront), cx, cy, scale);
+          const b0 = project3D(getPointAtS(op.x, op.y, lZ.zBack), cx, cy, scale);
+          const b3 = project3D(getPointAtS(op.x, op.y + op.height, lZ.zBack), cx, cy, scale);
+
+          ctx.fillStyle = adjustBrightness(col, 0.7);
+          ctx.beginPath();
+          ctx.moveTo(f0.x, f0.y);
+          ctx.lineTo(b0.x, b0.y);
+          ctx.lineTo(b3.x, b3.y);
+          ctx.lineTo(f3.x, f3.y);
+          ctx.closePath();
+          ctx.fill();
+
+          if (lZ.isProtruding) {
+            ctx.fillStyle = adjustBrightness(col, 0.85);
+            ctx.beginPath();
+            ctx.moveTo(opP0.x, opP0.y);
+            ctx.lineTo(opP3.x, opP3.y);
+            ctx.lineTo(f3.x, f3.y);
+            ctx.lineTo(f0.x, f0.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+
+        // 2. Верхний откос (внутренняя грань)
+        if (slopes.top.enabled && topD > 0) {
+          const tZ = getSideZ(topD);
+          const col = getSideMatColor(slopes.top.materialId);
+          const f3 = project3D(getPointAtS(op.x, op.y + op.height, tZ.zFront), cx, cy, scale);
+          const f2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, tZ.zFront), cx, cy, scale);
+          const b3 = project3D(getPointAtS(op.x, op.y + op.height, tZ.zBack), cx, cy, scale);
+          const b2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, tZ.zBack), cx, cy, scale);
+
+          ctx.fillStyle = adjustBrightness(col, 0.55);
+          ctx.beginPath();
+          ctx.moveTo(f3.x, f3.y);
+          ctx.lineTo(b3.x, b3.y);
+          ctx.lineTo(b2.x, b2.y);
+          ctx.lineTo(f2.x, f2.y);
+          ctx.closePath();
+          ctx.fill();
+
+          if (tZ.isProtruding) {
+            ctx.fillStyle = adjustBrightness(col, 1.1);
+            ctx.beginPath();
+            ctx.moveTo(opP3.x, opP3.y);
+            ctx.lineTo(opP2.x, opP2.y);
+            ctx.lineTo(f2.x, f2.y);
+            ctx.lineTo(f3.x, f3.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+
+        // 3. Правый откос (внутренняя грань)
+        if (slopes.right.enabled && rightD > 0) {
+          const rZ = getSideZ(rightD);
+          const col = getSideMatColor(slopes.right.materialId);
+          const f1 = project3D(getPointAtS(op.x + op.width, op.y, rZ.zFront), cx, cy, scale);
+          const f2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, rZ.zFront), cx, cy, scale);
+          const b1 = project3D(getPointAtS(op.x + op.width, op.y, rZ.zBack), cx, cy, scale);
+          const b2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, rZ.zBack), cx, cy, scale);
+
+          ctx.fillStyle = adjustBrightness(col, 0.75);
+          ctx.beginPath();
+          ctx.moveTo(f1.x, f1.y);
+          ctx.lineTo(b1.x, b1.y);
+          ctx.lineTo(b2.x, b2.y);
+          ctx.lineTo(f2.x, f2.y);
+          ctx.closePath();
+          ctx.fill();
+
+          if (rZ.isProtruding) {
+            ctx.fillStyle = adjustBrightness(col, 0.7);
+            ctx.beginPath();
+            ctx.moveTo(opP1.x, opP1.y);
+            ctx.lineTo(opP2.x, opP2.y);
+            ctx.lineTo(f2.x, f2.y);
+            ctx.lineTo(f1.x, f1.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+
+        // 4. Нижний откос / Подоконник
+        if (slopes.bottom.enabled && bottomD > 0) {
+          const bZ = getSideZ(bottomD);
+          const col = getSideMatColor(slopes.bottom.materialId);
+          const f0 = project3D(getPointAtS(op.x, op.y, bZ.zFront), cx, cy, scale);
+          const f1 = project3D(getPointAtS(op.x + op.width, op.y, bZ.zFront), cx, cy, scale);
+          const b0 = project3D(getPointAtS(op.x, op.y, bZ.zBack), cx, cy, scale);
+          const b1 = project3D(getPointAtS(op.x + op.width, op.y, bZ.zBack), cx, cy, scale);
+
+          // Верхняя поверхность подоконника
+          ctx.fillStyle = adjustBrightness(col, 0.9);
+          ctx.beginPath();
+          ctx.moveTo(f0.x, f0.y);
+          ctx.lineTo(b0.x, b0.y);
+          ctx.lineTo(b1.x, b1.y);
+          ctx.lineTo(f1.x, f1.y);
+          ctx.closePath();
+          ctx.fill();
+
+          // Если подоконник шире проема и выступает вперед в комнату:
+          if (bZ.isProtruding) {
+            const sillThick = 20; // толщина выступающей плиты подоконника
+            const frontThick0 = project3D(getPointAtS(op.x, op.y - sillThick, bZ.zFront), cx, cy, scale);
+            const frontThick1 = project3D(getPointAtS(op.x + op.width, op.y - sillThick, bZ.zFront), cx, cy, scale);
+            const wallThick0 = project3D(getPointAtS(op.x, op.y - sillThick, zWall), cx, cy, scale);
+            const wallThick1 = project3D(getPointAtS(op.x + op.width, op.y - sillThick, zWall), cx, cy, scale);
+
+            // Передний торец выступающего подоконника:
+            ctx.fillStyle = adjustBrightness(col, 0.85);
+            ctx.beginPath();
+            ctx.moveTo(f0.x, f0.y);
+            ctx.lineTo(f1.x, f1.y);
+            ctx.lineTo(frontThick1.x, frontThick1.y);
+            ctx.lineTo(frontThick0.x, frontThick0.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Левый боковой торец выступа подоконника:
+            ctx.fillStyle = adjustBrightness(col, 0.7);
+            ctx.beginPath();
+            ctx.moveTo(opP0.x, opP0.y);
+            ctx.lineTo(f0.x, f0.y);
+            ctx.lineTo(frontThick0.x, frontThick0.y);
+            ctx.lineTo(wallThick0.x, wallThick0.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Правый боковой торец выступа подоконника:
+            ctx.fillStyle = adjustBrightness(col, 0.65);
+            ctx.beginPath();
+            ctx.moveTo(opP1.x, opP1.y);
+            ctx.lineTo(f1.x, f1.y);
+            ctx.lineTo(frontThick1.x, frontThick1.y);
+            ctx.lineTo(wallThick1.x, wallThick1.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+
+        // LED-свечение во внутренних углах откосной коробки
+        if (slopes.jointProfileType === 'LED_10') {
+          const corner0 = project3D(getPointAtS(op.x, op.y, opDepth), cx, cy, scale);
+          const corner1 = project3D(getPointAtS(op.x + op.width, op.y, opDepth), cx, cy, scale);
+          const corner2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth), cx, cy, scale);
+          const corner3 = project3D(getPointAtS(op.x, op.y + op.height, opDepth), cx, cy, scale);
+
+          ctx.save();
+          ctx.strokeStyle = '#ffd43b';
+          ctx.shadowColor = '#ffd43b';
+          ctx.shadowBlur = 12;
+          ctx.lineWidth = 2.5;
+
+          ctx.beginPath();
+          if (slopes.left.enabled && slopes.top.enabled) {
+            ctx.moveTo(corner0.x, corner0.y);
+            ctx.lineTo(corner3.x, corner3.y);
+            ctx.lineTo(corner2.x, corner2.y);
+          }
+          if (slopes.bottom.enabled && slopes.left.enabled) {
+            ctx.moveTo(corner3.x, corner3.y);
+            ctx.lineTo(corner0.x, corner0.y);
+            ctx.lineTo(corner1.x, corner1.y);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // =========================================================================
+      // Отрисовка внутреннего заполнения проема (ПОЛОТНО/ОКНО СТОИТ НА ГЛУБИНЕ ПРОЕМА opDepth)
+      // =========================================================================
+      if (op.type === 'DOOR') {
+        const dp0 = project3D(getPointAtS(op.x + 10, op.y, opDepth), cx, cy, scale);
+        const dp1 = project3D(getPointAtS(op.x + op.width - 10, op.y, opDepth), cx, cy, scale);
+        const dp2 = project3D(getPointAtS(op.x + op.width - 10, op.y + op.height - 10, opDepth), cx, cy, scale);
+        const dp3 = project3D(getPointAtS(op.x + 10, op.y + op.height - 10, opDepth), cx, cy, scale);
+
+        ctx.fillStyle = '#453325';
+        ctx.strokeStyle = '#251b14';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(dp0.x, dp0.y);
+        ctx.lineTo(dp1.x, dp1.y);
+        ctx.lineTo(dp2.x, dp2.y);
+        ctx.lineTo(dp3.x, dp3.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Ручка
+        const handlePos = project3D(getPointAtS(op.x + op.width - 50, op.y + 1000, opDepth - 10), cx, cy, scale);
+        ctx.fillStyle = '#e9ecef';
+        ctx.beginPath();
+        ctx.arc(handlePos.x, handlePos.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (op.type === 'WINDOW') {
+        // Оконная рама со стеклопакетом на глубине opDepth
+        const wp0 = project3D(getPointAtS(op.x + 15, op.y + 15, opDepth), cx, cy, scale);
+        const wp1 = project3D(getPointAtS(op.x + op.width - 15, op.y + 15, opDepth), cx, cy, scale);
+        const wp2 = project3D(getPointAtS(op.x + op.width - 15, op.y + op.height - 15, opDepth), cx, cy, scale);
+        const wp3 = project3D(getPointAtS(op.x + 15, op.y + op.height - 15, opDepth), cx, cy, scale);
+
+        // Стеклопакет
+        ctx.fillStyle = 'rgba(165, 216, 255, 0.35)';
+        ctx.strokeStyle = '#ced4da';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wp0.x, wp0.y);
+        ctx.lineTo(wp1.x, wp1.y);
+        ctx.lineTo(wp2.x, wp2.y);
+        ctx.lineTo(wp3.x, wp3.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Вертикальный импост окна (переплет)
+        const midX = op.x + op.width / 2;
+        const imp0 = project3D(getPointAtS(midX, op.y + 15, opDepth), cx, cy, scale);
+        const imp1 = project3D(getPointAtS(midX, op.y + op.height - 15, opDepth), cx, cy, scale);
+        ctx.beginPath();
+        ctx.moveTo(imp0.x, imp0.y);
+        ctx.lineTo(imp1.x, imp1.y);
+        ctx.stroke();
+      } else if (op.type === 'NICHE') {
+        // Задняя стенка ниши на глубине opDepth
+        const np0 = project3D(getPointAtS(op.x, op.y, opDepth), cx, cy, scale);
+        const np1 = project3D(getPointAtS(op.x + op.width, op.y, opDepth), cx, cy, scale);
+        const np2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth), cx, cy, scale);
+        const np3 = project3D(getPointAtS(op.x, op.y + op.height, opDepth), cx, cy, scale);
+
+        ctx.fillStyle = '#1a1b1e';
+        ctx.strokeStyle = '#2c2e33';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(np0.x, np0.y);
+        ctx.lineTo(np1.x, np1.y);
+        ctx.lineTo(np2.x, np2.y);
+        ctx.lineTo(np3.x, np3.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
       }
     });
 
