@@ -397,11 +397,48 @@ export const CadCanvas: React.FC = () => {
                   }}
                   onDragEnd={(e) => {
                     e.cancelBubble = true;
-                    const newX = Math.round(e.target.x());
-                    const newY = Math.round(wallH - e.target.y() - op.height);
+                    let rawX = Math.round(e.target.x());
+                    let rawY = Math.round(wallH - e.target.y() - op.height);
 
-                    const clampedX = Math.max(0, Math.min(newX, wallW - op.width));
-                    const clampedY = Math.max(0, Math.min(newY, wallH - op.height));
+                    // 1. Умная привязка по высоте (Y):
+                    if (op.type === 'DOOR' || Math.abs(rawY) <= 50) {
+                      rawY = 0; // Дверь примагничивается к полу
+                    } else if (Math.abs(rawY - (wallH - op.height)) <= 30) {
+                      rawY = wallH - op.height; // Примагничивание к верхнему краю стены
+                    } else {
+                      rawY = Math.round(rawY / 10) * 10;
+                    }
+
+                    // 2. Умная привязка по горизонтали (X):
+                    const wallCenterX = Math.round((wallW - op.width) / 2);
+                    if (Math.abs(rawX - wallCenterX) <= 30) {
+                      rawX = wallCenterX; // Центр стены
+                    } else {
+                      // Проверка привязки к вертикальным стыкам сетки
+                      let snapped = false;
+                      if (layout?.joints) {
+                        for (const j of layout.joints) {
+                          if (j.orientation === 'VERTICAL') {
+                            if (Math.abs(rawX - j.x) <= 20) {
+                              rawX = j.x;
+                              snapped = true;
+                              break;
+                            }
+                            if (Math.abs(rawX + op.width - j.x) <= 20) {
+                              rawX = j.x - op.width;
+                              snapped = true;
+                              break;
+                            }
+                          }
+                        }
+                      }
+                      if (!snapped) {
+                        rawX = Math.round(rawX / 10) * 10;
+                      }
+                    }
+
+                    const clampedX = Math.max(0, Math.min(rawX, wallW - op.width));
+                    const clampedY = Math.max(0, Math.min(rawY, wallH - op.height));
 
                     e.target.position({
                       x: clampedX,
@@ -414,6 +451,7 @@ export const CadCanvas: React.FC = () => {
                       y: clampedY,
                     });
                   }}
+
                 >
                   <Rect
                     width={op.width}

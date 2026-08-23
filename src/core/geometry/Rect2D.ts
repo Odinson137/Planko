@@ -91,3 +91,26 @@ export function subtractRect(a: Rect2D, b: Rect2D): Rect2D[] {
 
   return result;
 }
+
+/**
+ * Последовательное вычитание нескольких прямоугольных вырезов из исходного прямоугольника.
+ */
+export function subtractRectangles(initialRect: Rect2D, cutouts: Rect2D[]): Rect2D[] {
+  let pieces: Rect2D[] = [{ ...initialRect }];
+
+  for (const cutout of cutouts) {
+    const nextPieces: Rect2D[] = [];
+    for (const piece of pieces) {
+      if (intersects(piece, cutout)) {
+        const sub = subtractRect(piece, cutout);
+        nextPieces.push(...sub);
+      } else {
+        nextPieces.push(piece);
+      }
+    }
+    pieces = nextPieces;
+  }
+
+  return pieces.filter((p) => p.width > 0.5 && p.height > 0.5);
+}
+

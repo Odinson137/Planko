@@ -39,11 +39,13 @@ export interface LayoutCalculationResult {
     totalPanelsNeeded: number;
     profileLinearMeters: number;
     wallAreaSqM: number;
+    grossCoveredAreaSqM: number;
     coveredAreaSqM: number;
     voidAreaSqM: number;
     cutoutsAreaSqM: number;
   };
 }
+
 
 interface Interval1D {
   start: number;
@@ -521,15 +523,35 @@ export class LayoutEngine {
 
     // Расчет площадей и расхода
     const wallAreaSqM = (wall.width * wall.height) / 1_000_000;
-    const cutoutsAreaSqM = wall.openings
-      .filter((op) => op.isCutout !== false)
-      .reduce((acc, op) => acc + (op.width * op.height) / 1_000_000, 0);
+    const cutoutOpenings = wall.openings.filter((op) => op.isCutout !== false);
+    const cutoutsAreaSqM = cutoutOpenings.reduce(
+      (acc, op) => acc + (op.width * op.height) / 1_000_000,
+      0
+    );
 
     const coveredPanels = panels.filter((p) => !p.isVoid);
-    const coveredAreaSqM = coveredPanels.reduce(
+    const grossCoveredAreaSqM = coveredPanels.reduce(
       (acc, p) => acc + (p.width * p.height) / 1_000_000,
       0
     );
+
+    // Вычисляем площадь пересечения вырезов (дверей/окон) с панелями материала
+    let cutoutsInCoveredAreaSqM = 0;
+    coveredPanels.forEach((p) => {
+      cutoutOpenings.forEach((op) => {
+        const interMinX = Math.max(p.x, op.x);
+        const interMaxX = Math.min(p.x + p.width, op.x + op.width);
+        const interMinY = Math.max(p.y, op.y);
+        const interMaxY = Math.min(p.y + p.height, op.y + op.height);
+
+        if (interMaxX > interMinX && interMaxY > interMinY) {
+          cutoutsInCoveredAreaSqM +=
+            ((interMaxX - interMinX) * (interMaxY - interMinY)) / 1_000_000;
+        }
+      });
+    });
+
+    const netCoveredAreaSqM = Math.max(0, grossCoveredAreaSqM - cutoutsInCoveredAreaSqM);
 
     const voidPanels = panels.filter((p) => p.isVoid);
     const voidAreaSqM = voidPanels.reduce(
@@ -548,10 +570,12 @@ export class LayoutEngine {
         totalPanelsNeeded: coveredPanels.length,
         profileLinearMeters: Math.round(profileLinearMeters * 10) / 10,
         wallAreaSqM: Math.round(wallAreaSqM * 100) / 100,
-        coveredAreaSqM: Math.round(coveredAreaSqM * 100) / 100,
+        grossCoveredAreaSqM: Math.round(grossCoveredAreaSqM * 100) / 100,
+        coveredAreaSqM: Math.round(netCoveredAreaSqM * 100) / 100,
         voidAreaSqM: Math.round(voidAreaSqM * 100) / 100,
         cutoutsAreaSqM: Math.round(cutoutsAreaSqM * 100) / 100,
       },
     };
   }
 }
+

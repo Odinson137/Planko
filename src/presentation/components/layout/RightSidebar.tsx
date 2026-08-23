@@ -1148,19 +1148,19 @@ export const RightSidebar: React.FC = () => {
                   <Text size="xs" fw={600}>{layoutResult.summary.wallAreaSqM} м²</Text>
                 </Group>
                 <Group justify="space-between" mb={4}>
-                  <Text size="xs" c="green.4">Площадь зашивки материалом:</Text>
+                  <Text size="xs" c="green.4">Чистая зашивка (Нетто):</Text>
                   <Text size="xs" fw={600} c="green.4">{layoutResult.summary.coveredAreaSqM} м²</Text>
                 </Group>
+                {layoutResult.summary.cutoutsAreaSqM > 0 && (
+                  <Group justify="space-between" mb={4}>
+                    <Text size="xs" c="blue.4">Площадь проемов (вырезы):</Text>
+                    <Text size="xs" fw={600} c="blue.4">{layoutResult.summary.cutoutsAreaSqM} м²</Text>
+                  </Group>
+                )}
                 {layoutResult.summary.voidAreaSqM > 0 && (
                   <Group justify="space-between" mb={4}>
                     <Text size="xs" c="gray.4">Пустое пространство:</Text>
                     <Text size="xs" fw={600} c="gray.4">{layoutResult.summary.voidAreaSqM} м²</Text>
-                  </Group>
-                )}
-                {layoutResult.summary.cutoutsAreaSqM > 0 && (
-                  <Group justify="space-between" mb={4}>
-                    <Text size="xs" c="dimmed">Площадь проемов (двери/окна):</Text>
-                    <Text size="xs" fw={600}>{layoutResult.summary.cutoutsAreaSqM} м²</Text>
                   </Group>
                 )}
                 <Divider my={4} color="#2C2E33" />
@@ -1168,10 +1168,17 @@ export const RightSidebar: React.FC = () => {
                   <Text size="xs" c="dimmed">Панелей в смете:</Text>
                   <Text size="xs" fw={600}>{layoutResult.summary.totalPanelsNeeded} шт</Text>
                 </Group>
+                {layoutResult.summary.cutoutsAreaSqM > 0 && (
+                  <Group justify="space-between" mb={4}>
+                    <Text size="xs" c="dimmed">Площадь плит (Брутто):</Text>
+                    <Text size="xs" fw={600}>{layoutResult.summary.grossCoveredAreaSqM} м²</Text>
+                  </Group>
+                )}
                 <Group justify="space-between">
                   <Text size="xs" c="dimmed">Погонаж профилей (В+Г):</Text>
                   <Text size="xs" fw={600} c="yellow.4">{layoutResult.summary.profileLinearMeters} пог. м</Text>
                 </Group>
+
               </Paper>
             </Stack>
           )}
