@@ -41,7 +41,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showGrid: true,
   showDimensions: true,
   showProfiles: true,
-  showTextures: true,
+  showTextures: false,
 
   setActiveTool: (tool: ActiveTool) => set({ activeTool: tool }),
   setViewMode: (viewMode: ViewMode) => set({ viewMode }),

@@ -279,7 +279,8 @@ export const CadCanvas: React.FC = () => {
                       <Line
                         points={polyLinePoints}
                         closed
-                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (panel.materialColor || '#d6cbbe')}
+                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (patternCanvas ? undefined : (panel.materialColor || '#d6cbbe'))}
+                        fillPriority={patternCanvas ? 'pattern' : 'color'}
                         fillPatternImage={isVoid || !patternCanvas ? undefined : (patternCanvas as any)}
                         fillPatternX={patternCanvas ? panelX : undefined}
                         fillPatternY={patternCanvas ? panelY : undefined}
@@ -291,7 +292,7 @@ export const CadCanvas: React.FC = () => {
                               }
                             : undefined
                         }
-                        fillPatternRepeat={patternCanvas ? 'repeat' : undefined}
+                        fillPatternRepeat="repeat"
                         opacity={isVoid ? 0.75 : 0.98}
                       />
                     ) : (
@@ -300,7 +301,8 @@ export const CadCanvas: React.FC = () => {
                         y={panelY}
                         width={panel.width}
                         height={panel.height}
-                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (panel.materialColor || '#d6cbbe')}
+                        fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (patternCanvas ? undefined : (panel.materialColor || '#d6cbbe'))}
+                        fillPriority={patternCanvas ? 'pattern' : 'color'}
                         fillPatternImage={isVoid || !patternCanvas ? undefined : (patternCanvas as any)}
                         fillPatternScale={
                           patternCanvas
@@ -310,7 +312,7 @@ export const CadCanvas: React.FC = () => {
                               }
                             : undefined
                         }
-                        fillPatternRepeat={patternCanvas ? 'no-repeat' : undefined}
+                        fillPatternRepeat="no-repeat"
                         opacity={isVoid ? 0.75 : 0.98}
                       />
                     )}
