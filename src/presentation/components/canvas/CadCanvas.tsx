@@ -5,6 +5,7 @@ import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { Opening } from '../../../core/models/Opening';
+import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 
 const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
 const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
@@ -211,6 +212,14 @@ export const CadCanvas: React.FC = () => {
 
               const isVoid = panel.isVoid;
               const isSlat = panel.materialType === 'SLAT';
+              const patternCanvas = !isVoid
+                ? TextureRegistry.getPatternCanvas(
+                    panel.textureCategory || 'WOOD',
+                    panel.materialColor || '#d6cbbe',
+                    (panel.reliefType as any) || 'FLAT',
+                    panel.decorCode
+                  )
+                : null;
 
               return (
                 <Group
@@ -225,7 +234,9 @@ export const CadCanvas: React.FC = () => {
                     y={panelY}
                     width={panel.width}
                     height={panel.height}
-                    fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : (panel.materialColor || '#d6cbbe')}
+                    fill={isVoid ? 'rgba(24, 25, 29, 0.7)' : undefined}
+                    fillPatternImage={isVoid ? undefined : (patternCanvas as any)}
+                    fillPatternRepeat="repeat"
                     stroke={
                       isPanelSelected
                         ? '#40C057'
@@ -233,7 +244,7 @@ export const CadCanvas: React.FC = () => {
                     }
                     strokeWidth={isPanelSelected ? 3 / zoom : 1}
                     dash={isVoid ? [12, 8] : undefined}
-                    opacity={isVoid ? 0.75 : 0.96}
+                    opacity={isVoid ? 0.75 : 0.98}
                   />
 
                   {/* Рельефная светотень для рейки-волны (GW90) */}
