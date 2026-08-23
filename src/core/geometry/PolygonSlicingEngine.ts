@@ -138,7 +138,73 @@ export class PolygonSlicingEngine {
   }
 
   /**
-   * Рассечение многоугольника бесконечной прямой, проходящей через p1 и p2.
+   * Проверка нахождения точки внутри многоугольника (Ray casting)
+   */
+  public static isPointInPolygon(pt: Point2D, polygon: Point2D[]): boolean {
+    if (!polygon || polygon.length < 3) return false;
+    let inside = false;
+    const n = polygon.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = polygon[i].x;
+      const yi = polygon[i].y;
+      const xj = polygon[j].x;
+      const yj = polygon[j].y;
+      const intersect =
+        yi > pt.y !== yj > pt.y &&
+        pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi + 1e-12) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  /**
+   * Проверяет, пересекает ли конечный отрезок p1-p2 данный многоугольник
+   */
+  public static doesSegmentCrossPolygon(polygon: Point2D[], p1: Point2D, p2: Point2D): boolean {
+    if (!polygon || polygon.length < 3) return false;
+
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-4) return false;
+
+    const vx = dx / len;
+    const vy = dy / len;
+
+    // Небольшой запас 2 мм на концах отрезка для гарантированного пересечения примагниченных границ
+    const eps = 2.0;
+    const e1: Point2D = { x: p1.x - vx * eps, y: p1.y - vy * eps };
+    const e2: Point2D = { x: p2.x + vx * eps, y: p2.y + vy * eps };
+
+    let interCount = 0;
+    const n = polygon.length;
+
+    for (let i = 0; i < n; i++) {
+      const a = polygon[i];
+      const b = polygon[(i + 1) % n];
+      const inter = this.lineIntersection(e1, e2, a, b);
+      if (inter) {
+        interCount++;
+      }
+    }
+
+    if (interCount >= 2) return true;
+
+    // Также проверяем, находится ли середина отрезка внутри полигона
+    const mid: Point2D = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    if (this.isPointInPolygon(mid, polygon)) {
+      return true;
+    }
+
+    if (interCount >= 1 && (this.isPointInPolygon(p1, polygon) || this.isPointInPolygon(p2, polygon))) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Рассечение многоугольника конечным отрезком ножа p1-p2.
    */
   public static splitPolygonByLine(
     polygon: Point2D[],
@@ -147,6 +213,11 @@ export class PolygonSlicingEngine {
     seamGap: number = 0
   ): { pieceA: Point2D[]; pieceB: Point2D[] } | null {
     if (!polygon || polygon.length < 3) return null;
+
+    // Проверяем, пересекает ли данный отрезок ножа этот конкретный полигон
+    if (!this.doesSegmentCrossPolygon(polygon, p1, p2)) {
+      return null;
+    }
 
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;

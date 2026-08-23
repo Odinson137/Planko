@@ -6,6 +6,9 @@ import {
   Stack,
   Text,
   Box,
+  Paper,
+  Badge,
+  NumberInput,
 } from '@mantine/core';
 import {
   Scissors,
@@ -20,7 +23,6 @@ import {
   PolygonSubPiece,
   SnapResult,
 } from '../../../core/geometry/PolygonSlicingEngine';
-import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 
 export const PanelSlicingModal: React.FC = () => {
@@ -28,6 +30,7 @@ export const PanelSlicingModal: React.FC = () => {
     project,
     isSlicingModalOpen,
     slicingTarget,
+    selectedSubPieceId,
     closeSlicingModal,
     applyPanelSlicingResult,
   } = useProjectStore();
@@ -69,6 +72,13 @@ export const PanelSlicingModal: React.FC = () => {
   const [currentMouse, setCurrentMouse] = useState<Point2D | null>(null);
   const [activeSnap, setActiveSnap] = useState<SnapResult | null>(null);
 
+  // Точные координаты ножа для ручного ввода
+  const [inputP1X, setInputP1X] = useState<number>(0);
+  const [inputP1Y, setInputP1Y] = useState<number>(0);
+  const [inputP2X, setInputP2X] = useState<number>(0);
+  const [inputP2Y, setInputP2Y] = useState<number>(0);
+  const [manualEdgeOffset, setManualEdgeOffset] = useState<number | ''>('');
+
   const currentWall = project.walls.find((w) => w.id === slicingTarget?.wallId);
   const colIdx = slicingTarget?.columnIndex ?? 0;
   const segIdx = slicingTarget?.segmentIndex ?? 0;
@@ -81,15 +91,6 @@ export const PanelSlicingModal: React.FC = () => {
     project.materials.find((m) => m.id === MATERIAL_NONE_ID) ||
     project.materials[0];
 
-  // Рассчитываем точные физические размеры выбранного элемента на стене
-  const layoutResult = currentWall
-    ? LayoutEngine.calculateWallLayout(currentWall, defaultMaterial, project.materials)
-    : null;
-
-  const actualPiece = layoutResult?.panels.find(
-    (p) => p.originalColumnIndex === colIdx && p.originalSegmentIndex === segIdx
-  );
-
   const panelMaterial =
     (customSeg?.customMaterialId &&
       project.materials.find((m) => m.id === customSeg.customMaterialId)) ||
@@ -99,13 +100,12 @@ export const PanelSlicingModal: React.FC = () => {
 
   const isPanelVoid = panelMaterial.isVoid || panelMaterial.id === MATERIAL_NONE_ID;
 
+  // Точные размеры ячейки/колонки стены
   const panelWidth = Math.round(
-    actualPiece ? actualPiece.width : (customCol?.customWidth ?? 1220)
+    customCol?.customWidth ?? (currentWall ? (defaultMaterial.isVoid ? currentWall.width : defaultMaterial.width) : 1220)
   );
   const panelHeight = Math.round(
-    actualPiece
-      ? actualPiece.height
-      : (customSeg?.height ?? (currentWall ? currentWall.height : 2800))
+    customSeg?.height ?? (currentWall ? currentWall.height : 2800)
   );
 
   // Инициализация при открытии модального окна
@@ -311,8 +311,9 @@ export const PanelSlicingModal: React.FC = () => {
       ctx.fill();
 
       // Чертёжный контур
-      ctx.strokeStyle = cadColor.stroke;
-      ctx.lineWidth = 2.5;
+      const isSelectedPiece = Boolean(selectedSubPieceId && piece.id === selectedSubPieceId);
+      ctx.strokeStyle = isSelectedPiece ? '#ffd43b' : cadColor.stroke;
+      ctx.lineWidth = isSelectedPiece ? 4.0 : 2.5;
       ctx.stroke();
       ctx.restore();
 
@@ -345,7 +346,7 @@ export const PanelSlicingModal: React.FC = () => {
           ctx.fillStyle = 'rgba(15, 17, 21, 0.85)';
           ctx.fillRect(-textW / 2 - 3, -8, textW + 6, 16);
 
-          ctx.fillStyle = '#ced4da';
+          ctx.fillStyle = isSelectedPiece ? '#ffe066' : '#ced4da';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(dimText, 0, 0);
@@ -356,18 +357,20 @@ export const PanelSlicingModal: React.FC = () => {
       // Центроид и технический бейдж детали
       const centroid = PolygonSlicingEngine.calculateCentroid(piece.points);
       const cCanvas = toCanvas(centroid);
-      const labelText = `[${piece.partLabel || `#${pIdx + 1}`}]  ${piece.areaSqM || 0} м²`;
+      const labelText = isSelectedPiece
+        ? `⭐ [${piece.partLabel || `#${pIdx + 1}`}]  ${piece.areaSqM || 0} м² (ВЫБРАНА)`
+        : `[${piece.partLabel || `#${pIdx + 1}`}]  ${piece.areaSqM || 0} м²`;
 
       ctx.font = '700 11px JetBrains Mono, monospace';
       const badgeW = ctx.measureText(labelText).width;
-      ctx.fillStyle = 'rgba(15, 17, 21, 0.9)';
+      ctx.fillStyle = isSelectedPiece ? 'rgba(30, 26, 10, 0.95)' : 'rgba(15, 17, 21, 0.9)';
       ctx.fillRect(cCanvas.x - badgeW / 2 - 8, cCanvas.y - 12, badgeW + 16, 24);
 
-      ctx.strokeStyle = cadColor.stroke;
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = isSelectedPiece ? '#ffd43b' : cadColor.stroke;
+      ctx.lineWidth = isSelectedPiece ? 2.0 : 1.5;
       ctx.strokeRect(cCanvas.x - badgeW / 2 - 8, cCanvas.y - 12, badgeW + 16, 24);
 
-      ctx.fillStyle = cadColor.text;
+      ctx.fillStyle = isSelectedPiece ? '#ffd43b' : cadColor.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(labelText, cCanvas.x, cCanvas.y);
@@ -619,6 +622,18 @@ export const PanelSlicingModal: React.FC = () => {
 
     setActiveSnap(snap);
     setCurrentMouse(snap.point);
+
+    if (!drawingStart) {
+      setInputP1X(Math.round(snap.point.x));
+      setInputP1Y(Math.round(snap.point.y));
+    } else {
+      setInputP2X(Math.round(snap.point.x));
+      setInputP2Y(Math.round(snap.point.y));
+    }
+
+    if (snap.edgeSegment) {
+      setManualEdgeOffset(snap.edgeSegment.dist1);
+    }
   };
 
   // Обработчик клика ножом
@@ -628,11 +643,51 @@ export const PanelSlicingModal: React.FC = () => {
 
     if (!drawingStart) {
       setDrawingStart(currentMouse);
+      setInputP1X(Math.round(currentMouse.x));
+      setInputP1Y(Math.round(currentMouse.y));
     } else {
       if (Math.hypot(currentMouse.x - drawingStart.x, currentMouse.y - drawingStart.y) > 15) {
         applyCutLineToPieces(drawingStart, currentMouse, 0);
       }
       setDrawingStart(null);
+    }
+  };
+
+  // Ручная установка точного отступа от угла/грани
+  const handleSetManualOffset = (dist: number) => {
+    setManualEdgeOffset(dist);
+    if (activeSnap && activeSnap.edgeSegment) {
+      const { p1, p2 } = activeSnap.edgeSegment;
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 1e-4) {
+        const factor = Math.max(0, Math.min(len, dist)) / len;
+        const newPt: Point2D = {
+          x: Math.round(p1.x + dx * factor),
+          y: Math.round(p1.y + dy * factor),
+        };
+        setCurrentMouse(newPt);
+        if (!drawingStart) {
+          setInputP1X(newPt.x);
+          setInputP1Y(newPt.y);
+        } else {
+          setInputP2X(newPt.x);
+          setInputP2Y(newPt.y);
+        }
+      }
+    }
+  };
+
+  // Применение точного разреза по введенным координатам
+  const handleExecuteExactCut = () => {
+    const p1: Point2D = { x: inputP1X, y: inputP1Y };
+    const p2: Point2D = { x: inputP2X, y: inputP2Y };
+    if (Math.hypot(p2.x - p1.x, p2.y - p1.y) > 10) {
+      applyCutLineToPieces(p1, p2, 0);
+      setDrawingStart(null);
+      setCurrentMouse(null);
+      setActiveSnap(null);
     }
   };
 
@@ -652,7 +707,7 @@ export const PanelSlicingModal: React.FC = () => {
                 ЧЕРТЕЖ РАСКРОЯ: {panelWidth} × {panelHeight} мм
               </Text>
               <Text size="xs" c="dimmed">
-                Ячейка К#{colIdx + 1} Р#{segIdx + 1} • Деталей: {pieces.length} шт. • Проведите линию ножом для любого разреза
+                Ячейка К#{colIdx + 1} Р#{segIdx + 1} • Деталей: {pieces.length} шт. • Проведите линию ножом или задайте точные размеры ниже
               </Text>
             </div>
           </Group>
@@ -695,7 +750,7 @@ export const PanelSlicingModal: React.FC = () => {
         <Box
           ref={containerRef}
           style={{
-            height: '68vh',
+            height: '63vh',
             backgroundColor: '#0f1115',
             borderRadius: 8,
             overflow: 'hidden',
@@ -716,6 +771,92 @@ export const PanelSlicingModal: React.FC = () => {
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
         </Box>
+
+        {/* ПАНЕЛЬ ТОЧНОГО ВВОДА РАЗМЕРОВ И ОТСТУПОВ (CAD Precision Toolbar) */}
+        <Paper p="xs" withBorder style={{ backgroundColor: '#141517', borderColor: '#2C2E33' }}>
+          <Group justify="space-between" align="center" wrap="wrap">
+            <Group gap="sm" align="center">
+              <Text size="xs" fw={700} c="dimmed">
+                📏 ТОЧНЫЕ КООРДИНАТЫ РЕЗА:
+              </Text>
+              <Group gap={4} align="center">
+                <Text size="xs" c="gray">X₁:</Text>
+                <NumberInput
+                  size="xs"
+                  w={85}
+                  min={0}
+                  max={panelWidth}
+                  value={inputP1X}
+                  onChange={(val) => setInputP1X(Number(val) || 0)}
+                  placeholder="0"
+                />
+                <Text size="xs" c="gray">Y₁:</Text>
+                <NumberInput
+                  size="xs"
+                  w={85}
+                  min={0}
+                  max={panelHeight}
+                  value={inputP1Y}
+                  onChange={(val) => setInputP1Y(Number(val) || 0)}
+                  placeholder="0"
+                />
+              </Group>
+
+              <Text size="xs" c="gray">→</Text>
+
+              <Group gap={4} align="center">
+                <Text size="xs" c="gray">X₂:</Text>
+                <NumberInput
+                  size="xs"
+                  w={85}
+                  min={0}
+                  max={panelWidth}
+                  value={inputP2X}
+                  onChange={(val) => setInputP2X(Number(val) || 0)}
+                  placeholder="0"
+                />
+                <Text size="xs" c="gray">Y₂:</Text>
+                <NumberInput
+                  size="xs"
+                  w={85}
+                  min={0}
+                  max={panelHeight}
+                  value={inputP2Y}
+                  onChange={(val) => setInputP2Y(Number(val) || 0)}
+                  placeholder="0"
+                />
+              </Group>
+
+              <Button
+                size="xs"
+                variant="light"
+                color="blue"
+                leftSection={<Scissors size={13} />}
+                onClick={handleExecuteExactCut}
+              >
+                Выполнить разрез
+              </Button>
+            </Group>
+
+            {/* Активный отступ от примагниченной грани */}
+            {activeSnap && activeSnap.edgeSegment && (
+              <Group gap="xs" align="center">
+                <Badge color="teal" size="sm" variant="light">
+                  🧲 Отступ: {activeSnap.edgeSegment.dist1} мм / {activeSnap.edgeSegment.dist2} мм
+                </Badge>
+                <NumberInput
+                  size="xs"
+                  w={120}
+                  min={0}
+                  value={manualEdgeOffset}
+                  onChange={(val) => handleSetManualOffset(Number(val) || 0)}
+                  placeholder="Отступ (мм)"
+                  rightSection={<Text size="xs" c="dimmed">мм</Text>}
+                />
+              </Group>
+            )}
+          </Group>
+        </Paper>
       </Stack>
     </Modal>
   );
