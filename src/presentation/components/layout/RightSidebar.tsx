@@ -75,7 +75,6 @@ export const RightSidebar: React.FC = () => {
     splitPanelHorizontally,
     splitColumnVertically,
     resetPanelConfig,
-    setPanelRadiusConfig,
   } = useProjectStore();
 
   const selectedWallId = project.selectedWallId;
@@ -1156,123 +1155,13 @@ export const RightSidebar: React.FC = () => {
               </Paper>
             )}
 
-            {/* НАСТРОЙКА ФОРМЫ (ПЛОСКАЯ / РАДИУСНАЯ) */}
-            {(() => {
-              const radiusConfig = selectedCustomPanel?.radiusConfig;
-              const isRadius = Boolean(radiusConfig);
 
-              return (
-                <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: isRadius ? '#228be6' : '#2C2E33' }}>
-                  <Stack gap="xs">
-                    <Group justify="space-between">
-                      <div>
-                        <Text size="xs" fw={600} c={isRadius ? 'blue.4' : 'dimmed'}>
-                          Индивидуальная форма колонки:
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          {isRadius ? 'Радиусный элемент' : 'По умолчанию'}
-                        </Text>
-                      </div>
-                      <SegmentedControl
-                        size="xs"
-                        value={isRadius ? 'RADIUS' : 'FLAT'}
-                        onChange={(val) => {
-                          if (val === 'RADIUS') {
-                            setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
-                              type: 'OUTER_CORNER',
-                              radius: 300,
-                              angleDeg: 90,
-                            });
-                          } else {
-                            setPanelRadiusConfig(currentWall.id, selectedColumnIndex, undefined);
-                          }
-                        }}
-                        data={[
-                          { label: '█ Плоская', value: 'FLAT' },
-                          { label: '⌒ Радиус', value: 'RADIUS' },
-                        ]}
-                      />
-                    </Group>
-
-                    {isRadius && radiusConfig && (
-                      <>
-                        <Divider color="#2C2E33" />
-
-                        <div>
-                          <Text size="xs" mb={4} c="dimmed">
-                            Тип криволинейности:
-                          </Text>
-                          <SegmentedControl
-                            size="xs"
-                            fullWidth
-                            value={radiusConfig.type}
-                            onChange={(val: any) =>
-                              setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
-                                ...radiusConfig,
-                                type: val,
-                                angleDeg: val === 'ARCH_VAULT' ? (radiusConfig.angleDeg ?? 180) : (radiusConfig.angleDeg ?? 90),
-                              })
-                            }
-                            data={[
-                              { label: '⌒ Внешний', value: 'OUTER_CORNER' },
-                              { label: '╭ Внутр', value: 'INNER_CORNER' },
-                              { label: '🏛️ Свод', value: 'ARCH_VAULT' },
-                            ]}
-                          />
-                        </div>
-
-                        <Group grow>
-                          <NumberInput
-                            size="xs"
-                            label="Радиус R (мм)"
-                            description="Радиус скругления"
-                            value={radiusConfig.radius}
-                            clampBehavior="blur"
-                            allowNegative={false}
-                            allowDecimal={false}
-                            min={50}
-                            max={5000}
-                            step={50}
-                            onChange={(val) =>
-                              setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
-                                ...radiusConfig,
-                                radius: typeof val === 'number' ? Math.max(10, val) : 300,
-                              })
-                            }
-                          />
-                          <NumberInput
-                            size="xs"
-                            label="Угол охвата (°)"
-                            description="Градусы дуги"
-                            value={radiusConfig.angleDeg ?? (radiusConfig.type === 'ARCH_VAULT' ? 180 : 90)}
-                            clampBehavior="blur"
-                            allowNegative={false}
-                            allowDecimal={false}
-                            min={10}
-                            max={360}
-                            step={15}
-                            onChange={(val) =>
-                              setPanelRadiusConfig(currentWall.id, selectedColumnIndex, {
-                                ...radiusConfig,
-                                angleDeg: typeof val === 'number' ? Math.max(1, val) : 90,
-                              })
-                            }
-                          />
-                        </Group>
-                      </>
-                    )}
-                  </Stack>
-                </Paper>
-              );
-            })()}
 
             {/* Размеры выбранной ячейки */}
             <Group grow>
               <NumberInput
                 size="xs"
                 label="Ширина (мм)"
-                description={selectedCustomPanel?.radiusConfig ? "Авторасчет по радиусу" : undefined}
-                disabled={Boolean(selectedCustomPanel?.radiusConfig)}
                 value={selectedPanelWidth || ''}
                 clampBehavior="blur"
                 allowNegative={false}
