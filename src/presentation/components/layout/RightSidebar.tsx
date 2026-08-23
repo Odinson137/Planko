@@ -12,6 +12,7 @@ import {
   Paper,
   Group,
   ColorSwatch,
+  ColorInput,
   Badge,
   Button,
   ActionIcon,
@@ -1397,6 +1398,40 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </div>
 
+            {/* Назначить цвет всем выбранным элементам */}
+            <div>
+              <Text size="xs" mb={4} fw={600} c="dimmed">
+                Назначить цвет всем выбранным:
+              </Text>
+              <Group gap={6} style={{ flexWrap: 'wrap' }}>
+                {[
+                  '#ffffff', '#f1f3f5', '#d4c8b8', '#ad9c88', '#8c8b87',
+                  '#52504d', '#212529', '#a0784a', '#684a32', '#3e322b',
+                  '#3b5bdb', '#1971c2', '#099268', '#e67700', '#c92a2a'
+                ].map((col) => (
+                  <Tooltip key={col} label={col}>
+                    <div
+                      onClick={() => {
+                        selectedCellKeys.forEach((key) => {
+                          const [cIdx, sIdx] = key.split('-').map(Number);
+                          setCellProperties(currentWall.id, cIdx, sIdx, { customColor: col });
+                        });
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        padding: 2,
+                        borderRadius: '50%',
+                        border: '2px solid transparent',
+                        transition: 'transform 0.15s ease',
+                      }}
+                    >
+                      <ColorSwatch color={col} size={18} />
+                    </div>
+                  </Tooltip>
+                ))}
+              </Group>
+            </div>
+
             <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
               <Text size="xs" c="dimmed">
                 💡 Вы можете объединять соседние вертикальные сегменты или соседние колонки в одну цельную плиту без лишних швов.
@@ -1780,6 +1815,28 @@ export const RightSidebar: React.FC = () => {
                           </Group>
                         </div>
                       )}
+
+                      {/* Сплошной цвет элемента (ColorInput) */}
+                      <ColorInput
+                        size="xs"
+                        label="Цвет элемента (сплошная заливка):"
+                        placeholder="#RRGGBB"
+                        value={effectiveColor}
+                        onChange={(color) => {
+                          setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            customColor: color,
+                          });
+                        }}
+                        swatches={[
+                          '#ffffff', '#f1f3f5', '#d4c8b8', '#ad9c88', '#8c8b87',
+                          '#52504d', '#212529', '#a0784a', '#684a32', '#3e322b',
+                          '#3b5bdb', '#1971c2', '#099268', '#e67700', '#c92a2a',
+                        ]}
+                        styles={{
+                          input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' },
+                          dropdown: { backgroundColor: '#141517', borderColor: '#2C2E33' },
+                        }}
+                      />
                     </>
                   )}
                 </Stack>
