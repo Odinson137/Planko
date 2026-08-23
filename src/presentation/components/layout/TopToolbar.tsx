@@ -23,6 +23,7 @@ import {
   Grid,
   Ruler,
   Layers,
+  Palette,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
@@ -43,6 +44,8 @@ export const TopToolbar: React.FC = () => {
     toggleGrid,
     showDimensions,
     toggleDimensions,
+    showTextures,
+    toggleTextures,
   } = useEditorStore();
 
   const { project, addOpening, addWallBend } = useProjectStore();
@@ -216,6 +219,16 @@ export const TopToolbar: React.FC = () => {
               onClick={toggleDimensions}
             >
               <Ruler size={16} />
+            </ActionIcon>
+          </Tooltip>
+
+          <Tooltip label={showTextures ? 'Текстуры материалов (ВКЛ)' : 'Текстуры материалов (ВЫКЛ / Сплошной цвет)'} position="bottom">
+            <ActionIcon
+              variant={showTextures ? 'light' : 'subtle'}
+              color={showTextures ? 'blue' : 'gray'}
+              onClick={toggleTextures}
+            >
+              <Palette size={16} />
             </ActionIcon>
           </Tooltip>
 

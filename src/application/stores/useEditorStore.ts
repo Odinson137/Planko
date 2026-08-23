@@ -15,6 +15,7 @@ interface EditorState {
   showGrid: boolean;
   showDimensions: boolean;
   showProfiles: boolean;
+  showTextures: boolean;
 
   setActiveTool: (tool: ActiveTool) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -26,6 +27,7 @@ interface EditorState {
   toggleGrid: () => void;
   toggleDimensions: () => void;
   toggleProfiles: () => void;
+  toggleTextures: () => void;
   resetView: () => void;
 }
 
@@ -39,6 +41,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showGrid: true,
   showDimensions: true,
   showProfiles: true,
+  showTextures: true,
 
   setActiveTool: (tool: ActiveTool) => set({ activeTool: tool }),
   setViewMode: (viewMode: ViewMode) => set({ viewMode }),
@@ -50,5 +53,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
   toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
   toggleProfiles: () => set((state) => ({ showProfiles: !state.showProfiles })),
+  toggleTextures: () => set((state) => ({ showTextures: !state.showTextures })),
   resetView: () => set({ zoom: 1, panX: 0, panY: 0 }),
 }));

@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack } from '@mantine/core';
 import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
+import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { RadiusType } from '../../../core/models/Wall';
@@ -30,6 +31,7 @@ export const Axonometric3DView: React.FC = () => {
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const { project } = useProjectStore();
+  const { showTextures } = useEditorStore();
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
   const selectedMaterial = project.materials.find(
     (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
@@ -713,7 +715,9 @@ export const Axonometric3DView: React.FC = () => {
               ctx.fill();
               ctx.stroke();
 
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+              if (showTextures) {
+                draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+              }
             }
           }
         }
@@ -748,7 +752,7 @@ export const Axonometric3DView: React.FC = () => {
           ctx.fill();
           ctx.stroke();
 
-          if (!isVoid) {
+          if (!isVoid && showTextures) {
             draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
           }
 
@@ -835,7 +839,7 @@ export const Axonometric3DView: React.FC = () => {
           ctx.fill();
           ctx.stroke();
 
-          if (!isVoid) {
+          if (!isVoid && showTextures) {
             draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
           }
 

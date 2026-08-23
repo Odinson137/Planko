@@ -40,6 +40,7 @@ export const CadCanvas: React.FC = () => {
     showGrid,
     showDimensions,
     showProfiles,
+    showTextures,
     activeTool,
     editMode,
   } = useEditorStore();
@@ -224,7 +225,7 @@ export const CadCanvas: React.FC = () => {
 
               const isVoid = panel.isVoid;
               const isSlat = panel.materialType === 'SLAT';
-              const patternCanvas = !isVoid
+              const patternCanvas = !isVoid && showTextures
                 ? TextureRegistry.getPatternCanvasWithTransform(
                     panel.textureCategory || 'WOOD',
                     panel.materialColor || '#d6cbbe',
