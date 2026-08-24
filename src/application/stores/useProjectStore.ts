@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
-import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend } from '../../core/models/Wall';
+import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
@@ -41,7 +41,7 @@ interface ProjectState {
   selectedWallBendId: string | null;
   selectedSubPieceId: string | null;
   isSlicingModalOpen: boolean;
-  slicingTarget: { wallId: string; columnIndex: number; segmentIndex?: number | null } | null;
+  slicingTarget: { wallId: string; columnIndex: number; segmentIndex?: number | null; panelId?: string | null } | null;
   isDirty?: boolean;
   lastSavedAt?: string | null;
 
@@ -55,7 +55,7 @@ interface ProjectState {
     subPieceId?: string | null
   ) => void;
   selectSubPiece: (subPieceId: string | null) => void;
-  openSlicingModal: (wallId: string, columnIndex: number, segmentIndex?: number | null) => void;
+  openSlicingModal: (wallId: string, columnIndex: number, segmentIndex?: number | null, panelId?: string | null) => void;
   closeSlicingModal: () => void;
   toggleCellSelection: (panelId: string, columnIndex: number, segmentIndex: number, isShift: boolean) => void;
   selectJoint: (jointId: string | null, isShift?: boolean) => void;
@@ -126,7 +126,7 @@ interface ProjectState {
   splitPanelHorizontally: (wallId: string, columnIndex: number, segmentIndex: number, firstHeight: number) => void;
   splitColumnVertically: (wallId: string, columnIndex: number, firstWidth: number) => void;
   splitPanelDiagonally: (wallId: string, columnIndex: number, segmentIndex: number | null, direction: 'BL_TR' | 'TL_BR') => void;
-  applyPanelSlicingResult: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieces: PolygonSubPiece[]) => void;
+  applyPanelSlicingResult: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieces: PolygonSubPiece[], panelId?: string | null) => void;
   setPiecePatternAngle: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string | null, angleDeg: number, flipX?: boolean) => void;
   setSubPieceMaterial: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, materialId: string, decorCode?: string, decorName?: string, color?: string) => void;
   deleteSubPiece: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string) => void;
@@ -144,133 +144,11 @@ interface ProjectState {
   // Управление проемами
   addOpening: (wallId: string, type: OpeningType) => void;
   updateOpening: (wallId: string, opening: Partial<Opening> & { id: string }) => void;
+  applyOpening: (wallId: string, openingId: string) => void;
   removeOpening: (wallId: string, openingId: string) => void;
 }
 
-/**
- * Автоматически разделяет широкую колонку (или пустоту) на отдельные панели заданной ширины материала (например, 3000 -> 3 по 1000, 1000 -> 10 по 100)
- */
-function splitColumnIntoPieces(
-  customPanels: Record<number, CustomPanelConfig>,
-  customJoints: Record<string, JointEdgeConfig>,
-  columnIndex: number,
-  columnWidth: number,
-  targetMaterial: Material,
-  decorCode?: string,
-  customColor?: string,
-  customTextureCategory?: string,
-  customReliefType?: SlatProfileShape,
-  jointGap: number = 8
-): {
-  customPanels: Record<number, CustomPanelConfig>;
-  customJoints: Record<string, JointEdgeConfig>;
-} {
-  const stepWidth = targetMaterial.width;
-  if (!stepWidth || stepWidth <= 0 || columnWidth <= stepWidth + 5) {
-    const resultPanels = { ...customPanels };
-    resultPanels[columnIndex] = {
-      ...(customPanels[columnIndex] || { columnIndex }),
-      customMaterialId: targetMaterial.id,
-      customWidth: columnWidth,
-      customThickness: targetMaterial.thickness,
-      customColor: customColor || targetMaterial.color,
-      customDecorCode: decorCode || targetMaterial.decorCode,
-      customTextureCategory: customTextureCategory || targetMaterial.textureCategory,
-      customReliefType: customReliefType || targetMaterial.reliefType,
-    };
-    return {
-      customPanels: resultPanels,
-      customJoints,
-    };
-  }
 
-  // 1. Рассчитываем количество и ширины нарезанных панелей
-  const pieceWidths: number[] = [];
-  let remainingW = columnWidth;
-
-  while (remainingW > 0.5) {
-    const w = Math.min(stepWidth, remainingW);
-    pieceWidths.push(Math.round(w));
-    remainingW -= w;
-    if (remainingW > 0) {
-      remainingW -= jointGap;
-    }
-  }
-
-  if (pieceWidths.length <= 1) {
-    pieceWidths.length = 0;
-    pieceWidths.push(columnWidth);
-  }
-
-  const numNew = pieceWidths.length;
-  const numAdded = numNew - 1;
-
-  const resultPanels: Record<number, CustomPanelConfig> = {};
-  const resultJoints: Record<string, JointEdgeConfig> = {};
-
-  // 2. Копируем колонки до columnIndex и сдвигаем колонки после columnIndex
-  Object.entries(customPanels).forEach(([kStr, conf]) => {
-    const k = Number(kStr);
-    if (k < columnIndex) {
-      resultPanels[k] = { ...conf, columnIndex: k };
-    } else if (k > columnIndex) {
-      resultPanels[k + numAdded] = {
-        ...conf,
-        columnIndex: k + numAdded,
-      };
-    }
-  });
-
-  // 3. Добавляем новые нарезанные панели
-  pieceWidths.forEach((w, idx) => {
-    const targetIdx = columnIndex + idx;
-    resultPanels[targetIdx] = {
-      columnIndex: targetIdx,
-      customWidth: w,
-      customMaterialId: targetMaterial.id,
-      customThickness: targetMaterial.thickness,
-      customColor: customColor || targetMaterial.color,
-      customDecorCode: decorCode || targetMaterial.decorCode,
-      customTextureCategory: customTextureCategory || targetMaterial.textureCategory,
-      customReliefType: customReliefType || targetMaterial.reliefType,
-      segments: [],
-    };
-  });
-
-  // 4. Сдвигаем вертикальные стыки
-  Object.entries(customJoints).forEach(([jKey, jConfig]) => {
-    if (jKey.startsWith('edge-v-') && !jKey.includes('left') && !jKey.includes('right') && !jKey.includes('end')) {
-      const cIdx = Number(jKey.replace('edge-v-', ''));
-      if (!isNaN(cIdx)) {
-        if (cIdx < columnIndex) {
-          resultJoints[jKey] = jConfig;
-        } else if (cIdx > columnIndex) {
-          const newKey = `edge-v-${cIdx + numAdded}`;
-          resultJoints[newKey] = {
-            ...jConfig,
-            id: newKey,
-          };
-        }
-        return;
-      }
-    }
-    resultJoints[jKey] = jConfig;
-  });
-
-  // 5. Создаем швы между новыми нарезанными колонками
-  for (let idx = 0; idx < numAdded; idx++) {
-    const targetIdx = columnIndex + idx;
-    const jointKey = `edge-v-${targetIdx}`;
-    resultJoints[jointKey] = {
-      id: jointKey,
-      orientation: 'VERTICAL',
-      width: jointGap,
-      isLED: false,
-    };
-  }
-
-  return { customPanels: resultPanels, customJoints: resultJoints };
-}
 
 /**
  * Автоматически разделяет слишком широкую колонку на несколько колонок стандартной ширины листа (100 мм <= W <= maxSheetWidth)
@@ -592,10 +470,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       selectedSubPieceId: subPieceId,
     })),
 
-  openSlicingModal: (wallId: string, columnIndex: number, segmentIndex: number | null = null) =>
+  openSlicingModal: (
+    wallId: string,
+    columnIndex: number,
+    segmentIndex: number | null = null,
+    panelId: string | null = null
+  ) =>
     set(() => ({
       isSlicingModalOpen: true,
-      slicingTarget: { wallId, columnIndex, segmentIndex },
+      slicingTarget: { wallId, columnIndex, segmentIndex, panelId },
     })),
 
   closeSlicingModal: () =>
@@ -1065,6 +948,127 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall || (state.selectedCellKeys.length < 2 && state.selectedPieceIds.length < 2)) return state;
 
+      if (wall.panels && wall.panels.length > 0) {
+        let targetIds = state.selectedPieceIds.length > 0
+          ? state.selectedPieceIds
+          : ([state.selectedSubPieceId].filter(Boolean) as string[]);
+
+        if (targetIds.length < 2 && state.selectedCellKeys.length >= 2) {
+          targetIds = state.selectedCellKeys;
+        }
+
+        if (targetIds.length >= 2) {
+          const mergingPanels = wall.panels.filter((p) =>
+            targetIds.some((tid) => p.id === tid || p.id.includes(tid))
+          );
+
+          if (mergingPanels.length >= 2) {
+            // ПРАВИЛО: объединение работает ТОЛЬКО если все выбранные элементы примыкают друг к другу
+            const areConnected = PolygonSlicingEngine.areAllPolygonsConnected(
+              mergingPanels.map((p) => p.points),
+              20
+            );
+            if (!areConnected) {
+              return state;
+            }
+
+            const remainingPanels = wall.panels.filter(
+              (p) => !mergingPanels.some((mp) => mp.id === p.id)
+            );
+            const mergedPoints = PolygonSlicingEngine.unionPolygons(
+              mergingPanels.map((p) => p.points)
+            );
+
+            const baseMat = mergingPanels[0];
+            const allSameMat = mergingPanels.every((p) => p.materialId === baseMat.materialId);
+
+            const mergedPanel: WallPanelPiece = {
+              ...baseMat,
+              id: `panel-${Date.now()}-merged`,
+              points: mergedPoints,
+              materialId: allSameMat ? baseMat.materialId : (wall.zone.materialId || MATERIAL_NONE_ID),
+              partLabel: allSameMat ? baseMat.partLabel : '1.1',
+            };
+
+            const nextPanels = [...remainingPanels, mergedPanel];
+
+            // Bounding box объединенной панели
+            const mXs = mergedPoints.map((p) => p.x);
+            const mYs = mergedPoints.map((p) => p.y);
+            const mMinX = Math.min(...mXs);
+            const mMaxX = Math.max(...mXs);
+            const mMinY = Math.min(...mYs);
+            const mMaxY = Math.max(...mYs);
+
+            const nextJoints = (wall.joints || []).filter((j) => {
+              const midX = (j.p1.x + j.p2.x) / 2;
+              const midY = (j.p1.y + j.p2.y) / 2;
+              const isVert = Math.abs(j.p1.x - j.p2.x) < 1e-3;
+
+              // 1. Проверяем, находятся ли точки по обе стороны шва внутри объединенного полигона
+              let isInternal = false;
+
+              if (isVert) {
+                const inLeft =
+                  PolygonSlicingEngine.isPointInPolygon({ x: midX - 3, y: midY }, mergedPoints) ||
+                  mergingPanels.some((p) =>
+                    PolygonSlicingEngine.isPointInPolygon({ x: midX - 3, y: midY }, p.points)
+                  );
+                const inRight =
+                  PolygonSlicingEngine.isPointInPolygon({ x: midX + 3, y: midY }, mergedPoints) ||
+                  mergingPanels.some((p) =>
+                    PolygonSlicingEngine.isPointInPolygon({ x: midX + 3, y: midY }, p.points)
+                  );
+                if (inLeft && inRight) {
+                  isInternal = true;
+                }
+              } else {
+                const inBot =
+                  PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY - 3 }, mergedPoints) ||
+                  mergingPanels.some((p) =>
+                    PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY - 3 }, p.points)
+                  );
+                const inTop =
+                  PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY + 3 }, mergedPoints) ||
+                  mergingPanels.some((p) =>
+                    PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY + 3 }, p.points)
+                  );
+                if (inBot && inTop) {
+                  isInternal = true;
+                }
+              }
+
+              // 2. Проверяем, лежит ли шов строго внутри bounding box объединенной детали
+              if (!isInternal) {
+                if (isVert) {
+                  if (midX > mMinX + 5 && midX < mMaxX - 5 && midY >= mMinY - 2 && midY <= mMaxY + 2) {
+                    isInternal = true;
+                  }
+                } else {
+                  if (midY > mMinY + 5 && midY < mMaxY - 5 && midX >= mMinX - 2 && midX <= mMaxX + 2) {
+                    isInternal = true;
+                  }
+                }
+              }
+
+              return !isInternal;
+            });
+
+            return {
+              selectedPieceIds: [mergedPanel.id],
+              selectedSubPieceId: mergedPanel.id,
+              selectedCellKeys: [],
+              project: {
+                ...state.project,
+                walls: state.project.walls.map((w) =>
+                  w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+                ),
+              },
+            };
+          }
+        }
+      }
+
       const standardSeam = 8;
 
       // 0. ПРОВЕРЯЕМ, ВЫБРАНЫ ЛИ РАЗРЕЗАННЫЕ ДЕТАЛИ (subPieces)
@@ -1461,6 +1465,59 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const targetMaterial = state.project.materials.find((m) => m.id === materialId);
       const isVoidMat = materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
 
+      if (wall.panels && wall.panels.length > 0) {
+        let nextPanels = [...wall.panels];
+        const nextJoints = [...(wall.joints || [])];
+
+        const targetIds = state.selectedPieceIds.length > 0
+          ? state.selectedPieceIds
+          : ([state.selectedSubPieceId].filter(Boolean) as string[]);
+
+        nextPanels = nextPanels.flatMap((p, idx) => {
+          const isMatch =
+            targetIds.includes(p.id) ||
+            (targetIds.length === 0 && (state.selectedCellKeys.includes(`0-${idx}`) || state.selectedCellKeys.length === 0));
+          if (!isMatch) return [p];
+
+          const updated: WallPanelPiece = {
+            ...p,
+            materialId,
+            isVoid: isVoidMat,
+            color: targetMaterial?.color || p.color,
+            decorCode: targetMaterial?.decorCode || p.decorCode,
+            decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || p.decorName),
+            thickness: targetMaterial?.thickness || p.thickness,
+            textureCategory: (targetMaterial?.textureCategory as any) || p.textureCategory,
+            reliefType: (targetMaterial?.reliefType as any) || p.reliefType,
+            partLabel: isVoidMat ? 'ПУСТО' : p.partLabel,
+          };
+
+          if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+            const xs = updated.points.map((pt) => pt.x);
+            const w = Math.max(...xs) - Math.min(...xs);
+            if (w > targetMaterial.width + 10) {
+              const { newPanels, joints } = PolygonSlicingEngine.sliceWallPanelIntoStrips(
+                updated,
+                targetMaterial.width,
+                8
+              );
+              nextJoints.push(...joints);
+              return newPanels;
+            }
+          }
+          return [updated];
+        });
+
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+            ),
+          },
+        };
+      }
+
       if (state.selectedSubPieceId) {
         const subId = state.selectedSubPieceId;
         const nextCustomPanels = { ...wall.customPanels };
@@ -1537,84 +1594,89 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       const wallMaterial =
         state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
-
-      let nextCustomPanels = { ...wall.customPanels };
-      let nextCustomJoints = { ...wall.customJoints };
-
-      if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
-        const selectedColIndices = Array.from(
-          new Set(state.selectedCellKeys.map((k) => Number(k.split('-')[0])))
-        ).sort((a, b) => b - a); // Справа налево, чтобы сдвиги не сбивали индексы
-
-        selectedColIndices.forEach((colIdx) => {
-          const currentCustom = nextCustomPanels[colIdx];
-          const hasSubPieces =
-            (currentCustom?.segments?.some((s) => (s.subPieces?.length ?? 0) > 0) ?? false) ||
-            (currentCustom?.subPieces?.length ?? 0) > 0;
-          const currentWidth =
-            currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
-
-          if (!hasSubPieces && currentWidth > targetMaterial.width + 10) {
-            const res = splitColumnIntoPieces(
-              nextCustomPanels,
-              nextCustomJoints,
-              colIdx,
-              currentWidth,
-              targetMaterial,
-              undefined,
-              undefined,
-              undefined,
-              undefined,
-              8
-            );
-            nextCustomPanels = res.customPanels;
-            nextCustomJoints = res.customJoints;
-          } else {
-            nextCustomPanels[colIdx] = {
-              ...(currentCustom || { columnIndex: colIdx }),
-              customMaterialId: materialId,
-            };
-          }
-        });
-
-        return {
-          selectedCellKeys: [],
-          selectedPieceIds: [],
-          selectedColumnIndex: null,
-          selectedSegmentIndex: null,
-          project: {
-            ...state.project,
-            walls: state.project.walls.map((w) =>
-              w.id === wallId
-                ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints }
-                : w
-            ),
-          },
-        };
-      }
+      const nextCustomPanels = { ...wall.customPanels };
 
       state.selectedCellKeys.forEach((key) => {
         const [cIdx, sIdx] = key.split('-').map(Number);
         const currentCustom = nextCustomPanels[cIdx] || { columnIndex: cIdx, segments: [] };
         const segments = [...(currentCustom.segments || [])];
+        const hasSegments = segments.length > 0 || sIdx > 0;
 
-        if (segments.length === 0) {
-          nextCustomPanels[cIdx] = {
-            ...currentCustom,
-            customMaterialId: materialId,
+        const cellWidth =
+          currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
+
+        while (segments.length <= sIdx && hasSegments) {
+          segments.push({ id: `seg-${Date.now()}-${segments.length}` });
+        }
+
+        let cellHeight = wall.height;
+        if (hasSegments) {
+          const segH = segments[sIdx]?.height;
+          cellHeight = segH !== undefined ? segH : Math.round(wall.height / Math.max(1, segments.length));
+        }
+
+        if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0 && cellWidth > targetMaterial.width + 10) {
+          const rectPoints: Point2D[] = [
+            { x: 0, y: 0 },
+            { x: cellWidth, y: 0 },
+            { x: cellWidth, y: cellHeight },
+            { x: 0, y: cellHeight },
+          ];
+          const baseLabel = hasSegments ? `1.${cIdx + 1}.${sIdx + 1}` : `1.${cIdx + 1}`;
+          const baseSub: PolygonSubPiece = {
+            id: `sub-${Date.now()}-${cIdx}-${sIdx}`,
+            points: rectPoints,
+            materialId: targetMaterial.id,
+            isVoid: false,
+            decorName: targetMaterial.decorName,
+            decorCode: targetMaterial.decorCode || '',
+            color: targetMaterial.color || '#d6cbbe',
+            thickness: targetMaterial.thickness || 5,
+            textureCategory: (targetMaterial.textureCategory || 'WOOD') as any,
+            reliefType: (targetMaterial.reliefType || 'FLAT') as any,
+            partLabel: baseLabel,
           };
-        } else {
-          while (segments.length <= sIdx) {
-            segments.push({ id: `seg-${Date.now()}-${segments.length}` });
+          const strips = PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+            rectPoints,
+            targetMaterial.width,
+            baseSub,
+            baseLabel,
+            8
+          );
+
+          if (hasSegments) {
+            segments[sIdx] = {
+              ...segments[sIdx],
+              subPieces: strips,
+              customMaterialId: materialId,
+            };
+            nextCustomPanels[cIdx] = {
+              ...currentCustom,
+              segments,
+            };
+          } else {
+            nextCustomPanels[cIdx] = {
+              ...currentCustom,
+              subPieces: strips,
+              customMaterialId: materialId,
+            };
           }
-          segments[sIdx] = {
-            ...segments[sIdx],
-            customMaterialId: materialId,
-          };
-          nextCustomPanels[cIdx] = {
-            ...currentCustom,
-            segments,
-          };
+        } else {
+          if (!hasSegments) {
+            nextCustomPanels[cIdx] = {
+              ...currentCustom,
+              customMaterialId: materialId,
+            };
+          } else {
+            segments[sIdx] = {
+              ...segments[sIdx],
+              customMaterialId: materialId,
+            };
+            nextCustomPanels[cIdx] = {
+              ...currentCustom,
+              segments,
+            };
+          }
         }
       });
 
@@ -1864,6 +1926,71 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const targetMaterial = state.project.materials.find((m) => m.id === materialId);
       const isVoidMat = materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
 
+      if (wall.panels && wall.panels.length > 0) {
+        let nextPanels = [...wall.panels];
+        const nextJoints = [...(wall.joints || [])];
+        const targetId =
+          state.selectedSubPieceId ||
+          state.selectedPieceIds[0] ||
+          (state.selectedCellKeys[0] ? state.selectedCellKeys[0] : null);
+
+        let pIdx = -1;
+        if (targetId) {
+          pIdx = nextPanels.findIndex((p) => p.id === targetId || p.id.includes(targetId));
+        }
+        if (pIdx === -1) {
+          pIdx = Math.min(segmentIndex, nextPanels.length - 1);
+        }
+
+        if (pIdx >= 0 && nextPanels[pIdx]) {
+          const p = nextPanels[pIdx];
+          const updated: WallPanelPiece = {
+            ...p,
+            materialId,
+            isVoid: isVoidMat,
+            color: targetMaterial?.color || p.color,
+            decorCode: targetMaterial?.decorCode || p.decorCode,
+            decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || p.decorName),
+            thickness: targetMaterial?.thickness || p.thickness,
+            textureCategory: (targetMaterial?.textureCategory as any) || p.textureCategory,
+            reliefType: (targetMaterial?.reliefType as any) || p.reliefType,
+            partLabel: isVoidMat ? 'ПУСТО' : p.partLabel,
+          };
+
+          if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+            const xs = updated.points.map((pt) => pt.x);
+            const w = Math.max(...xs) - Math.min(...xs);
+            if (w > targetMaterial.width + 10) {
+              const { newPanels, joints } = PolygonSlicingEngine.sliceWallPanelIntoStrips(
+                updated,
+                targetMaterial.width,
+                8
+              );
+              nextPanels.splice(pIdx, 1, ...newPanels);
+              nextJoints.push(...joints);
+              return {
+                project: {
+                  ...state.project,
+                  walls: state.project.walls.map((w) =>
+                    w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+                  ),
+                },
+              };
+            }
+          }
+
+          nextPanels[pIdx] = updated;
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+              ),
+            },
+          };
+        }
+      }
+
       // 1. ЕСЛИ ВЫБРАНА КОНКРЕТНАЯ ДЕТАЛЬ РАСКРОЯ (subPiece) — МЕНЯЕМ ТОЛЬКО ЕЁ!
       if (state.selectedSubPieceId) {
         const subId = state.selectedSubPieceId;
@@ -1938,59 +2065,131 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         };
       }
 
+      const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const wallMaterial =
         state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
-      const currentCustom = wall.customPanels[columnIndex];
-      const currentWidth =
+      const cellWidth =
         currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
 
-      const hasSubPieces =
-        (currentCustom?.segments?.[segmentIndex]?.subPieces?.length ?? 0) > 0 ||
-        (currentCustom?.subPieces?.length ?? 0) > 0;
+      const segments = [...(currentCustom.segments || [])];
+      const hasSegments = segments.length > 0 || segmentIndex > 0;
 
-      if (
-        !hasSubPieces &&
-        targetMaterial &&
-        !targetMaterial.isVoid &&
-        targetMaterial.width > 0 &&
-        currentWidth > targetMaterial.width + 10
-      ) {
-        const { customPanels: nextCustomPanels, customJoints: nextCustomJoints } = splitColumnIntoPieces(
-          wall.customPanels,
-          wall.customJoints,
-          columnIndex,
-          currentWidth,
-          targetMaterial,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          8
-        );
-
-        return {
-          selectedColumnIndex: columnIndex,
-          selectedSegmentIndex: 0,
-          selectedCellKeys: [`${columnIndex}-0`],
-          selectedPieceIds: [`panel-${columnIndex}-0`],
-          project: {
-            ...state.project,
-            walls: state.project.walls.map((w) =>
-              w.id === wallId
-                ? { ...w, customPanels: nextCustomPanels, customJoints: nextCustomJoints }
-                : w
-            ),
-          },
-        };
-      }
-
-      // Обычная установка материала
-      const segments = [...(currentCustom?.segments || [])];
-      while (segments.length <= segmentIndex) {
+      while (segments.length <= segmentIndex && hasSegments) {
         segments.push({
           id: `seg-${Date.now()}-${segments.length}`,
           height: undefined,
         });
+      }
+
+      let cellHeight = wall.height;
+      if (hasSegments) {
+        const segH = segments[segmentIndex]?.height;
+        cellHeight = segH !== undefined ? segH : Math.round(wall.height / Math.max(1, segments.length));
+      }
+
+      // Если ширина элемента больше ширины материала — нарезаем на вертикальные полосы
+      if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0 && cellWidth > targetMaterial.width + 10) {
+        const rectPoints: Point2D[] = [
+          { x: 0, y: 0 },
+          { x: cellWidth, y: 0 },
+          { x: cellWidth, y: cellHeight },
+          { x: 0, y: cellHeight },
+        ];
+        const baseLabel = hasSegments
+          ? `1.${columnIndex + 1}.${segmentIndex + 1}`
+          : `1.${columnIndex + 1}`;
+
+        const baseSub: PolygonSubPiece = {
+          id: `sub-${Date.now()}-0`,
+          points: rectPoints,
+          materialId: targetMaterial.id,
+          isVoid: false,
+          decorName: targetMaterial.decorName,
+          decorCode: targetMaterial.decorCode || '',
+          color: targetMaterial.color || '#d6cbbe',
+          thickness: targetMaterial.thickness || 5,
+          textureCategory: (targetMaterial.textureCategory || 'WOOD') as any,
+          reliefType: (targetMaterial.reliefType || 'FLAT') as any,
+          partLabel: baseLabel,
+        };
+
+        const strips = PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+          rectPoints,
+          targetMaterial.width,
+          baseSub,
+          baseLabel,
+          8
+        );
+
+        if (hasSegments) {
+          segments[segmentIndex] = {
+            ...segments[segmentIndex],
+            subPieces: strips,
+            customMaterialId: targetMaterial.id,
+          };
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      customPanels: {
+                        ...w.customPanels,
+                        [columnIndex]: {
+                          ...currentCustom,
+                          segments,
+                        },
+                      },
+                    }
+                  : w
+              ),
+            },
+          };
+        } else {
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      customPanels: {
+                        ...w.customPanels,
+                        [columnIndex]: {
+                          ...currentCustom,
+                          subPieces: strips,
+                          customMaterialId: targetMaterial.id,
+                        },
+                      },
+                    }
+                  : w
+              ),
+            },
+          };
+        }
+      }
+
+      if (!hasSegments) {
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId
+                ? {
+                    ...w,
+                    customPanels: {
+                      ...w.customPanels,
+                      [columnIndex]: {
+                        ...currentCustom,
+                        customMaterialId: materialId,
+                      },
+                    },
+                  }
+                : w
+            ),
+          },
+        };
       }
 
       segments[segmentIndex] = {
@@ -2008,8 +2207,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                   customPanels: {
                     ...w.customPanels,
                     [columnIndex]: {
-                      ...(currentCustom || { columnIndex }),
-                      customMaterialId: materialId,
+                      ...currentCustom,
                       segments,
                     },
                   },
@@ -2064,14 +2262,77 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!wall) return state;
 
       const currentCustom = wall.customPanels[columnIndex];
-      const wallMaterial =
-        state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
-      const currentWidth =
-        currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
-
       const targetMaterial = properties.materialId
         ? state.project.materials.find((m) => m.id === properties.materialId)
         : undefined;
+
+      if (wall.panels && wall.panels.length > 0) {
+        let nextPanels = [...wall.panels];
+        const nextJoints = [...(wall.joints || [])];
+        const targetId =
+          state.selectedSubPieceId ||
+          state.selectedPieceIds[0] ||
+          (state.selectedCellKeys[0] ? state.selectedCellKeys[0] : null);
+
+        let pIdx = -1;
+        if (targetId) {
+          pIdx = nextPanels.findIndex((p) => p.id === targetId || p.id.includes(targetId));
+        }
+        if (pIdx === -1) {
+          pIdx = Math.min(segmentIndex, nextPanels.length - 1);
+        }
+
+        if (pIdx >= 0 && nextPanels[pIdx]) {
+          const p = nextPanels[pIdx];
+          const isVoidMat = properties.materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
+          const updated: WallPanelPiece = {
+            ...p,
+            ...(properties.materialId ? {
+              materialId: properties.materialId,
+              isVoid: isVoidMat,
+              decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || p.decorName),
+              partLabel: isVoidMat ? 'ПУСТО' : (p.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : p.partLabel),
+            } : {}),
+            ...(properties.customColor !== undefined ? { color: properties.customColor } : (targetMaterial?.color ? { color: targetMaterial.color } : {})),
+            ...(properties.customDecorCode !== undefined ? { decorCode: properties.customDecorCode } : (targetMaterial?.decorCode ? { decorCode: targetMaterial.decorCode } : {})),
+            ...(properties.customThickness !== undefined ? { thickness: properties.customThickness } : (targetMaterial?.thickness ? { thickness: targetMaterial.thickness } : {})),
+            ...(properties.customTextureCategory !== undefined ? { textureCategory: properties.customTextureCategory as any } : (targetMaterial?.textureCategory ? { textureCategory: targetMaterial.textureCategory as any } : {})),
+            ...(properties.customReliefType !== undefined ? { reliefType: properties.customReliefType as any } : (targetMaterial?.reliefType ? { reliefType: targetMaterial.reliefType as any } : {})),
+          };
+
+          if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+            const xs = updated.points.map((pt) => pt.x);
+            const w = Math.max(...xs) - Math.min(...xs);
+            if (w > targetMaterial.width + 10) {
+              const { newPanels, joints } = PolygonSlicingEngine.sliceWallPanelIntoStrips(
+                updated,
+                targetMaterial.width,
+                8
+              );
+              nextPanels.splice(pIdx, 1, ...newPanels);
+              nextJoints.push(...joints);
+              return {
+                project: {
+                  ...state.project,
+                  walls: state.project.walls.map((w) =>
+                    w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+                  ),
+                },
+              };
+            }
+          }
+
+          nextPanels[pIdx] = updated;
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+              ),
+            },
+          };
+        }
+      }
 
       // 1. ЕСЛИ ВЫБРАНА КОНКРЕТНАЯ ДЕТАЛЬ РАСКРОЯ (subPiece) — МЕНЯЕМ ТОЛЬКО ЕЁ!
       if (state.selectedSubPieceId) {
@@ -2151,57 +2412,243 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         };
       }
 
-      const hasSubPieces =
-        (currentCustom?.segments?.[segmentIndex]?.subPieces?.length ?? 0) > 0 ||
-        (currentCustom?.subPieces?.length ?? 0) > 0;
+      const wallMaterial =
+        state.project.materials.find((m) => m.id === wall.zone.materialId) || DEFAULT_MATERIALS[0];
+      const cellWidth =
+        currentCustom?.customWidth ?? (wallMaterial.isVoid ? wall.width : wallMaterial.width);
 
-      // Если новый материал имеет меньшую ширину, чем колонка — автоматически разделяем колонку на плиты, ТОЛЬКО ЕСЛИ НЕТ SUBPIECES!
-      if (
-        !hasSubPieces &&
-        targetMaterial &&
-        !targetMaterial.isVoid &&
-        targetMaterial.width > 0 &&
-        currentWidth > targetMaterial.width + 10
-      ) {
-        const { customPanels: nextPanels, customJoints: nextJoints } = splitColumnIntoPieces(
-          wall.customPanels,
-          wall.customJoints,
-          columnIndex,
-          currentWidth,
-          targetMaterial,
-          properties.customDecorCode,
-          properties.customColor,
-          properties.customTextureCategory,
-          properties.customReliefType,
+      const segments = [...(currentCustom?.segments || [])];
+      const hasSegments = segments.length > 0 || segmentIndex > 0;
+
+      while (segments.length <= segmentIndex && hasSegments) {
+        segments.push({
+          id: `seg-${Date.now()}-${segments.length}`,
+          height: undefined,
+        });
+      }
+
+      let cellHeight = wall.height;
+      if (hasSegments) {
+        const segH = segments[segmentIndex]?.height;
+        cellHeight = segH !== undefined ? segH : Math.round(wall.height / Math.max(1, segments.length));
+      }
+
+      const existingSubs = hasSegments ? segments[segmentIndex]?.subPieces : currentCustom?.subPieces;
+
+      // Если в элементе уже есть subPieces
+      if (existingSubs && existingSubs.length > 0) {
+        const isVoidMat = properties.materialId === MATERIAL_NONE_ID || targetMaterial?.isVoid;
+        const nextSubs = existingSubs.flatMap((s) => {
+          const updated: PolygonSubPiece = {
+            ...s,
+            ...(properties.materialId ? {
+              materialId: properties.materialId,
+              isVoid: isVoidMat,
+              decorName: isVoidMat ? 'Без материала' : (targetMaterial?.decorName || s.decorName),
+              partLabel: isVoidMat ? 'ПУСТО' : (s.partLabel === 'ПУСТО' ? `1.${columnIndex + 1}.${segmentIndex + 1}` : s.partLabel),
+            } : {}),
+            ...(properties.customColor !== undefined ? { color: properties.customColor } : (targetMaterial?.color ? { color: targetMaterial.color } : {})),
+            ...(properties.customDecorCode !== undefined ? { decorCode: properties.customDecorCode } : (targetMaterial?.decorCode ? { decorCode: targetMaterial.decorCode } : {})),
+            ...(properties.customThickness !== undefined ? { thickness: properties.customThickness } : (targetMaterial?.thickness ? { thickness: targetMaterial.thickness } : {})),
+            ...(properties.customTextureCategory !== undefined ? { textureCategory: properties.customTextureCategory as any } : (targetMaterial?.textureCategory ? { textureCategory: targetMaterial.textureCategory as any } : {})),
+            ...(properties.customReliefType !== undefined ? { reliefType: properties.customReliefType as any } : (targetMaterial?.reliefType ? { reliefType: targetMaterial.reliefType as any } : {})),
+          };
+
+          if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
+            const xs = updated.points.map((p) => p.x);
+            const subW = Math.max(...xs) - Math.min(...xs);
+            if (subW > targetMaterial.width + 10) {
+              return PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+                updated.points,
+                targetMaterial.width,
+                updated,
+                s.partLabel || `1.${columnIndex + 1}.${segmentIndex + 1}`,
+                8
+              );
+            }
+          }
+          return [updated];
+        });
+
+        if (hasSegments) {
+          segments[segmentIndex] = {
+            ...segments[segmentIndex],
+            subPieces: nextSubs,
+            ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+            ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+            ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+            ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+            ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+            ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+          };
+
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      customPanels: {
+                        ...w.customPanels,
+                        [columnIndex]: {
+                          ...(currentCustom || { columnIndex }),
+                          segments,
+                        },
+                      },
+                    }
+                  : w
+              ),
+            },
+          };
+        } else {
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      customPanels: {
+                        ...w.customPanels,
+                        [columnIndex]: {
+                          ...(currentCustom || { columnIndex }),
+                          subPieces: nextSubs,
+                          ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+                          ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+                          ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+                          ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+                          ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+                          ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+                        },
+                      },
+                    }
+                  : w
+              ),
+            },
+          };
+        }
+      }
+
+      // Если новый материал имеет меньшую ширину, чем этот элемент — нарезаем ТОЛЬКО этот элемент на ламели/полосы!
+      if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0 && cellWidth > targetMaterial.width + 10) {
+        const rectPoints: Point2D[] = [
+          { x: 0, y: 0 },
+          { x: cellWidth, y: 0 },
+          { x: cellWidth, y: cellHeight },
+          { x: 0, y: cellHeight },
+        ];
+        const baseLabel = hasSegments
+          ? `1.${columnIndex + 1}.${segmentIndex + 1}`
+          : `1.${columnIndex + 1}`;
+
+        const baseSub: PolygonSubPiece = {
+          id: `sub-${Date.now()}-0`,
+          points: rectPoints,
+          materialId: targetMaterial.id,
+          isVoid: false,
+          decorName: targetMaterial.decorName,
+          decorCode: properties.customDecorCode !== undefined ? properties.customDecorCode : (targetMaterial.decorCode || ''),
+          color: properties.customColor !== undefined ? properties.customColor : (targetMaterial.color || '#d6cbbe'),
+          thickness: properties.customThickness !== undefined ? properties.customThickness : (targetMaterial.thickness || 5),
+          textureCategory: (properties.customTextureCategory || targetMaterial.textureCategory || 'WOOD') as any,
+          reliefType: (properties.customReliefType || targetMaterial.reliefType || 'FLAT') as any,
+          partLabel: baseLabel,
+        };
+
+        const strips = PolygonSlicingEngine.slicePolygonIntoVerticalStrips(
+          rectPoints,
+          targetMaterial.width,
+          baseSub,
+          baseLabel,
           8
         );
 
+        if (hasSegments) {
+          segments[segmentIndex] = {
+            ...segments[segmentIndex],
+            subPieces: strips,
+            customMaterialId: targetMaterial.id,
+            ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+            ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+            ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+            ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+            ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+          };
+
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      customPanels: {
+                        ...w.customPanels,
+                        [columnIndex]: {
+                          ...(currentCustom || { columnIndex }),
+                          segments,
+                        },
+                      },
+                    }
+                  : w
+              ),
+            },
+          };
+        } else {
+          return {
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      customPanels: {
+                        ...w.customPanels,
+                        [columnIndex]: {
+                          ...(currentCustom || { columnIndex }),
+                          subPieces: strips,
+                          customMaterialId: targetMaterial.id,
+                          ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+                          ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+                          ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+                          ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+                          ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+                        },
+                      },
+                    }
+                  : w
+              ),
+            },
+          };
+        }
+      }
+
+      if (!hasSegments) {
         return {
-          selectedColumnIndex: columnIndex,
-          selectedSegmentIndex: 0,
-          selectedCellKeys: [`${columnIndex}-0`],
-          selectedPieceIds: [`panel-${columnIndex}-0`],
           project: {
             ...state.project,
             walls: state.project.walls.map((w) =>
               w.id === wallId
                 ? {
                     ...w,
-                    customPanels: nextPanels,
-                    customJoints: nextJoints,
+                    customPanels: {
+                      ...w.customPanels,
+                      [columnIndex]: {
+                        ...(currentCustom || { columnIndex }),
+                        ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+                        ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+                        ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+                        ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+                        ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
+                        ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
+                      },
+                    },
                   }
                 : w
             ),
           },
         };
-      }
-
-      const segments = [...(currentCustom?.segments || [])];
-      while (segments.length <= segmentIndex) {
-        segments.push({
-          id: `seg-${Date.now()}-${segments.length}`,
-          height: undefined,
-        });
       }
 
       segments[segmentIndex] = {
@@ -2225,12 +2672,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                     ...w.customPanels,
                     [columnIndex]: {
                       ...(currentCustom || { columnIndex }),
-                      ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
-                      ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
-                      ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
-                      ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
-                      ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory } : {}),
-                      ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType } : {}),
                       segments,
                     },
                   },
@@ -2436,6 +2877,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
 
+      if (wall.panels && wall.panels.length > 0) {
+        const nextPanels = [...wall.panels];
+        const nextJoints = [...(wall.joints || [])];
+        const targetId =
+          state.selectedSubPieceId ||
+          state.selectedPieceIds[0] ||
+          (state.selectedCellKeys[0] ? state.selectedCellKeys[0] : null);
+
+        let pIdx = -1;
+        if (targetId) {
+          pIdx = nextPanels.findIndex((p) => p.id === targetId || p.id.includes(targetId));
+        }
+        if (pIdx === -1) {
+          pIdx = Math.min(segmentIndex, nextPanels.length - 1);
+        }
+
+        if (pIdx >= 0 && nextPanels[pIdx]) {
+          const targetPanel = nextPanels[pIdx];
+          const xs = targetPanel.points.map((p) => p.x);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const ys = targetPanel.points.map((p) => p.y);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          const cutY = firstHeight > 0 ? minY + firstHeight : (minY + maxY) / 2;
+
+          const p1: Point2D = { x: minX - 10, y: cutY };
+          const p2: Point2D = { x: maxX + 10, y: cutY };
+
+          const splitRes = PolygonSlicingEngine.splitWallPanel(targetPanel, p1, p2, 8);
+          if (splitRes) {
+            nextPanels.splice(pIdx, 1, ...splitRes.newPanels);
+            if (splitRes.joint) nextJoints.push(splitRes.joint);
+
+            return {
+              selectedPieceIds: [splitRes.newPanels[0].id],
+              selectedSubPieceId: splitRes.newPanels[0].id,
+              project: {
+                ...state.project,
+                walls: state.project.walls.map((w) =>
+                  w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+                ),
+              },
+            };
+          }
+        }
+      }
+
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const currentSegments = currentCustom.segments || [];
 
@@ -2616,6 +3105,54 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => {
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
+
+      if (wall.panels && wall.panels.length > 0) {
+        const nextPanels = [...wall.panels];
+        const nextJoints = [...(wall.joints || [])];
+        const targetId =
+          state.selectedSubPieceId ||
+          state.selectedPieceIds[0] ||
+          (state.selectedCellKeys[0] ? state.selectedCellKeys[0] : null);
+
+        let pIdx = -1;
+        if (targetId) {
+          pIdx = nextPanels.findIndex((p) => p.id === targetId || p.id.includes(targetId));
+        }
+        if (pIdx === -1) {
+          pIdx = Math.min(columnIndex, nextPanels.length - 1);
+        }
+
+        if (pIdx >= 0 && nextPanels[pIdx]) {
+          const targetPanel = nextPanels[pIdx];
+          const xs = targetPanel.points.map((p) => p.x);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const ys = targetPanel.points.map((p) => p.y);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          const cutX = firstWidth > 0 ? minX + firstWidth : (minX + maxX) / 2;
+
+          const p1: Point2D = { x: cutX, y: minY - 10 };
+          const p2: Point2D = { x: cutX, y: maxY + 10 };
+
+          const splitRes = PolygonSlicingEngine.splitWallPanel(targetPanel, p1, p2, 8);
+          if (splitRes) {
+            nextPanels.splice(pIdx, 1, ...splitRes.newPanels);
+            if (splitRes.joint) nextJoints.push(splitRes.joint);
+
+            return {
+              selectedPieceIds: [splitRes.newPanels[0].id],
+              selectedSubPieceId: splitRes.newPanels[0].id,
+              project: {
+                ...state.project,
+                walls: state.project.walls.map((w) =>
+                  w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+                ),
+              },
+            };
+          }
+        }
+      }
 
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex };
       const currentSegments = currentCustom.segments || [];
@@ -2899,6 +3436,69 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
 
+      // 0. ПОЛИГОНАЛЬНАЯ МОДЕЛЬ (wall.panels)
+      if (wall.panels && wall.panels.length > 0) {
+        const targetPanel =
+          wall.panels.find(
+            (p) =>
+              p.id === state.selectedSubPieceId ||
+              state.selectedPieceIds.includes(p.id)
+          ) ||
+          wall.panels[columnIndex] ||
+          wall.panels[0];
+
+        if (targetPanel) {
+          const remainingPanels = wall.panels.filter((p) => p.id !== targetPanel.id);
+          const xs = targetPanel.points.map((p) => p.x);
+          const ys = targetPanel.points.map((p) => p.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+
+          const p1: Point2D = direction === 'BL_TR' ? { x: minX, y: minY } : { x: minX, y: maxY };
+          const p2: Point2D = direction === 'BL_TR' ? { x: maxX, y: maxY } : { x: maxX, y: minY };
+
+          const splitResult = PolygonSlicingEngine.splitPolygonByLine(targetPanel.points, p1, p2, 8);
+          if (!splitResult) return state;
+
+          const allPolys = splitResult.allPieces || [splitResult.pieceA, splitResult.pieceB];
+          const newPanels: WallPanelPiece[] = allPolys.map((polyPts, pIdx) => ({
+            ...targetPanel,
+            id: `panel-${Date.now()}-${pIdx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+            points: polyPts,
+            partLabel: `${targetPanel.partLabel}.${pIdx + 1}`,
+          }));
+
+          const cutSegments = splitResult.cutSegments || [{ p1, p2 }];
+          const newJoints: WallJointLine[] = cutSegments.map((seg, sIdx) => ({
+            id: `joint-diag-${Date.now()}-${sIdx + 1}`,
+            p1: seg.p1,
+            p2: seg.p2,
+            width: 8,
+            isLED: false,
+            orientation: 'DIAGONAL',
+          }));
+
+          return {
+            selectedPieceIds: [newPanels[0].id],
+            selectedSubPieceId: newPanels[0].id,
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      panels: [...remainingPanels, ...newPanels],
+                      joints: [...(w.joints || []), ...newJoints],
+                    }
+                  : w
+              ),
+            },
+          };
+        }
+      }
+
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const currentSegments = currentCustom.segments || [];
       const sIdx = segmentIndex ?? 0;
@@ -3032,6 +3632,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
 
+      if (wall.panels && wall.panels.length > 0) {
+        const targetId = subPieceId || state.selectedPieceIds[0] || state.selectedSubPieceId;
+        const nextPanels = wall.panels.map((p) =>
+          p.id === targetId || (targetId && p.id.includes(targetId))
+            ? { ...p, partLabel }
+            : p
+        );
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, panels: nextPanels } : w
+            ),
+          },
+        };
+      }
+
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const currentSegments = currentCustom.segments || [];
       const sIdx = segmentIndex ?? 0;
@@ -3070,7 +3687,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     wallId: string,
     columnIndex: number,
     segmentIndex: number | null = 0,
-    subPieces: PolygonSubPiece[]
+    subPieces: PolygonSubPiece[],
+    panelId?: string | null
   ) =>
     set((state) => {
       const wall = state.project.walls.find((w) => w.id === wallId);
@@ -3078,6 +3696,149 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       if (!subPieces || subPieces.length <= 1) {
         return { isSlicingModalOpen: false, slicingTarget: null };
+      }
+
+      // 0. ПОЛИГОНАЛЬНАЯ МОДЕЛЬ (wall.panels)
+      if (wall.panels && wall.panels.length > 0) {
+        const targetPanel =
+          wall.panels.find(
+            (p) =>
+              p.id === panelId ||
+              p.id === state.slicingTarget?.panelId ||
+              p.id === state.selectedSubPieceId ||
+              state.selectedPieceIds.includes(p.id)
+          ) ||
+          wall.panels[columnIndex] ||
+          wall.panels[0];
+
+        if (targetPanel) {
+          const remainingPanels = wall.panels.filter((p) => p.id !== targetPanel.id);
+          const xs = targetPanel.points.map((p) => p.x);
+          const ys = targetPanel.points.map((p) => p.y);
+          const minX = Math.min(...xs);
+          const minY = Math.min(...ys);
+
+          const newPanels: WallPanelPiece[] = subPieces.map((sp, idx) => ({
+            ...targetPanel,
+            id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+            points: sp.points.map((pt) => ({ x: Math.round(pt.x + minX), y: Math.round(pt.y + minY) })),
+            materialId: sp.materialId || targetPanel.materialId,
+            color: sp.color || targetPanel.color,
+            decorCode: sp.decorCode || targetPanel.decorCode,
+            decorName: sp.decorName || targetPanel.decorName,
+            isVoid: sp.isVoid || false,
+            thickness: sp.thickness || targetPanel.thickness,
+            reliefType: sp.reliefType || targetPanel.reliefType,
+            textureCategory: sp.textureCategory || targetPanel.textureCategory,
+            patternAngleDeg: sp.patternAngleDeg || targetPanel.patternAngleDeg,
+            patternFlipX: sp.patternFlipX || targetPanel.patternFlipX,
+            partLabel:
+              subPieces.length > 1
+                ? `${targetPanel.partLabel}.${idx + 1}`
+                : targetPanel.partLabel,
+          }));
+
+          // Формируем швы между всеми разрезанными деталями (включая вертикальные, горизонтальные и диагональные)
+          const newJoints: WallJointLine[] = [];
+          for (let i = 0; i < newPanels.length; i++) {
+            for (let j = i + 1; j < newPanels.length; j++) {
+              const pA = newPanels[i];
+              const pB = newPanels[j];
+              const nA = pA.points.length;
+              const nB = pB.points.length;
+
+              for (let eA = 0; eA < nA; eA++) {
+                const a1 = pA.points[eA];
+                const a2 = pA.points[(eA + 1) % nA];
+                const dxA = a2.x - a1.x;
+                const dyA = a2.y - a1.y;
+                const lenSqA = dxA * dxA + dyA * dyA;
+                if (lenSqA < 1) continue;
+
+                for (let eB = 0; eB < nB; eB++) {
+                  const b1 = pB.points[eB];
+                  const b2 = pB.points[(eB + 1) % nB];
+
+                  // Проекция b1 и b2 на отрезок a1-a2
+                  const distToSeg = (p: Point2D) => {
+                    const t = ((p.x - a1.x) * dxA + (p.y - a1.y) * dyA) / lenSqA;
+                    const proj = { x: a1.x + t * dxA, y: a1.y + t * dyA };
+                    const d = Math.hypot(p.x - proj.x, p.y - proj.y);
+                    return { t, d, proj };
+                  };
+
+                  const pr1 = distToSeg(b1);
+                  const pr2 = distToSeg(b2);
+
+                  // Если оба конца ребра b1-b2 лежат близко к линии ребра a1-a2 (<= 16 мм)
+                  if (pr1.d <= 16 && pr2.d <= 16) {
+                    const tMin = Math.max(0, Math.min(pr1.t, pr2.t));
+                    const tMax = Math.min(1, Math.max(pr1.t, pr2.t));
+
+                    if (tMax - tMin > 0.005) {
+                      const segP1 = {
+                        x: Math.round(a1.x + tMin * dxA),
+                        y: Math.round(a1.y + tMin * dyA),
+                      };
+                      const segP2 = {
+                        x: Math.round(a1.x + tMax * dxA),
+                        y: Math.round(a1.y + tMax * dyA),
+                      };
+                      const segLen = Math.hypot(segP2.x - segP1.x, segP2.y - segP1.y);
+
+                      if (segLen > 5) {
+                        const isVert = Math.abs(segP1.x - segP2.x) < 2;
+                        const isHoriz = Math.abs(segP1.y - segP2.y) < 2;
+                        const orientation = isVert
+                          ? 'VERTICAL'
+                          : isHoriz
+                          ? 'HORIZONTAL'
+                          : 'DIAGONAL';
+
+                        // Избегаем дубликатов швов
+                        const isDup = newJoints.some(
+                          (nj) =>
+                            Math.hypot(nj.p1.x - segP1.x, nj.p1.y - segP1.y) < 5 &&
+                            Math.hypot(nj.p2.x - segP2.x, nj.p2.y - segP2.y) < 5
+                        );
+
+                        if (!isDup) {
+                          newJoints.push({
+                            id: `joint-cut-${Date.now()}-${newJoints.length + 1}`,
+                            p1: segP1,
+                            p2: segP2,
+                            width: 8,
+                            isLED: false,
+                            orientation,
+                          });
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          return {
+            isSlicingModalOpen: false,
+            slicingTarget: null,
+            selectedPieceIds: [newPanels[0].id],
+            selectedSubPieceId: newPanels[0].id,
+            project: {
+              ...state.project,
+              walls: state.project.walls.map((w) =>
+                w.id === wallId
+                  ? {
+                      ...w,
+                      panels: [...remainingPanels, ...newPanels],
+                      joints: [...(w.joints || []), ...newJoints],
+                    }
+                  : w
+              ),
+            },
+          };
+        }
       }
 
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
@@ -3198,7 +3959,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (allRects) {
         const sortedByY = [...piecesBounds].sort((a, b) => a.minY - b.minY);
         const isPureHoriz = sortedByY.every(
-          (b) => Math.abs(b.minX) < 2
+          (b) => Math.abs(b.minX) < 2 && Math.abs(b.maxX - (currentCustom.customWidth || 1220)) < 2
         );
 
         if (isPureHoriz && sortedByY.length >= 2) {
@@ -3232,22 +3993,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               };
             }
           } else {
-            const mergedSegments = [...currentSegments];
-            mergedSegments.splice(sIdx, 1, ...newSegments);
+            const nextSegs = [...currentSegments];
+            nextSegs.splice(sIdx, 1, ...newSegments);
             nextCustomPanels[columnIndex] = {
               ...currentCustom,
-              segments: mergedSegments,
+              segments: nextSegs,
             };
 
-            const numAddedSegs = newSegments.length - 1;
-            for (let s = currentSegments.length - 1; s >= sIdx; s--) {
-              const oldKey = `edge-h-${columnIndex}-${s}`;
-              const newKey = `edge-h-${columnIndex}-${s + numAddedSegs}`;
-              if (nextCustomJoints[oldKey]) {
-                nextCustomJoints[newKey] = { ...nextCustomJoints[oldKey], id: newKey };
-                delete nextCustomJoints[oldKey];
+            const numAdded = newSegments.length - 1;
+            Object.entries(wall.customJoints).forEach(([jKey, jConfig]) => {
+              if (jKey.startsWith(`edge-h-${columnIndex}-`)) {
+                const segNum = Number(jKey.replace(`edge-h-${columnIndex}-`, ''));
+                if (!isNaN(segNum) && segNum >= sIdx) {
+                  const newKey = `edge-h-${columnIndex}-${segNum + numAdded}`;
+                  nextCustomJoints[newKey] = { ...jConfig, id: newKey };
+                }
               }
-            }
+            });
 
             for (let idx = 0; idx < newSegments.length - 1; idx++) {
               const jKey = `edge-h-${columnIndex}-${sIdx + idx}`;
@@ -3333,6 +4095,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
 
+      if (wall.panels && wall.panels.length > 0) {
+        const targetId = subPieceId || state.selectedPieceIds[0] || state.selectedSubPieceId;
+        const nextPanels = wall.panels.map((p) =>
+          p.id === targetId || (targetId && p.id.includes(targetId))
+            ? { ...p, patternAngleDeg: angleDeg, patternFlipX: flipX }
+            : p
+        );
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, panels: nextPanels } : w
+            ),
+          },
+        };
+      }
+
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const currentSegments = currentCustom.segments || [];
       const sIdx = segmentIndex ?? 0;
@@ -3402,6 +4181,30 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
 
+      if (wall.panels && wall.panels.length > 0) {
+        const targetId = subPieceId || state.selectedPieceIds[0] || state.selectedSubPieceId;
+        const nextPanels = wall.panels.map((p) =>
+          p.id === targetId || (targetId && p.id.includes(targetId))
+            ? {
+                ...p,
+                materialId,
+                isVoid: materialId === MATERIAL_NONE_ID,
+                decorCode: decorCode || p.decorCode,
+                decorName: decorName || p.decorName,
+                color: color || p.color,
+              }
+            : p
+        );
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, panels: nextPanels } : w
+            ),
+          },
+        };
+      }
+
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const currentSegments = currentCustom.segments || [];
       const sIdx = segmentIndex ?? 0;
@@ -3455,6 +4258,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => {
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall) return state;
+
+      if (wall.panels && wall.panels.length > 0) {
+        const targetId = subPieceId || state.selectedPieceIds[0] || state.selectedSubPieceId;
+        const nextPanels = wall.panels.map((p) =>
+          p.id === targetId || (targetId && p.id.includes(targetId))
+            ? { ...p, materialId: MATERIAL_NONE_ID, isVoid: true, partLabel: 'ПУСТО' }
+            : p
+        );
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, panels: nextPanels } : w
+            ),
+          },
+        };
+      }
 
       const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
       const currentSegments = currentCustom.segments || [];
@@ -3776,6 +4596,46 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ),
       },
     })),
+
+  applyOpening: (wallId: string, openingId: string) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      const opening = wall.openings.find((op) => op.id === openingId);
+      if (!opening || opening.isApplied) return state;
+
+      let nextPanels = wall.panels;
+      let nextJoints = wall.joints || [];
+
+      // Если в стене включена полигональная модель (wall.panels)
+      if (nextPanels && nextPanels.length > 0 && opening.isCutout !== false) {
+        const cutResult = PolygonSlicingEngine.cutOpeningFromWallPanels(nextPanels, opening, 8);
+        nextPanels = cutResult.newPanels;
+        nextJoints = [...nextJoints, ...cutResult.joints];
+      }
+
+      const updatedOpenings = wall.openings.map((op) =>
+        op.id === openingId ? { ...op, isApplied: true } : op
+      );
+
+      return {
+        isDirty: true,
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  openings: updatedOpenings,
+                  panels: nextPanels,
+                  joints: nextJoints,
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   removeOpening: (wallId: string, openingId: string) =>
     set((state) => ({

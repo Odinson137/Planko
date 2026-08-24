@@ -1,3 +1,6 @@
+import type { WallPanelPiece, WallJointLine } from '../models/Wall';
+import type { SlatProfileShape } from '../models/AllWallCatalog';
+
 export interface Point2D {
   x: number;
   y: number;
@@ -33,8 +36,8 @@ export interface PolygonSubPiece {
   decorName?: string;
   color?: string;
   thickness?: number;
-  reliefType?: 'FLAT' | 'FLUTED' | 'MICRO' | 'WAVE' | 'CHEVRON' | 'PANEL_ACCENT';
-  textureCategory?: 'WOOD' | 'MARBLE' | 'CONCRETE' | 'METAL' | 'FABRIC' | 'LEATHER' | 'SOLID' | 'MIRROR' | 'GLASS' | 'SLAT';
+  reliefType?: SlatProfileShape;
+  textureCategory?: string;
   partLabel?: string;
   patternAngleDeg?: number;
   patternFlipX?: boolean;
@@ -180,6 +183,7 @@ export class PolygonSlicingEngine {
     piecesA?: Point2D[][];
     piecesB?: Point2D[][];
     allPieces?: Point2D[][];
+    cutSegments?: { p1: Point2D; p2: Point2D }[];
   } | null {
     if (!polygon || polygon.length < 3) return null;
     const ccw = this.ensureCCW(this.cleanCollinearPoints(polygon));
@@ -420,12 +424,18 @@ export class PolygonSlicingEngine {
       return null;
     }
 
+    const cutSegments: { p1: Point2D; p2: Point2D }[] = validPairs.map((pair) => ({
+      p1: { ...pair.n1.pt },
+      p2: { ...pair.n2.pt },
+    }));
+
     return {
       pieceA: piecesA[0],
       pieceB: piecesB[0],
       piecesA,
       piecesB,
       allPieces: [...piecesA, ...piecesB],
+      cutSegments,
     };
   }
 
@@ -627,6 +637,113 @@ export class PolygonSlicingEngine {
 
   /**
    * Объединение массива 2D-многоугольников в единый сплошной полигон (с устранением внутренних швов)
+  /**
+   * Проверяет, примыкают ли два полигона друг к другу (расстояние между ними <= seamTolerance)
+   */
+  public static arePolygonsAdjacent(
+    polyA: Point2D[],
+    polyB: Point2D[],
+    seamTolerance: number = 20
+  ): boolean {
+    if (!polyA || !polyB || polyA.length < 3 || polyB.length < 3) return false;
+
+    const xsA = polyA.map((p) => p.x);
+    const ysA = polyA.map((p) => p.y);
+    const minXA = Math.min(...xsA);
+    const maxXA = Math.max(...xsA);
+    const minYA = Math.min(...ysA);
+    const maxYA = Math.max(...ysA);
+
+    const xsB = polyB.map((p) => p.x);
+    const ysB = polyB.map((p) => p.y);
+    const minXB = Math.min(...xsB);
+    const maxXB = Math.max(...xsB);
+    const minYB = Math.min(...ysB);
+    const maxYB = Math.max(...ysB);
+
+    // Быстрая проверка габаритных прямоугольников с допуском
+    if (
+      maxXA < minXB - seamTolerance ||
+      minXA > maxXB + seamTolerance ||
+      maxYA < minYB - seamTolerance ||
+      minYA > maxYB + seamTolerance
+    ) {
+      return false;
+    }
+
+    // Проверка расстояния от вершин A до рёбер B и наоборот
+    const distToSeg = (p: Point2D, a: Point2D, b: Point2D) => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq < 1e-6) return Math.hypot(p.x - a.x, p.y - a.y);
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+      return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    };
+
+    const nA = polyA.length;
+    const nB = polyB.length;
+
+    for (let i = 0; i < nA; i++) {
+      const p = polyA[i];
+      for (let j = 0; j < nB; j++) {
+        const d = distToSeg(p, polyB[j], polyB[(j + 1) % nB]);
+        if (d <= seamTolerance) return true;
+      }
+    }
+
+    for (let j = 0; j < nB; j++) {
+      const p = polyB[j];
+      for (let i = 0; i < nA; i++) {
+        const d = distToSeg(p, polyA[i], polyA[(i + 1) % nA]);
+        if (d <= seamTolerance) return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Проверяет, что все выбранные полигоны образуют единую непрерывную смежную группу (связный граф)
+   */
+  public static areAllPolygonsConnected(
+    polygons: Point2D[][],
+    seamTolerance: number = 20
+  ): boolean {
+    if (!polygons || polygons.length <= 1) return true;
+    const n = polygons.length;
+
+    // Построение графа смежности
+    const adj: number[][] = Array.from({ length: n }, () => []);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (this.arePolygonsAdjacent(polygons[i], polygons[j], seamTolerance)) {
+          adj[i].push(j);
+          adj[j].push(i);
+        }
+      }
+    }
+
+    // Обход в ширину (BFS) для проверки связности
+    const visited = new Set<number>();
+    const queue: number[] = [0];
+    visited.add(0);
+
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      for (const v of adj[u]) {
+        if (!visited.has(v)) {
+          visited.add(v);
+          queue.push(v);
+        }
+      }
+    }
+
+    return visited.size === n;
+  }
+
+  /**
+   * Объединяет массив многоугольников в единый внешний контур
    */
   public static unionPolygons(polygons: Point2D[][], seamTolerance: number = 16): Point2D[] {
     if (!polygons || polygons.length === 0) return [];
@@ -1071,5 +1188,327 @@ export class PolygonSlicingEngine {
       label,
       edgeSegment,
     };
+  }
+
+  /**
+   * Разрезает отдельный WallPanelPiece произвольной линией p1-p2
+   */
+  public static splitWallPanel(
+    panel: WallPanelPiece,
+    p1: Point2D,
+    p2: Point2D,
+    seamGap: number = 8
+  ): { newPanels: WallPanelPiece[]; joint: WallJointLine } | null {
+    const splitResult = this.splitPolygonByLine(panel.points, p1, p2, seamGap);
+    if (!splitResult) return null;
+
+    const allPolys = splitResult.allPieces || (
+      splitResult.piecesA && splitResult.piecesB
+        ? [...splitResult.piecesA, ...splitResult.piecesB]
+        : [splitResult.pieceA, splitResult.pieceB].filter(Boolean)
+    );
+
+    if (allPolys.length < 2) return null;
+
+    const newPanels: WallPanelPiece[] = allPolys.map((poly, idx) => ({
+      ...panel,
+      id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+      points: poly,
+      partLabel: `${panel.partLabel}.${idx + 1}`,
+    }));
+
+    const isVert = Math.abs(p1.x - p2.x) < 1e-4;
+    const isHoriz = Math.abs(p1.y - p2.y) < 1e-4;
+    const orientation = isVert ? 'VERTICAL' : (isHoriz ? 'HORIZONTAL' : 'DIAGONAL');
+
+    const cutSegments = splitResult.cutSegments || [];
+    const jointP1 = cutSegments[0]?.p1 || p1;
+    const jointP2 = cutSegments[0]?.p2 || p2;
+
+    const joint: WallJointLine = {
+      id: `joint-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      p1: jointP1,
+      p2: jointP2,
+      width: seamGap,
+      isLED: false,
+      orientation,
+    };
+
+    return { newPanels, joint };
+  }
+
+  /**
+   * Автоматически нарезает WallPanelPiece на вертикальные ламели заданной ширины
+   */
+  public static sliceWallPanelIntoStrips(
+    panel: WallPanelPiece,
+    stripWidth: number,
+    seamGap: number = 8
+  ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
+    const xs = panel.points.map((p) => p.x);
+    const ys = panel.points.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const totalW = maxX - minX;
+
+    if (totalW <= stripWidth + 5) {
+      return { newPanels: [panel], joints: [] };
+    }
+
+    const dummySubPiece: PolygonSubPiece = {
+      ...panel,
+      areaSqM: Math.round((this.calculatePolygonArea(panel.points) / 1_000_000) * 1000) / 1000,
+    };
+
+    const strips = this.slicePolygonIntoVerticalStrips(
+      panel.points,
+      stripWidth,
+      dummySubPiece,
+      panel.partLabel || '1.1',
+      seamGap
+    );
+
+    const newPanels: WallPanelPiece[] = strips.map((sp, idx) => ({
+      ...panel,
+      id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+      points: sp.points,
+      partLabel: sp.partLabel || `${panel.partLabel}.${idx + 1}`,
+      materialId: sp.materialId || panel.materialId,
+      color: sp.color || panel.color,
+      decorCode: sp.decorCode || panel.decorCode,
+      decorName: sp.decorName || panel.decorName,
+      thickness: sp.thickness || panel.thickness,
+      reliefType: sp.reliefType || panel.reliefType,
+      textureCategory: sp.textureCategory || panel.textureCategory,
+      patternAngleDeg: sp.patternAngleDeg !== undefined ? sp.patternAngleDeg : panel.patternAngleDeg,
+      patternFlipX: sp.patternFlipX !== undefined ? sp.patternFlipX : panel.patternFlipX,
+      isVoid: sp.isVoid !== undefined ? sp.isVoid : panel.isVoid,
+    }));
+
+    const joints: WallJointLine[] = [];
+    let curX = minX + stripWidth;
+    while (curX < maxX - 5) {
+      const cutP1 = { x: curX, y: minY - 10 };
+      const cutP2 = { x: curX, y: maxY + 10 };
+      const cutRes = this.splitPolygonByLine(panel.points, cutP1, cutP2, 0);
+      if (cutRes && cutRes.cutSegments && cutRes.cutSegments.length > 0) {
+        cutRes.cutSegments.forEach((seg, sIdx) => {
+          joints.push({
+            id: `joint-${Date.now()}-${joints.length + 1}-${sIdx}`,
+            p1: seg.p1,
+            p2: seg.p2,
+            width: seamGap,
+            isLED: false,
+            orientation: 'VERTICAL',
+          });
+        });
+      } else {
+        joints.push({
+          id: `joint-${Date.now()}-${joints.length + 1}`,
+          p1: { x: curX, y: minY },
+          p2: { x: curX, y: maxY },
+          width: seamGap,
+          isLED: false,
+          orientation: 'VERTICAL',
+        });
+      }
+      curX += stripWidth;
+    }
+
+    return { newPanels, joints };
+  }
+
+  /**
+   * Вырезает прямоугольный проем (дверь, окно, нишу) из набора WallPanelPiece (Архитектурный раскрой: цельные простенки + фрамуга)
+   */
+  public static cutOpeningFromWallPanels(
+    panels: WallPanelPiece[],
+    opening: { id: string; name?: string; x: number; y: number; width: number; height: number },
+    seamGap: number = 8
+  ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
+    const resultPanels: WallPanelPiece[] = [];
+    const newJoints: WallJointLine[] = [];
+
+    const opLeft = opening.x;
+    const opRight = opening.x + opening.width;
+    const opBottom = opening.y;
+    const opTop = opening.y + opening.height;
+
+    for (const panel of panels) {
+      const xs = panel.points.map((p) => p.x);
+      const ys = panel.points.map((p) => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+
+      // Проверка на непересечение
+      if (maxX <= opLeft || minX >= opRight || maxY <= opBottom || minY >= opTop) {
+        resultPanels.push(panel);
+        continue;
+      }
+
+      // 1. Отсекаем цельный левый простенок (x <= opLeft) во всю высоту панели
+      let leftPierPolys: Point2D[][] = [];
+      let rightRemPolys: Point2D[][] = [panel.points];
+
+      if (opLeft > minX && opLeft < maxX) {
+        const cut = this.splitPolygonByLine(panel.points, { x: opLeft, y: -10000 }, { x: opLeft, y: 10000 }, 0);
+        if (cut && cut.allPieces && cut.allPieces.length >= 2) {
+          leftPierPolys = cut.allPieces.filter((p) => {
+            const c = this.calculateCentroid(p);
+            return c.x <= opLeft + 0.1;
+          });
+          rightRemPolys = cut.allPieces.filter((p) => {
+            const c = this.calculateCentroid(p);
+            return c.x > opLeft + 0.1;
+          });
+        }
+      }
+
+      // 2. Из оставшейся части отсекаем цельный правый простенок (x >= opRight) во всю высоту панели
+      let rightPierPolys: Point2D[][] = [];
+      let centerColPolys: Point2D[][] = [];
+
+      for (const poly of rightRemPolys) {
+        const polyXs = poly.map((p) => p.x);
+        const polyMinX = Math.min(...polyXs);
+        const polyMaxX = Math.max(...polyXs);
+
+        if (opRight > polyMinX && opRight < polyMaxX) {
+          const cut = this.splitPolygonByLine(poly, { x: opRight, y: -10000 }, { x: opRight, y: 10000 }, 0);
+          if (cut && cut.allPieces && cut.allPieces.length >= 2) {
+            centerColPolys.push(
+              ...cut.allPieces.filter((p) => {
+                const c = this.calculateCentroid(p);
+                return c.x <= opRight + 0.1;
+              })
+            );
+            rightPierPolys.push(
+              ...cut.allPieces.filter((p) => {
+                const c = this.calculateCentroid(p);
+                return c.x > opRight + 0.1;
+              })
+            );
+          } else {
+            centerColPolys.push(poly);
+          }
+        } else if (polyMinX >= opRight - 0.1) {
+          rightPierPolys.push(poly);
+        } else {
+          centerColPolys.push(poly);
+        }
+      }
+
+      // 3. Только центральная колонка (opLeft <= x <= opRight) рассекается по горизонтали:
+      // Вверху — фрамуга (y >= opTop), внизу (если есть) — подоконник/фартук (y <= opBottom)
+      let transomAndBottomPolys: Point2D[][] = [];
+
+      for (const poly of centerColPolys) {
+        let currentSub = [poly];
+
+        // Горизонтальный рез по верху проема opTop
+        const polyYs = poly.map((p) => p.y);
+        const polyMinY = Math.min(...polyYs);
+        const polyMaxY = Math.max(...polyYs);
+
+        if (opTop > polyMinY && opTop < polyMaxY) {
+          const nextSub: Point2D[][] = [];
+          for (const sp of currentSub) {
+            const cut = this.splitPolygonByLine(sp, { x: -10000, y: opTop }, { x: 10000, y: opTop }, 0);
+            if (cut && cut.allPieces && cut.allPieces.length >= 2) {
+              nextSub.push(...cut.allPieces);
+            } else {
+              nextSub.push(sp);
+            }
+          }
+          currentSub = nextSub;
+        }
+
+        // Горизонтальный рез по низу проема opBottom (если окно/ниша)
+        if (opBottom > polyMinY && opBottom < polyMaxY) {
+          const nextSub: Point2D[][] = [];
+          for (const sp of currentSub) {
+            const cut = this.splitPolygonByLine(sp, { x: -10000, y: opBottom }, { x: 10000, y: opBottom }, 0);
+            if (cut && cut.allPieces && cut.allPieces.length >= 2) {
+              nextSub.push(...cut.allPieces);
+            } else {
+              nextSub.push(sp);
+            }
+          }
+          currentSub = nextSub;
+        }
+
+        // Удаляем кусок строго внутри выреза проема
+        const kept = currentSub.filter((sp) => {
+          const c = this.calculateCentroid(sp);
+          const isInside =
+            c.x >= opLeft - 0.5 &&
+            c.x <= opRight + 0.5 &&
+            c.y >= opBottom - 0.5 &&
+            c.y <= opTop + 0.5;
+          return !isInside;
+        });
+
+        transomAndBottomPolys.push(...kept);
+      }
+
+      // Собираем все итоговые полигоны для этой панели:
+      // Левый простенок (цельный) + Фрамуга / Низ + Правый простенок (цельный)
+      const allResultPolys = [...leftPierPolys, ...transomAndBottomPolys, ...rightPierPolys];
+
+      allResultPolys.forEach((poly, kIdx) => {
+        resultPanels.push({
+          ...panel,
+          id: `panel-${Date.now()}-${resultPanels.length + 1}-${kIdx + 1}-${Math.random().toString(36).substring(2, 5)}`,
+          points: poly,
+          partLabel: allResultPolys.length > 1 ? `${panel.partLabel}.${kIdx + 1}` : panel.partLabel,
+        });
+      });
+    }
+
+    // 4. Формируем швы вокруг проема и фрамуги
+    // Левый вертикальный стык (вдоль проема)
+    newJoints.push({
+      id: `joint-op-left-${opening.id}`,
+      p1: { x: opLeft, y: opBottom },
+      p2: { x: opLeft, y: opTop },
+      width: seamGap,
+      isLED: false,
+      orientation: 'VERTICAL',
+    });
+    // Правый вертикальный стык (вдоль проема)
+    newJoints.push({
+      id: `joint-op-right-${opening.id}`,
+      p1: { x: opRight, y: opBottom },
+      p2: { x: opRight, y: opTop },
+      width: seamGap,
+      isLED: false,
+      orientation: 'VERTICAL',
+    });
+    // Верхний горизонтальный стык (над дверью)
+    newJoints.push({
+      id: `joint-op-top-${opening.id}`,
+      p1: { x: opLeft, y: opTop },
+      p2: { x: opRight, y: opTop },
+      width: seamGap,
+      isLED: false,
+      orientation: 'HORIZONTAL',
+    });
+    // Нижний стык (если подоконник/ниша)
+    if (opBottom > 0) {
+      newJoints.push({
+        id: `joint-op-bot-${opening.id}`,
+        p1: { x: opLeft, y: opBottom },
+        p2: { x: opRight, y: opBottom },
+        width: seamGap,
+        isLED: false,
+        orientation: 'HORIZONTAL',
+      });
+    }
+
+    return { newPanels: resultPanels, joints: newJoints };
   }
 }

@@ -754,7 +754,9 @@ export const CadCanvas: React.FC = () => {
 
             {/* Отрисовка интерактивных проемов */}
             {selectedWall.openings.map((op) => {
+              const isApplied = op.isApplied ?? false;
               const isPanelsMode = editMode === 'PANELS';
+              const canDrag = isPanelsMode && !isApplied;
               const opX = op.x;
               const opY = wallH - (op.y + op.height);
               const isSelected = op.id === project.selectedOpeningId;
@@ -764,7 +766,7 @@ export const CadCanvas: React.FC = () => {
                   key={op.id}
                   x={opX}
                   y={opY}
-                  draggable={isPanelsMode}
+                  draggable={canDrag}
                   listening={isPanelsMode}
                   onDragStart={(e) => {
                     e.cancelBubble = true;
@@ -778,6 +780,7 @@ export const CadCanvas: React.FC = () => {
                     selectOpening(op.id);
                   }}
                   onDragEnd={(e) => {
+                    if (!canDrag) return;
                     e.cancelBubble = true;
                     let rawX = Math.round(e.target.x());
                     let rawY = Math.round(wallH - e.target.y() - op.height);
@@ -966,10 +969,10 @@ export const CadCanvas: React.FC = () => {
                   <Rect
                     width={op.width}
                     height={op.height}
-                    fill={op.isCutout !== false ? '#141517' : 'rgba(26, 27, 30, 0.82)'}
-                    stroke={isSelected ? '#339AF0' : getOpeningColor(op.type)}
-                    strokeWidth={isSelected ? 4 / zoom : (op.isCutout !== false ? 2 / zoom : 3 / zoom)}
-                    dash={op.isCutout === false ? [10, 6] : undefined}
+                    fill={!isApplied ? 'rgba(255, 146, 43, 0.08)' : (op.isCutout !== false ? '#141517' : 'rgba(26, 27, 30, 0.82)')}
+                    stroke={isSelected ? '#339AF0' : (!isApplied ? '#FF922B' : getOpeningColor(op.type))}
+                    strokeWidth={isSelected ? 4 / zoom : (!isApplied ? 2.5 / zoom : (op.isCutout !== false ? 2 / zoom : 3 / zoom))}
+                    dash={!isApplied ? [8, 6] : (op.isCutout === false ? [10, 6] : undefined)}
                     cornerRadius={op.type === 'TV_ZONE' ? 4 : 0}
                   />
 
@@ -1032,15 +1035,19 @@ export const CadCanvas: React.FC = () => {
                           }`
                         : '';
 
+                    const statusBadge = !isApplied
+                      ? '\n⚙ Черновик: настройте и нажмите "Применить"'
+                      : '\n🔒 Встроен в стену';
+
                     return (
                       <Text
                         x={15}
                         y={15}
                         text={`${op.isCutout === false ? '📺 ' : ''}${op.name}\n${op.width} × ${op.height} мм${
                           op.isCutout === false ? '\n(поверх плит)' : slopeInfo
-                        }`}
+                        }${statusBadge}`}
                         fontSize={Math.max(12, 16 / Math.max(0.5, zoom))}
-                        fill={op.isCutout === false ? '#FFD43B' : '#C1C2C5'}
+                        fill={!isApplied ? '#FFD43B' : (op.isCutout === false ? '#FFD43B' : '#C1C2C5')}
                         fontFamily="Inter"
                         fontStyle="bold"
                         listening={false}

@@ -35,6 +35,7 @@ export interface Opening {
   depth?: number;     // глубина проема в стене (мм)
   slopeDepth?: number;// глубина/ширина откоса (мм) (для обратной совместимости)
   isCutout: boolean;  // true - вырез в плитах (дверь/окно), false - декор поверх плит (ТВ/зеркало)
+  isApplied?: boolean; // false - черновик (можно свободно двигать и менять размеры), true - встроено в панели стены
   slopes?: SlopeConfig;
 }
 
@@ -107,6 +108,7 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         depth: 150,
         slopeDepth: 150,
         isCutout: true,
+        isApplied: false,
         slopes: {
           enabled: true,
           fitToOpeningDepth: true,
@@ -134,6 +136,7 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         depth: 200,
         slopeDepth: 200,
         isCutout: true,
+        isApplied: false,
         slopes: {
           enabled: true,
           fitToOpeningDepth: true,
@@ -161,6 +164,7 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         depth: 0,
         slopeDepth: 0,
         isCutout: false, // по умолчанию поверх плит
+        isApplied: false,
         slopes: {
           enabled: false,
           fitToOpeningDepth: true,
@@ -188,6 +192,7 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
         depth: 150,
         slopeDepth: 150,
         isCutout: true,
+        isApplied: false,
         slopes: {
           enabled: true,
           fitToOpeningDepth: true,

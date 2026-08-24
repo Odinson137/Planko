@@ -1,4 +1,4 @@
-import { Wall, RadiusConfig, PanelBendInfo } from '../models/Wall';
+import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
 import { ensureOpeningSlopes } from '../models/Opening';
 import { Point2D, PolygonSlicingEngine } from '../geometry/PolygonSlicingEngine';
@@ -207,7 +207,6 @@ export class LayoutEngine {
     });
 
     let columnIndex = 0;
-    let materialPiecesCount = 0;
 
     const columnBoundaries: {
       columnIndex: number;
@@ -232,334 +231,332 @@ export class LayoutEngine {
       isHorizInner: boolean;
     }[] = [];
 
-    // 2. Генерация панелей стены
-    while (currentX < maxX) {
-      const customConfig = wall.customPanels?.[columnIndex];
-      const columnMaterial =
-        (customConfig?.customMaterialId && materialsMap.get(customConfig.customMaterialId)) ||
-        defaultMaterial;
+    if (wall.panels && wall.panels.length > 0) {
+      // 2. ПРЯМАЯ ПОЛИГОНАЛЬНАЯ МОДЕЛЬ (Pure 2D Polygon Mesh)
+      wall.panels.forEach((p, pIdx) => {
+        const mat = (p.materialId && materialsMap.get(p.materialId)) || defaultMaterial;
+        const isVoid = p.isVoid || mat.id === MATERIAL_NONE_ID || mat.isVoid === true;
+        const xs = p.points.map((pt) => pt.x);
+        const ys = p.points.map((pt) => pt.y);
+        const minX = Math.min(...xs);
+        const maxXPt = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxYPt = Math.max(...ys);
+        const pieceW = Math.round((maxXPt - minX) * 10) / 10;
+        const pieceH = Math.round((maxYPt - minY) * 10) / 10;
+        const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(p.points) / 1_000_000) * 1000) / 1000;
 
-      let baseWidth = columnMaterial.isVoid ? (maxX - currentX) : columnMaterial.width;
-      let arcLength: number | undefined = undefined;
+        const defaultLabel = isVoid ? 'ПУСТО' : (p.partLabel || `1.${pIdx + 1}`);
 
-      if (customConfig?.radiusConfig) {
-        const rad = customConfig.radiusConfig.radius;
-        const angle = customConfig.radiusConfig.angleDeg ?? 90;
-        arcLength = Math.round((Math.PI * rad * angle) / 180);
-        baseWidth = columnMaterial.isVoid ? arcLength : Math.min(arcLength, columnMaterial.width);
-      } else if (customConfig?.customWidth !== undefined) {
-        // Для пустоты (isVoid) нет ограничений по максимальной ширине материала
-        baseWidth = columnMaterial.isVoid
-          ? customConfig.customWidth
-          : Math.min(customConfig.customWidth, columnMaterial.width);
-      }
-
-      const panelWidth = Math.min(baseWidth, Math.max(0, maxX - currentX));
-
-      if (panelWidth <= 0.5) {
-        break;
-      }
-
-      const vertJointId = `edge-v-${columnIndex}`;
-      const customVertJoint = wall.customJoints?.[vertJointId];
-      const isVertInner = currentX + panelWidth < maxX - 1;
-      const vertJointWidth = isVertInner
-        ? (customVertJoint !== undefined ? customVertJoint.width : 8)
-        : rightEdgeWidth;
-      const isVertLED = customVertJoint?.isLED ?? false;
-
-      columnBoundaries.push({
-        columnIndex,
-        x: currentX + panelWidth,
-        width: vertJointWidth,
-        vertJointId,
-        vertJointWidth,
-        isVertLED,
-        isVertInner,
+        panels.push({
+          id: p.id,
+          subPieceId: p.id,
+          x: minX,
+          y: minY,
+          width: pieceW,
+          height: pieceH,
+          isCut: true,
+          isVoid,
+          originalColumnIndex: 0,
+          originalSegmentIndex: pIdx,
+          materialId: mat.id,
+          materialColor: isVoid ? 'rgba(30, 31, 35, 0.45)' : (p.color || mat.color),
+          materialType: mat.type,
+          decorCode: p.decorCode || mat.decorCode,
+          decorName: p.decorName || mat.decorName,
+          thickness: isVoid ? 0 : (p.thickness || mat.thickness || 5),
+          reliefType: p.reliefType || mat.reliefType || 'FLAT',
+          textureCategory: p.textureCategory || mat.textureCategory || 'WOOD',
+          partLabel: defaultLabel,
+          polygonPoints: p.points,
+          patternAngleDeg: p.patternAngleDeg || 0,
+          patternFlipX: p.patternFlipX || false,
+          areaSqM,
+        });
       });
 
-      const segmentsConfig = customConfig?.segments || [];
-      let currentY = botEdgeWidth;
-      let segmentIndex = 0;
+      if (wall.joints && wall.joints.length > 0) {
+        wall.joints.forEach((j) => {
+          const p1 = {
+            x: Math.max(0, Math.min(wall.width, j.p1.x)),
+            y: Math.max(0, Math.min(wall.height, j.p1.y)),
+          };
+          const p2 = {
+            x: Math.max(0, Math.min(wall.width, j.p2.x)),
+            y: Math.max(0, Math.min(wall.height, j.p2.y)),
+          };
+          const len = Math.round(Math.hypot(p2.x - p1.x, p2.y - p1.y));
+          if (len <= 2) return;
 
-      while (currentY < maxY) {
-        const segConfig = segmentsConfig[segmentIndex];
-        const segMaterial =
-          (segConfig?.customMaterialId && materialsMap.get(segConfig.customMaterialId)) ||
-          columnMaterial;
+          const isVert = Math.abs(p1.x - p2.x) < 1e-3;
+          const isHoriz = Math.abs(p1.y - p2.y) < 1e-3;
+          const orientation =
+            j.orientation || (isVert ? 'VERTICAL' : isHoriz ? 'HORIZONTAL' : 'DIAGONAL');
 
-        const isVoid = segMaterial.id === MATERIAL_NONE_ID || segMaterial.isVoid === true;
-        const maxAllowedH = isVoid ? (maxY - currentY) : segMaterial.height;
-        const rawHeight = segConfig?.height !== undefined
-          ? Math.min(segConfig.height, maxAllowedH, maxY - currentY)
-          : Math.min(maxAllowedH, maxY - currentY);
-        const segmentHeight = Math.min(rawHeight, Math.max(0, maxY - currentY));
+          rawJoints.push({
+            id: j.id,
+            name: `Шов ${j.id}`,
+            x: Math.min(p1.x, p2.x),
+            y: Math.min(p1.y, p2.y),
+            p1,
+            p2,
+            width: j.width,
+            length: len,
+            orientation,
+            isLED: j.isLED || false,
+            isOuterEdge: j.isOuterEdge || false,
+            groupId: j.groupId,
+          });
+        });
+      }
+    } else {
+      // 2. Генерация панелей стены (Legacy сетка колонок и сегментов)
+      while (currentX < maxX) {
+        const customConfig = wall.customPanels?.[columnIndex];
+        const columnMaterial =
+          (customConfig?.customMaterialId && materialsMap.get(customConfig.customMaterialId)) ||
+          defaultMaterial;
 
-        if (segmentHeight <= 0.5) {
+        let baseWidth = columnMaterial.isVoid ? (maxX - currentX) : columnMaterial.width;
+        let arcLength: number | undefined = undefined;
+
+        if (customConfig?.radiusConfig) {
+          const rad = customConfig.radiusConfig.radius;
+          const angle = customConfig.radiusConfig.angleDeg ?? 90;
+          arcLength = Math.round((Math.PI * rad * angle) / 180);
+          baseWidth = columnMaterial.isVoid ? arcLength : Math.min(arcLength, columnMaterial.width);
+        } else if (customConfig?.customWidth !== undefined) {
+          baseWidth = customConfig.customWidth;
+        }
+
+        const panelWidth = Math.min(baseWidth, Math.max(0, maxX - currentX));
+
+        if (panelWidth <= 0.5) {
           break;
         }
 
-        const horizJointId = `edge-h-${columnIndex}-${segmentIndex}`;
-        const customHorizJoint = wall.customJoints?.[horizJointId];
-        const isHorizInner = currentY + segmentHeight < maxY - 1;
-        const horizJointWidth = isHorizInner
-          ? (customHorizJoint !== undefined ? customHorizJoint.width : 8)
-          : topEdgeWidth;
-        const isHorizLED = customHorizJoint?.isLED ?? false;
+        const vertJointId = `edge-v-${columnIndex}`;
+        const customVertJoint = wall.customJoints?.[vertJointId];
+        const isVertInner = currentX + panelWidth < maxX - 1;
+        const vertJointWidth = isVertInner
+          ? (customVertJoint !== undefined ? customVertJoint.width : 8)
+          : rightEdgeWidth;
+        const isVertLED = customVertJoint?.isLED ?? false;
 
-        horizJointCandidates.push({
+        columnBoundaries.push({
           columnIndex,
-          segmentIndex,
-          horizJointId,
-          x: currentX,
-          y: currentY + segmentHeight,
-          width: panelWidth,
-          panelWidth,
-          horizJointWidth,
-          isHorizLED,
-          isHorizInner,
+          x: currentX + panelWidth,
+          width: vertJointWidth,
+          vertJointId,
+          vertJointWidth,
+          isVertLED,
+          isVertInner,
         });
 
-        if (!isVoid) {
-          materialPiecesCount++;
-        }
+        const segmentsConfig = customConfig?.segments || [];
+        let currentY = botEdgeWidth;
+        let segmentIndex = 0;
 
-        const pLeft = Math.round(currentX * 10) / 10;
-        const pRight = Math.round((currentX + panelWidth) * 10) / 10;
-        const panelBendsInfo: PanelBendInfo[] = [];
+        while (currentY < maxY) {
+          const segConfig = segmentsConfig[segmentIndex];
+          const segMaterial =
+            (segConfig?.customMaterialId && materialsMap.get(segConfig.customMaterialId)) ||
+            columnMaterial;
 
-        if (wall.bends && wall.bends.length > 0) {
-          wall.bends.forEach((bend) => {
-            const bendArcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
-            const bendLeft = bend.x;
-            const bendRight = bend.x + bendArcLen;
+          const isVoid = segMaterial.id === MATERIAL_NONE_ID || segMaterial.isVoid === true;
+          const maxAllowedH = isVoid ? (maxY - currentY) : segMaterial.height;
+          const rawHeight = segConfig?.height !== undefined
+            ? Math.min(segConfig.height, maxAllowedH, maxY - currentY)
+            : Math.min(maxAllowedH, maxY - currentY);
+          const segmentHeight = Math.min(rawHeight, Math.max(0, maxY - currentY));
 
-            if (bend.radius <= 0 || bendArcLen <= 0) {
-              if (bend.x >= pLeft - 0.5 && bend.x <= pRight + 0.5) {
-                const flatLeft = Math.max(0, bend.x - pLeft);
-                const flatRight = Math.max(0, pRight - bend.x);
-                panelBendsInfo.push({
-                  bendId: bend.id,
-                  type: bend.type,
-                  radius: 0,
-                  angleDeg: bend.angleDeg || 90,
-                  flatLeft: Math.round(flatLeft * 10) / 10,
-                  bendWidth: 0,
-                  flatRight: Math.round(flatRight * 10) / 10,
-                  bendOffsetInSheet: Math.round(flatLeft * 10) / 10,
-                });
-              }
-            } else {
-              // Проверка пересечения отрезка панели [pLeft, pRight] и зоны изгиба [bendLeft, bendRight]
-              const overlapStart = Math.max(pLeft, bendLeft);
-              const overlapEnd = Math.min(pRight, bendRight);
+          if (segmentHeight <= 0.5) {
+            break;
+          }
 
-              if (overlapEnd > overlapStart + 0.5) {
-                const flatLeft = Math.max(0, bendLeft - pLeft);
-                const bendWidth = overlapEnd - overlapStart;
-                const flatRight = Math.max(0, pRight - bendRight);
-                const bendOffsetInSheet = Math.max(0, bendLeft - pLeft);
+          const horizJointId = `edge-h-${columnIndex}-${segmentIndex}`;
+          const customHorizJoint = wall.customJoints?.[horizJointId];
+          const isHorizInner = currentY + segmentHeight < maxY - 1;
+          const horizJointWidth = isHorizInner
+            ? (customHorizJoint !== undefined ? customHorizJoint.width : 8)
+            : topEdgeWidth;
+          const isHorizLED = customHorizJoint?.isLED ?? false;
+
+          horizJointCandidates.push({
+            columnIndex,
+            segmentIndex,
+            horizJointId,
+            x: currentX,
+            y: currentY + segmentHeight,
+            width: horizJointWidth,
+            panelWidth,
+            horizJointWidth,
+            isHorizLED,
+            isHorizInner,
+          });
+
+          // Подсчет изгибов внутри листа
+          const panelLeftOnWall = currentX;
+          const panelRightOnWall = currentX + panelWidth;
+          const panelBendsInfo: PanelBendInfo[] = [];
+
+          if (wall.bends && wall.bends.length > 0) {
+            wall.bends.forEach((bend) => {
+              const bendArcLength = Math.round((Math.PI * bend.radius * bend.angleDeg) / 180);
+              const bendStart = bend.x;
+              const bendEnd = bend.x + bendArcLength;
+
+              if (bendStart < panelRightOnWall && bendEnd > panelLeftOnWall) {
+                const overlapStart = Math.max(bendStart, panelLeftOnWall);
+                const overlapEnd = Math.min(bendEnd, panelRightOnWall);
+                const insideBendWidth = Math.round(overlapEnd - overlapStart);
+
+                const flatLeft = Math.max(0, Math.round(bendStart - panelLeftOnWall));
+                const flatRight = Math.max(0, Math.round(panelRightOnWall - bendEnd));
+                const bendOffsetInSheet = Math.max(0, Math.round(overlapStart - panelLeftOnWall));
 
                 panelBendsInfo.push({
                   bendId: bend.id,
                   type: bend.type,
                   radius: bend.radius,
-                  angleDeg: bend.angleDeg || 90,
-                  flatLeft: Math.round(flatLeft * 10) / 10,
-                  bendWidth: Math.round(bendWidth * 10) / 10,
-                  flatRight: Math.round(flatRight * 10) / 10,
-                  bendOffsetInSheet: Math.round(bendOffsetInSheet * 10) / 10,
+                  angleDeg: bend.angleDeg,
+                  flatLeft,
+                  bendWidth: insideBendWidth,
+                  flatRight,
+                  bendOffsetInSheet,
                 });
               }
-            }
-          });
-        }
-
-        // Обратная совместимость с кастомным радиусом колонки
-        if (panelBendsInfo.length === 0 && customConfig?.radiusConfig) {
-          panelBendsInfo.push({
-            bendId: `legacy-col-${columnIndex}`,
-            type: customConfig.radiusConfig.type,
-            radius: customConfig.radiusConfig.radius,
-            angleDeg: customConfig.radiusConfig.angleDeg || 90,
-            flatLeft: 0,
-            bendWidth: panelWidth,
-            flatRight: 0,
-            bendOffsetInSheet: 0,
-          });
-        }
-
-        let bendLabelStr = '';
-        if (panelBendsInfo.length > 0) {
-          const b = panelBendsInfo[0];
-          const typeStr = b.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН';
-          if (b.radius === 0) {
-            bendLabelStr = ` 📐 ${typeStr} ${b.angleDeg || 90}°`;
-          } else if (b.flatLeft > 10 || b.flatRight > 10) {
-            bendLabelStr = ` ⌒ ${typeStr} (${Math.round(b.flatLeft)}|${Math.round(b.bendWidth)}|${Math.round(b.flatRight)})`;
-          } else {
-            bendLabelStr = ` ⌒ ${typeStr} R=${b.radius}`;
-          }
-        }
-
-        const basePanelLabel = segmentsConfig.length > 1
-          ? `1.${columnIndex + 1}.${segmentIndex + 1}`
-          : `1.${columnIndex + 1}`;
-
-        let cleanSegLabel = segConfig?.partLabel;
-        if (cleanSegLabel && cleanSegLabel.startsWith('ПУСТО')) {
-          cleanSegLabel = cleanSegLabel === 'ПУСТО'
-            ? basePanelLabel
-            : cleanSegLabel.replace(/^ПУСТО/, basePanelLabel);
-        }
-
-        const defaultLabel = isVoid
-          ? 'ПУСТО'
-          : (cleanSegLabel ? `${cleanSegLabel}${bendLabelStr}` : `${basePanelLabel}${bendLabelStr}`);
-
-        const effectiveSubPieces = segConfig?.subPieces || (segmentsConfig.length === 0 ? customConfig?.subPieces : undefined);
-        const hasSubPieces = effectiveSubPieces && effectiveSubPieces.length > 0;
-
-        if (hasSubPieces) {
-          effectiveSubPieces.forEach((sub, subIdx) => {
-            const subMat = (sub.materialId && materialsMap.get(sub.materialId)) || segMaterial;
-            const isSubVoid = sub.isVoid || subMat.id === MATERIAL_NONE_ID || subMat.isVoid === true;
-
-            const polyPoints: Point2D[] = sub.points.map((pt) => ({
-              x: Math.round((currentX + pt.x) * 10) / 10,
-              y: Math.round((currentY + pt.y) * 10) / 10,
-            }));
-
-            const xs = polyPoints.map((p) => p.x);
-            const ys = polyPoints.map((p) => p.y);
-            const minX = Math.min(...xs);
-            const maxXPt = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxYPt = Math.max(...ys);
-            const pieceW = Math.round((maxXPt - minX) * 10) / 10;
-            const pieceH = Math.round((maxYPt - minY) * 10) / 10;
-
-            const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(polyPoints) / 1_000_000) * 1000) / 1000;
-
-            let cleanSubLabel = sub.partLabel;
-            if (cleanSubLabel && cleanSubLabel.startsWith('ПУСТО')) {
-              if (cleanSubLabel === 'ПУСТО') {
-                cleanSubLabel = effectiveSubPieces.length > 1
-                  ? `${basePanelLabel}.${subIdx + 1}`
-                  : basePanelLabel;
-              } else {
-                cleanSubLabel = cleanSubLabel.replace(/^ПУСТО/, basePanelLabel);
-              }
-            }
-
-            const subLabel = isSubVoid
-              ? 'ПУСТО'
-              : (cleanSubLabel || (effectiveSubPieces.length > 1
-                  ? `${basePanelLabel}.${subIdx + 1}`
-                  : basePanelLabel));
-
-            panels.push({
-              id: `panel-${columnIndex}-${segmentIndex}-${sub.id}`,
-              subPieceId: sub.id,
-              x: minX,
-              y: minY,
-              width: pieceW,
-              height: pieceH,
-              isCut: true,
-              isVoid: isSubVoid,
-              originalColumnIndex: columnIndex,
-              originalSegmentIndex: segmentIndex,
-              materialId: subMat.id,
-              materialColor: isSubVoid
-                ? 'rgba(30, 31, 35, 0.45)'
-                : (sub.color || subMat.color),
-              materialType: subMat.type,
-              decorCode: sub.decorCode || subMat.decorCode,
-              thickness: isSubVoid ? 0 : (sub.thickness || subMat.thickness),
-              reliefType: sub.reliefType || subMat.reliefType || 'FLAT',
-              textureCategory: sub.textureCategory || subMat.textureCategory || 'WOOD',
-              partLabel: subLabel,
-              polygonPoints: polyPoints,
-              patternAngleDeg: sub.patternAngleDeg !== undefined ? sub.patternAngleDeg : (segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0),
-              patternFlipX: sub.patternFlipX !== undefined ? sub.patternFlipX : (segConfig?.patternFlipX || customConfig?.patternFlipX || false),
-              areaSqM,
             });
-          });
+          }
 
-          // Генерация интерактивных стыков раскроя между соседними полигонами
-          for (let i = 0; i < effectiveSubPieces.length; i++) {
-            for (let j = i + 1; j < effectiveSubPieces.length; j++) {
-              const subA = effectiveSubPieces[i];
-              const subB = effectiveSubPieces[j];
+          const effectiveSubPieces =
+            segConfig?.subPieces && segConfig.subPieces.length > 0
+              ? segConfig.subPieces
+              : (customConfig?.subPieces && customConfig.subPieces.length > 0 ? customConfig.subPieces : null);
 
-              const ptsA = subA.points;
-              const ptsB = subB.points;
-              const nA = ptsA.length;
-              const nB = ptsB.length;
+          if (effectiveSubPieces && effectiveSubPieces.length > 0) {
+            effectiveSubPieces.forEach((sub, subIdx) => {
+              const subMat =
+                (sub.materialId && materialsMap.get(sub.materialId)) ||
+                segMaterial;
+              const isSubVoid = sub.isVoid || subMat.id === MATERIAL_NONE_ID || subMat.isVoid === true;
 
-              for (let a = 0; a < nA; a++) {
-                const a1 = ptsA[a];
-                const a2 = ptsA[(a + 1) % nA];
-                for (let b = 0; b < nB; b++) {
-                  const b1 = ptsB[b];
-                  const b2 = ptsB[(b + 1) % nB];
+              const polyPoints: Point2D[] = sub.points.map((p) => ({
+                x: currentX + p.x,
+                y: currentY + p.y,
+              }));
 
-                  // Проверяем перекрытие отрезков (коллинеарность + пересечение интервалов)
-                  const dxB = b2.x - b1.x;
-                  const dyB = b2.y - b1.y;
-                  const lenB = Math.hypot(dxB, dyB);
-                  if (lenB < 1e-3) continue;
+              const xs = polyPoints.map((p) => p.x);
+              const ys = polyPoints.map((p) => p.y);
+              const minX = Math.min(...xs);
+              const maxXPt = Math.max(...xs);
+              const minY = Math.min(...ys);
+              const maxYPt = Math.max(...ys);
+              const subW = Math.round(maxXPt - minX);
+              const subH = Math.round(maxYPt - minY);
+              const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(sub.points) / 1_000_000) * 1000) / 1000;
 
-                  const ux = dxB / lenB;
-                  const uy = dyB / lenB;
+              const subLabel = isSubVoid
+                ? 'ПУСТО'
+                : (sub.partLabel || (segmentsConfig.length > 1
+                    ? `1.${columnIndex + 1}.${segmentIndex + 1}.${subIdx + 1}`
+                    : `1.${columnIndex + 1}.${subIdx + 1}`));
 
-                  // Перпендикулярное расстояние от точек a1 и a2 до прямой b1-b2
-                  const distA1 = Math.abs((a1.x - b1.x) * uy - (a1.y - b1.y) * ux);
-                  const distA2 = Math.abs((a2.x - b1.x) * uy - (a2.y - b1.y) * ux);
+              panels.push({
+                id: `${columnIndex}-${segmentIndex}-${sub.id}`,
+                subPieceId: sub.id,
+                x: minX,
+                y: minY,
+                width: subW,
+                height: subH,
+                isCut: true,
+                isVoid: isSubVoid,
+                originalColumnIndex: columnIndex,
+                originalSegmentIndex: segmentIndex,
+                materialId: subMat.id,
+                materialColor: isSubVoid
+                  ? 'rgba(30, 31, 35, 0.45)'
+                  : (sub.color || subMat.color),
+                materialType: subMat.type,
+                decorCode: sub.decorCode || subMat.decorCode,
+                thickness: isSubVoid ? 0 : (sub.thickness || subMat.thickness),
+                reliefType: sub.reliefType || subMat.reliefType || 'FLAT',
+                textureCategory: sub.textureCategory || subMat.textureCategory || 'WOOD',
+                partLabel: subLabel,
+                polygonPoints: polyPoints,
+                patternAngleDeg: sub.patternAngleDeg !== undefined ? sub.patternAngleDeg : (segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0),
+                patternFlipX: sub.patternFlipX !== undefined ? sub.patternFlipX : (segConfig?.patternFlipX || customConfig?.patternFlipX || false),
+                areaSqM,
+              });
+            });
 
-                  if (distA1 <= 2.5 && distA2 <= 2.5) {
-                    // Проекции точек a1 и a2 на направляющую b1-b2
-                    const tA1 = (a1.x - b1.x) * ux + (a1.y - b1.y) * uy;
-                    const tA2 = (a2.x - b1.x) * ux + (a2.y - b1.y) * uy;
+            // Генерация интерактивных стыков раскроя между соседними полигонами
+            for (let i = 0; i < effectiveSubPieces.length; i++) {
+              for (let j = i + 1; j < effectiveSubPieces.length; j++) {
+                const subA = effectiveSubPieces[i];
+                const subB = effectiveSubPieces[j];
 
-                    const minA = Math.min(tA1, tA2);
-                    const maxA = Math.max(tA1, tA2);
+                const ptsA = subA.points;
+                const ptsB = subB.points;
+                const nA = ptsA.length;
+                const nB = ptsB.length;
 
-                    const tStart = Math.max(0, minA);
-                    const tEnd = Math.min(lenB, maxA);
-                    const overlapLen = tEnd - tStart;
+                for (let a = 0; a < nA; a++) {
+                  const a1 = ptsA[a];
+                  const a2 = ptsA[(a + 1) % nA];
+                  for (let b = 0; b < nB; b++) {
+                    const b1 = ptsB[b];
+                    const b2 = ptsB[(b + 1) % nB];
 
-                    if (overlapLen > 4.0) {
-                      const worldP1: Point2D = {
-                        x: Math.round((currentX + (b1.x + ux * tStart)) * 10) / 10,
-                        y: Math.round((currentY + (b1.y + uy * tStart)) * 10) / 10,
-                      };
-                      const worldP2: Point2D = {
-                        x: Math.round((currentX + (b1.x + ux * tEnd)) * 10) / 10,
-                        y: Math.round((currentY + (b1.y + uy * tEnd)) * 10) / 10,
-                      };
+                    const dxB = b2.x - b1.x;
+                    const dyB = b2.y - b1.y;
+                    const lenB = Math.hypot(dxB, dyB);
+                    if (lenB < 1e-3) continue;
 
-                      const edgeLen = Math.round(Math.hypot(worldP2.x - worldP1.x, worldP2.y - worldP1.y) * 10) / 10;
-                      if (edgeLen > 5) {
-                        const cutJointId = `edge-cut-${columnIndex}-${segmentIndex}-${subA.id}-${subB.id}`;
-                        const customJointCfg = wall.customJoints[cutJointId];
-                        const isCutLED = customJointCfg?.isLED ?? false;
-                        const jWidth = customJointCfg?.width ?? 8;
+                    const ux = dxB / lenB;
+                    const uy = dyB / lenB;
 
-                        const isPureVert = Math.abs(worldP1.x - worldP2.x) < 0.5;
-                        const isPureHoriz = Math.abs(worldP1.y - worldP2.y) < 0.5;
+                    const distA1 = Math.abs((a1.x - b1.x) * uy - (a1.y - b1.y) * ux);
+                    const distA2 = Math.abs((a2.x - b1.x) * uy - (a2.y - b1.y) * ux);
+
+                    if (distA1 <= 2.5 && distA2 <= 2.5) {
+                      const tA1 = (a1.x - b1.x) * ux + (a1.y - b1.y) * uy;
+                      const tA2 = (a2.x - b1.x) * ux + (a2.y - b1.y) * uy;
+                      const minTA = Math.min(tA1, tA2);
+                      const maxTA = Math.max(tA1, tA2);
+
+                      const overlapMin = Math.max(0, minTA);
+                      const overlapMax = Math.min(lenB, maxTA);
+                      const overlapLen = overlapMax - overlapMin;
+
+                      if (overlapLen > 10) {
+                        const cutJointKey = `cut-joint-${columnIndex}-${segmentIndex}-${subA.id}-${subB.id}`;
+                        const customCut = wall.customJoints?.[cutJointKey];
+                        const seamW = customCut !== undefined ? customCut.width : 8;
+
+                        const seamP1 = {
+                          x: currentX + b1.x + ux * overlapMin,
+                          y: currentY + b1.y + uy * overlapMin,
+                        };
+                        const seamP2 = {
+                          x: currentX + b1.x + ux * overlapMax,
+                          y: currentY + b1.y + uy * overlapMax,
+                        };
+
+                        const isVertCut = Math.abs(ux) < 0.05;
+                        const isHorizCut = Math.abs(uy) < 0.05;
 
                         rawJoints.push({
-                          id: cutJointId,
-                          name: `Стык раскроя (${subA.partLabel || 'A'} / ${subB.partLabel || 'B'})`,
-                          x: Math.min(worldP1.x, worldP2.x),
-                          y: Math.min(worldP1.y, worldP2.y),
-                          width: jWidth,
-                          length: edgeLen,
-                          orientation: isPureVert ? 'VERTICAL' : (isPureHoriz ? 'HORIZONTAL' : 'DIAGONAL'),
-                          p1: worldP1,
-                          p2: worldP2,
-                          isLED: isCutLED,
+                          id: cutJointKey,
+                          name: `Стык раскроя: ${subA.partLabel || '1.1'} / ${subB.partLabel || '1.2'}`,
+                          x: Math.min(seamP1.x, seamP2.x),
+                          y: Math.min(seamP1.y, seamP2.y),
+                          p1: seamP1,
+                          p2: seamP2,
+                          width: seamW,
+                          length: Math.round(overlapLen),
+                          orientation: isVertCut ? 'VERTICAL' : (isHorizCut ? 'HORIZONTAL' : 'DIAGONAL'),
+                          isLED: customCut?.isLED ?? false,
                           isOuterEdge: false,
                           columnIndex,
                           segmentIndex,
@@ -570,76 +567,87 @@ export class LayoutEngine {
                 }
               }
             }
+          } else {
+            const isCut = false;
+            const defaultLabel = isVoid
+              ? 'ПУСТО'
+              : (segConfig?.partLabel || (segmentsConfig.length > 1
+                  ? `1.${columnIndex + 1}.${segmentIndex + 1}`
+                  : `1.${columnIndex + 1}`));
+
+            const patternAngle = segConfig?.patternAngleDeg !== undefined
+              ? segConfig.patternAngleDeg
+              : (customConfig?.patternAngleDeg !== undefined ? customConfig.patternAngleDeg : 0);
+
+            const patternFlip = segConfig?.patternFlipX !== undefined
+              ? segConfig.patternFlipX
+              : (customConfig?.patternFlipX !== undefined ? customConfig.patternFlipX : false);
+
+            panels.push({
+              id: `${columnIndex}-${segmentIndex}`,
+              x: currentX,
+              y: currentY,
+              width: panelWidth,
+              height: segmentHeight,
+              isCut,
+              isVoid,
+              originalColumnIndex: columnIndex,
+              originalSegmentIndex: segmentIndex,
+              materialId: segMaterial.id,
+              materialColor: isVoid
+                ? 'rgba(30, 31, 35, 0.45)'
+                : (segConfig?.customColor || customConfig?.customColor || segMaterial.color),
+              materialType: segMaterial.type,
+              decorCode: segConfig?.customDecorCode || customConfig?.customDecorCode || segMaterial.decorCode,
+              decorName: segMaterial.decorName,
+              thickness: isVoid ? 0 : (segConfig?.customThickness || customConfig?.customThickness || segMaterial.thickness),
+              reliefType: segConfig?.customReliefType || customConfig?.customReliefType || segMaterial.reliefType || 'FLAT',
+              textureCategory: segConfig?.customTextureCategory || customConfig?.customTextureCategory || segMaterial.textureCategory || 'FABRIC',
+              partLabel: defaultLabel,
+              radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
+              arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
+              bendsInfo: panelBendsInfo.length > 0 ? panelBendsInfo : undefined,
+              patternAngleDeg: patternAngle,
+              patternFlipX: patternFlip,
+              areaSqM: Math.round(((panelWidth * segmentHeight) / 1_000_000) * 1000) / 1000,
+            });
           }
-        } else {
-          const patternAngle = segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0;
-          const patternFlip = segConfig?.patternFlipX || customConfig?.patternFlipX || false;
 
-          panels.push({
-            id: `panel-${columnIndex}-${segmentIndex}`,
-            x: Math.round(currentX * 10) / 10,
-            y: Math.round(currentY * 10) / 10,
-            width: Math.round(panelWidth * 10) / 10,
-            height: Math.round(segmentHeight * 10) / 10,
-            isCut: !isVoid && (panelWidth < baseWidth || segmentHeight < segMaterial.height),
-            isVoid,
-            originalColumnIndex: columnIndex,
-            originalSegmentIndex: segmentIndex,
-            materialId: segMaterial.id,
-            materialColor: isVoid
-              ? 'rgba(30, 31, 35, 0.45)'
-              : (segConfig?.customColor || customConfig?.customColor || segMaterial.color),
-            materialType: segMaterial.type,
-            decorCode: segConfig?.customDecorCode || customConfig?.customDecorCode || segMaterial.decorCode,
-            decorName: segMaterial.decorName,
-            thickness: isVoid ? 0 : (segConfig?.customThickness || customConfig?.customThickness || segMaterial.thickness),
-            reliefType: segConfig?.customReliefType || customConfig?.customReliefType || segMaterial.reliefType || 'FLAT',
-            textureCategory: segConfig?.customTextureCategory || customConfig?.customTextureCategory || segMaterial.textureCategory || 'FABRIC',
-            partLabel: defaultLabel,
-            radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
-            arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
-            bendsInfo: panelBendsInfo.length > 0 ? panelBendsInfo : undefined,
-            patternAngleDeg: patternAngle,
-            patternFlipX: patternFlip,
-            areaSqM: Math.round(((panelWidth * segmentHeight) / 1_000_000) * 1000) / 1000,
-          });
+          currentY += segmentHeight + (isHorizInner ? horizJointWidth : 0);
+          segmentIndex++;
+
+          if (segmentIndex >= segmentsConfig.length && currentY < maxY && !segConfig) {
+            break;
+          }
         }
 
-        currentY += segmentHeight + (isHorizInner ? horizJointWidth : 0);
-        segmentIndex++;
-
-        if (segmentIndex >= segmentsConfig.length && currentY < maxY && !segConfig) {
-          break;
-        }
+        currentX += panelWidth + (isVertInner ? vertJointWidth : 0);
+        columnIndex++;
       }
 
-      currentX += panelWidth + (isVertInner ? vertJointWidth : 0);
-      columnIndex++;
-    }
+      // 3. Умное вычисление вертикальных швов: швы НЕ должны рассекать цельные плиты и проемы
+      columnBoundaries.forEach((col) => {
+        if (!col.isVertInner) return;
 
-    // 3. Умное вычисление вертикальных швов: швы НЕ должны рассекать цельные плиты и проемы
-    columnBoundaries.forEach((col) => {
-      if (!col.isVertInner) return;
+        const jointX = col.x;
+        let intervals: Interval1D[] = [{ start: 0, end: wall.height }];
 
-      const jointX = col.x;
-      let intervals: Interval1D[] = [{ start: 0, end: wall.height }];
+        // 3.1 Вычитаем вырезы проемов (только если шов проходит СТРОГО внутри выреза)
+        wall.openings.forEach((op) => {
+          if (op.isCutout !== false && jointX > op.x + 2 && jointX < op.x + op.width - 2) {
+            intervals = subtractInterval(intervals, op.y, op.y + op.height);
+          }
+        });
 
-      // 3.1 Вычитаем вырезы проемов (только если шов проходит СТРОГО внутри выреза)
-      wall.openings.forEach((op) => {
-        if (op.isCutout !== false && jointX > op.x + 2 && jointX < op.x + op.width - 2) {
-          intervals = subtractInterval(intervals, op.y, op.y + op.height);
-        }
-      });
+        // 3.2 Вычитаем цельные панели, которые перекрывают этот вертикальный шов (например, фрамуга над дверью)
+        panels.forEach((p) => {
+          if (p.x < jointX - 2 && p.x + p.width > jointX + 2) {
+            intervals = subtractInterval(intervals, p.y, p.y + p.height);
+          }
+        });
 
-      // 3.2 Вычитаем цельные панели, которые перекрывают этот вертикальный шов (например, фрамуга над дверью)
-      panels.forEach((p) => {
-        if (p.x < jointX - 2 && p.x + p.width > jointX + 2) {
-          intervals = subtractInterval(intervals, p.y, p.y + p.height);
-        }
-      });
-
-      // Отрисовываем оставшиеся отрезки шва
-      intervals.forEach((inv, i) => {
+        // Отрисовываем оставшиеся отрезки шва
+        intervals.forEach((inv, i) => {
         const len = inv.end - inv.start;
         if (len > 5) {
           rawJoints.push({
@@ -698,6 +706,7 @@ export class LayoutEngine {
         }
       });
     });
+    }
 
     // 5. Внешние края периметра стены
     rawJoints.push({
@@ -862,11 +871,13 @@ export class LayoutEngine {
       });
     });
 
-    const netCoveredAreaSqM = Math.max(0, grossCoveredAreaSqM - cutoutsInCoveredAreaSqM);
+    const netCoveredAreaSqM = wall.panels && wall.panels.length > 0
+      ? coveredPanels.reduce((acc, p) => acc + (p.areaSqM || ((p.width * p.height) / 1_000_000)), 0)
+      : Math.max(0, grossCoveredAreaSqM - cutoutsInCoveredAreaSqM);
 
     const voidPanels = panels.filter((p) => p.isVoid);
     const voidAreaSqM = voidPanels.reduce(
-      (acc, p) => acc + (p.width * p.height) / 1_000_000,
+      (acc, p) => acc + (p.areaSqM || ((p.width * p.height) / 1_000_000)),
       0
     );
 
@@ -1005,9 +1016,126 @@ export class LayoutEngine {
 
     const totalSlopeAreaSqM = slopePieces.reduce((acc, p) => acc + p.areaSqM, 0);
 
+    const cleanFinalJoints: CalculatedJointLine[] = [];
+
+    finalJoints.forEach((j) => {
+      if (j.isOuterEdge) {
+        cleanFinalJoints.push(j);
+        return;
+      }
+
+      const isVert =
+        j.orientation === 'VERTICAL' ||
+        (j.p1 && j.p2 && Math.abs(j.p1.x - j.p2.x) < 1e-3);
+      const isHoriz =
+        j.orientation === 'HORIZONTAL' ||
+        (j.p1 && j.p2 && Math.abs(j.p1.y - j.p2.y) < 1e-3);
+      const isDiag = j.orientation === 'DIAGONAL' || (!isVert && !isHoriz);
+
+      // 1. Диагональные / наклонные швы (гипотенузы, наклонные резы)
+      if (isDiag && j.p1 && j.p2) {
+        cleanFinalJoints.push({
+          ...j,
+          orientation: 'DIAGONAL',
+        });
+        return;
+      }
+
+      // 2. В полигональной модели (wall.panels) все швы уже имеют точные координаты p1 и p2
+      if (wall.panels && wall.panels.length > 0 && j.p1 && j.p2) {
+        const midX = (j.p1.x + j.p2.x) / 2;
+        const midY = (j.p1.y + j.p2.y) / 2;
+        let isInsideSolid = false;
+
+        for (const p of wall.panels) {
+          const xs = p.points.map((pt) => pt.x);
+          const ys = p.points.map((pt) => pt.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+
+          if (midX > minX + 3 && midX < maxX - 3 && midY > minY + 3 && midY < maxY - 3) {
+            if (PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY }, p.points)) {
+              isInsideSolid = true;
+              break;
+            }
+          }
+        }
+
+        if (!isInsideSolid) {
+          cleanFinalJoints.push(j);
+        }
+        return;
+      }
+
+      // 3. Для legacy сетки
+      if (isHoriz) {
+        const jointY = j.y;
+        let intervals: Interval1D[] = [{ start: j.x, end: j.x + j.length }];
+
+        wall.openings.forEach((op) => {
+          if (op.isCutout !== false && jointY > op.y + 2 && jointY < op.y + op.height - 2) {
+            intervals = subtractInterval(intervals, op.x, op.x + op.width);
+          }
+        });
+
+        panels.forEach((p) => {
+          if (p.y < jointY - 2 && p.y + p.height > jointY + 2) {
+            intervals = subtractInterval(intervals, p.x, p.x + p.width);
+          }
+        });
+
+        intervals.forEach((inv, idx) => {
+          const len = inv.end - inv.start;
+          if (len > 3) {
+            cleanFinalJoints.push({
+              ...j,
+              id: idx === 0 ? j.id : `${j.id}-seg-${idx}`,
+              x: inv.start,
+              length: len,
+              p1: { x: inv.start, y: jointY },
+              p2: { x: inv.end, y: jointY },
+              orientation: 'HORIZONTAL',
+            });
+          }
+        });
+      } else {
+        const jointX = j.x;
+        let intervals: Interval1D[] = [{ start: j.y, end: j.y + j.length }];
+
+        wall.openings.forEach((op) => {
+          if (op.isCutout !== false && jointX > op.x + 2 && jointX < op.x + op.width - 2) {
+            intervals = subtractInterval(intervals, op.y, op.y + op.height);
+          }
+        });
+
+        panels.forEach((p) => {
+          if (p.x < jointX - 2 && p.x + p.width > jointX + 2) {
+            intervals = subtractInterval(intervals, p.y, p.y + p.height);
+          }
+        });
+
+        intervals.forEach((inv, idx) => {
+          const len = inv.end - inv.start;
+          if (len > 3) {
+            cleanFinalJoints.push({
+              ...j,
+              id: idx === 0 ? j.id : `${j.id}-seg-${idx}`,
+              y: inv.start,
+              length: len,
+              p1: { x: jointX, y: inv.start },
+              p2: { x: jointX, y: inv.end },
+              orientation: 'VERTICAL',
+            });
+          }
+        });
+      }
+    });
+
     return {
       panels,
-      joints: finalJoints,
+      joints: cleanFinalJoints,
       slopes: slopePieces,
       summary: {
         totalPanelsNeeded: coveredPanels.length,
@@ -1022,6 +1150,56 @@ export class LayoutEngine {
         cutoutsAreaSqM: Math.round(cutoutsAreaSqM * 100) / 100,
       },
     };
+  }
+
+  /**
+   * Конвертирует стену из Legacy формата (customPanels/segments) в единый плоский массив WallPanelPiece[] и WallJointLine[]
+   */
+  public static convertLegacyWallToPanels(
+    wall: Wall,
+    defaultMaterial: Material,
+    allMaterials: Material[] = DEFAULT_MATERIALS
+  ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
+    const legacyWall: Wall = {
+      ...wall,
+      panels: undefined,
+      joints: undefined,
+    };
+    const layout = this.calculateWallLayout(legacyWall, defaultMaterial, allMaterials);
+
+    const panels: WallPanelPiece[] = layout.panels.map((p) => ({
+      id: p.id,
+      points: p.polygonPoints && p.polygonPoints.length >= 3 ? p.polygonPoints : [
+        { x: p.x, y: p.y },
+        { x: p.x + p.width, y: p.y },
+        { x: p.x + p.width, y: p.y + p.height },
+        { x: p.x, y: p.y + p.height },
+      ],
+      materialId: p.materialId,
+      decorCode: p.decorCode,
+      decorName: p.decorName,
+      color: p.materialColor,
+      thickness: p.thickness,
+      reliefType: p.reliefType as any,
+      textureCategory: p.textureCategory,
+      partLabel: p.partLabel,
+      patternAngleDeg: p.patternAngleDeg,
+      patternFlipX: p.patternFlipX,
+      isVoid: p.isVoid,
+    }));
+
+    const joints: WallJointLine[] = layout.joints.map((j) => ({
+      id: j.id,
+      p1: j.p1 || { x: j.x, y: j.y },
+      p2: j.p2 || (j.orientation === 'VERTICAL' ? { x: j.x, y: j.y + j.length } : { x: j.x + j.length, y: j.y }),
+      width: j.width,
+      isLED: j.isLED,
+      orientation: j.orientation,
+      groupId: j.groupId,
+      isOuterEdge: j.isOuterEdge,
+    }));
+
+    return { panels, joints };
   }
 }
 

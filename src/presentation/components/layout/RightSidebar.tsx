@@ -70,6 +70,7 @@ export const RightSidebar: React.FC = () => {
     openSlicingModal,
     updateWallDimensions,
     updateOpening,
+    applyOpening,
     removeOpening,
     updateWallBend,
     deleteWallBend,
@@ -83,7 +84,6 @@ export const RightSidebar: React.FC = () => {
     setJointLEDForSelected,
     setJointWidth,
     setJointPreset,
-    updatePanelConfig,
     updatePanelSegment,
     setCellProperties,
     clearCellMaterial,
@@ -528,10 +528,63 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color="#2C2E33" />
 
+            {!currentOpening.isApplied ? (
+              <Paper
+                p="xs"
+                radius="sm"
+                style={{
+                  backgroundColor: 'rgba(255, 146, 43, 0.08)',
+                  border: '1px dashed #FF922B',
+                }}
+              >
+                <Stack gap={8}>
+                  <Group justify="space-between" align="center">
+                    <Badge color="orange" size="xs">
+                      Черновик (позиционирование)
+                    </Badge>
+                  </Group>
+                  <Text size="xs" c="dimmed">
+                    Переместите проем по стене или задайте точные размеры и координаты, затем нажмите кнопку:
+                  </Text>
+                  <Button
+                    size="xs"
+                    color="orange"
+                    variant="filled"
+                    leftSection={<Scissors size={14} />}
+                    fullWidth
+                    onClick={() => applyOpening(currentWall.id, currentOpening.id)}
+                  >
+                    Встроить проем в стену (Применить)
+                  </Button>
+                </Stack>
+              </Paper>
+            ) : (
+              <Paper
+                p="xs"
+                radius="sm"
+                style={{
+                  backgroundColor: 'rgba(64, 192, 87, 0.08)',
+                  border: '1px solid #40C057',
+                }}
+              >
+                <Stack gap={4}>
+                  <Group gap={6}>
+                    <Badge color="green" size="xs">
+                      Зафиксирован в стене
+                    </Badge>
+                  </Group>
+                  <Text size="xs" c="dimmed">
+                    Проем физически вырезан из материала стены. Панели вокруг (фрамуга, простенки) независимы.
+                  </Text>
+                </Stack>
+              </Paper>
+            )}
+
             <Group grow>
               <NumberInput
                 size="xs"
                 label="Ширина (мм)"
+                disabled={currentOpening.isApplied}
                 value={currentOpening.width || ''}
                 clampBehavior="blur"
                 allowNegative={false}
@@ -549,6 +602,7 @@ export const RightSidebar: React.FC = () => {
               <NumberInput
                 size="xs"
                 label="Высота (мм)"
+                disabled={currentOpening.isApplied}
                 value={currentOpening.height || ''}
                 clampBehavior="blur"
                 allowNegative={false}
@@ -569,6 +623,7 @@ export const RightSidebar: React.FC = () => {
               <NumberInput
                 size="xs"
                 label="Отступ слева X (мм)"
+                disabled={currentOpening.isApplied}
                 value={currentOpening.x ?? 0}
                 clampBehavior="blur"
                 allowNegative={false}
@@ -586,6 +641,7 @@ export const RightSidebar: React.FC = () => {
               <NumberInput
                 size="xs"
                 label="От пола Y (мм)"
+                disabled={currentOpening.isApplied}
                 value={currentOpening.y ?? 0}
                 clampBehavior="blur"
                 allowNegative={false}
@@ -1413,15 +1469,21 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   // РЕЖИМ 3.2: Выбрана ОДНА конкретная ячейка / плита сетки
   // =========================================================================
-  if (selectedColumnIndex !== null) {
-    const selectedCustomPanel = currentWall.customPanels[selectedColumnIndex];
-    const activeSegmentIndex = selectedSegmentIndex ?? 0;
-    const selectedSegment = selectedCustomPanel?.segments?.[activeSegmentIndex];
+  if (selectedColumnIndex !== null || selectedPieceIds.length > 0) {
+    const selectedPieceId = selectedPieceIds[0];
     const actualPanelPiece = layoutResult?.panels.find(
       (p) =>
-        p.originalColumnIndex === selectedColumnIndex &&
-        p.originalSegmentIndex === activeSegmentIndex
+        (selectedPieceId && (p.id === selectedPieceId || p.subPieceId === selectedPieceId)) ||
+        (selectedColumnIndex !== null &&
+          p.originalColumnIndex === selectedColumnIndex &&
+          p.originalSegmentIndex === (selectedSegmentIndex ?? 0))
     );
+
+    const activeColumnIndex = actualPanelPiece ? actualPanelPiece.originalColumnIndex : (selectedColumnIndex ?? 0);
+    const activeSegmentIndex = actualPanelPiece ? actualPanelPiece.originalSegmentIndex : (selectedSegmentIndex ?? 0);
+
+    const selectedCustomPanel = currentWall.customPanels[activeColumnIndex];
+    const selectedSegment = selectedCustomPanel?.segments?.[activeSegmentIndex];
 
     const selectedPanelWidth =
       actualPanelPiece !== undefined
@@ -1434,6 +1496,7 @@ export const RightSidebar: React.FC = () => {
         : (selectedSegment?.height ?? currentWall.height);
 
     const selectedPanelMaterialId =
+      actualPanelPiece?.materialId ??
       selectedSegment?.customMaterialId ??
       selectedCustomPanel?.customMaterialId ??
       currentWall.zone.materialId ??
@@ -1464,8 +1527,8 @@ export const RightSidebar: React.FC = () => {
               const activeMat = project.materials.find((m) => m.id === activeMaterialId);
               const isCurrentVoid = activeMaterialId === MATERIAL_NONE_ID || !activeMat || Boolean(activeMat.isVoid);
               const baseNum = (selectedCustomPanel?.segments && selectedCustomPanel.segments.length > 1)
-                ? `1.${selectedColumnIndex + 1}.${activeSegmentIndex + 1}`
-                : `1.${selectedColumnIndex + 1}`;
+                ? `1.${activeColumnIndex + 1}.${activeSegmentIndex + 1}`
+                : `1.${activeColumnIndex + 1}`;
 
               const activePartLabel = activeSub
                 ? activeSub.partLabel
@@ -1556,13 +1619,13 @@ export const RightSidebar: React.FC = () => {
                         if (activeSub) {
                           updateSubPieceLabel(
                             currentWall.id,
-                            selectedColumnIndex,
+                            activeColumnIndex,
                             activeSegmentIndex,
                             activeSub.id,
                             e.currentTarget.value
                           );
                         } else {
-                          updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                          updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                             partLabel: e.currentTarget.value,
                           });
                         }
@@ -1570,46 +1633,22 @@ export const RightSidebar: React.FC = () => {
                       styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
                     />
 
-                    {!activeSub && (
-                      <Group grow gap="xs">
-                        <NumberInput
-                          size="xs"
-                          label="Ширина (мм)"
-                          value={selectedPanelWidth || ''}
-                          clampBehavior="blur"
-                          allowNegative={false}
-                          allowDecimal={false}
-                          min={50}
-                          max={10000}
-                          step={10}
-                          onChange={(val) => {
-                            if (selectedColumnIndex === null) return;
-                            const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
-                            updatePanelConfig(currentWall.id, selectedColumnIndex, {
-                              customWidth: Math.min(10000, num),
-                            });
-                          }}
-                        />
-                        <NumberInput
-                          size="xs"
-                          label="Высота (мм)"
-                          value={selectedPanelHeight || ''}
-                          clampBehavior="blur"
-                          allowNegative={false}
-                          allowDecimal={false}
-                          min={50}
-                          max={10000}
-                          step={10}
-                          onChange={(val) => {
-                            if (selectedColumnIndex === null) return;
-                            const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
-                            updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                              height: Math.min(10000, num),
-                            });
-                          }}
-                        />
-                      </Group>
-                    )}
+                    <Group grow gap="xs">
+                      <TextInput
+                        size="xs"
+                        label="Ширина"
+                        value={`${activeW} мм`}
+                        readOnly
+                        styles={{ input: { backgroundColor: '#141517', borderColor: '#2C2E33', color: '#C1C2C5' } }}
+                      />
+                      <TextInput
+                        size="xs"
+                        label="Высота"
+                        value={`${activeH} мм`}
+                        readOnly
+                        styles={{ input: { backgroundColor: '#141517', borderColor: '#2C2E33', color: '#C1C2C5' } }}
+                      />
+                    </Group>
                   </Stack>
                 </Stack>
               );
@@ -1656,12 +1695,12 @@ export const RightSidebar: React.FC = () => {
                     onChange={(val) => {
                       if (!val) return;
                       if (val === MATERIAL_NONE_ID) {
-                        clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex);
+                        clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex);
                         return;
                       }
                       const chosenModel = project.materials.find((m) => m.id === val);
                       const firstDecor = chosenModel?.availableDecors?.[0];
-                      setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                      setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                         materialId: val,
                         customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
                         customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
@@ -1714,7 +1753,7 @@ export const RightSidebar: React.FC = () => {
                           size="xs"
                           value={String(currentThick)}
                           onChange={(val) =>
-                            setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                               customThickness: Number(val),
                             })
                           }
@@ -1748,7 +1787,7 @@ export const RightSidebar: React.FC = () => {
                           onChange={(e) => {
                             const val = e.currentTarget.value.trim();
                             const found = findDecorByCode(val);
-                            setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                               customDecorCode: val,
                               ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
                             });
@@ -1761,7 +1800,7 @@ export const RightSidebar: React.FC = () => {
                           placeholder="Цвет (#HEX)"
                           value={effectiveColor}
                           onChange={(colorVal) => {
-                            setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                            setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                               customColor: colorVal,
                             });
                           }}
@@ -1795,7 +1834,7 @@ export const RightSidebar: React.FC = () => {
                                 >
                                   <div
                                     onClick={() =>
-                                      setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                                      setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                                         customColor: decor.color,
                                         customDecorCode: decor.code,
                                         customTextureCategory: decor.category,
@@ -1895,108 +1934,7 @@ export const RightSidebar: React.FC = () => {
 
 
 
-            {/* Размеры выбранной ячейки */}
-            {(() => {
-              const cellMaterial = project.materials.find((m) => m.id === selectedPanelMaterialId) || currentMaterial;
-              const maxCellW = cellMaterial?.width || 1220;
-              const maxCellH = cellMaterial?.height || 2800;
 
-              const currentX = actualPanelPiece ? actualPanelPiece.x : 0;
-              const maxAvailableW = Math.max(100, Math.round(currentWall.width - currentX));
-
-              const currentY = actualPanelPiece ? actualPanelPiece.y : 0;
-              const maxAvailableH = Math.max(100, Math.round(currentWall.height - currentY));
-
-              return (
-                <Stack gap="xs">
-                  <Group grow align="flex-start">
-                    {/* Поле ширины с кнопкой MAX */}
-                    <Box style={{ flex: 1 }}>
-                      <Group justify="space-between" mb={2}>
-                        <Text size="xs" fw={500}>
-                          Ширина (мм)
-                        </Text>
-                        <Tooltip label={`Растянуть до правого края стены (${maxAvailableW} мм)`} position="top">
-                          <Button
-                            size="compact-xs"
-                            variant="light"
-                            color="blue"
-                            onClick={() =>
-                              updatePanelConfig(currentWall.id, selectedColumnIndex, {
-                                customWidth: maxAvailableW,
-                              })
-                            }
-                          >
-                            MAX
-                          </Button>
-                        </Tooltip>
-                      </Group>
-                      <NumberInput
-                        size="xs"
-                        description={`Лист до ${maxCellW} мм`}
-                        value={selectedPanelWidth || ''}
-                        clampBehavior="blur"
-                        allowNegative={false}
-                        allowDecimal={false}
-                        min={100}
-                        max={25000}
-                        step={10}
-                        onChange={(val) =>
-                          updatePanelConfig(currentWall.id, selectedColumnIndex, {
-                            customWidth: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                          })
-                        }
-                      />
-                    </Box>
-
-                    {/* Поле высоты с кнопкой MAX */}
-                    <Box style={{ flex: 1 }}>
-                      <Group justify="space-between" mb={2}>
-                        <Text size="xs" fw={500}>
-                          Высота (мм)
-                        </Text>
-                        <Tooltip label={`Растянуть до верхнего края стены (${maxAvailableH} мм)`} position="top">
-                          <Button
-                            size="compact-xs"
-                            variant="light"
-                            color="blue"
-                            onClick={() =>
-                              updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                                height: maxAvailableH,
-                              })
-                            }
-                          >
-                            MAX
-                          </Button>
-                        </Tooltip>
-                      </Group>
-                      <NumberInput
-                        size="xs"
-                        description={`Лист до ${maxCellH} мм`}
-                        value={selectedPanelHeight || ''}
-                        clampBehavior="blur"
-                        allowNegative={false}
-                        allowDecimal={false}
-                        min={100}
-                        max={10000}
-                        step={10}
-                        onChange={(val) =>
-                          updatePanelSegment(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                            height: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                          })
-                        }
-                      />
-                    </Box>
-                  </Group>
-
-                  <Text size="xs" c="dimmed" style={{ lineHeight: 1.3 }}>
-                    💡 При вводе размера больше габарита листа ({maxCellW}×{maxCellH} мм) автоматически создаются дополнительные листы со швами (каждый от 100 мм).
-                  </Text>
-                </Stack>
-              );
-            })()}
-
-            <Divider color="#2C2E33" />
 
             {/* НАПРАВЛЕНИЕ РИСУНКА И ВОЛОКОН */}
             {(() => {
@@ -2045,7 +1983,7 @@ export const RightSidebar: React.FC = () => {
                           onClick={() =>
                             setPiecePatternAngle(
                               currentWall.id,
-                              selectedColumnIndex,
+                              activeColumnIndex,
                               activeSegmentIndex,
                               selectedSubPieceId,
                               p.val,
@@ -2071,7 +2009,7 @@ export const RightSidebar: React.FC = () => {
                         onChange={(val) =>
                           setPiecePatternAngle(
                             currentWall.id,
-                            selectedColumnIndex,
+                            activeColumnIndex,
                             activeSegmentIndex,
                             selectedSubPieceId,
                             val,
@@ -2097,7 +2035,7 @@ export const RightSidebar: React.FC = () => {
                         const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
                         setPiecePatternAngle(
                           currentWall.id,
-                          selectedColumnIndex,
+                          activeColumnIndex,
                           activeSegmentIndex,
                           selectedSubPieceId,
                           num,
@@ -2127,7 +2065,12 @@ export const RightSidebar: React.FC = () => {
                 color="blue"
                 leftSection={<Scissors size={16} />}
                 onClick={() =>
-                  openSlicingModal(currentWall.id, selectedColumnIndex, activeSegmentIndex)
+                  openSlicingModal(
+                    currentWall.id,
+                    activeColumnIndex,
+                    activeSegmentIndex,
+                    selectedPieceId || selectedSubPieceId
+                  )
                 }
                 style={{ fontWeight: 600 }}
               >
@@ -2143,7 +2086,7 @@ export const RightSidebar: React.FC = () => {
                 onClick={() =>
                   splitPanelHorizontally(
                     currentWall.id,
-                    selectedColumnIndex,
+                    activeColumnIndex,
                     activeSegmentIndex,
                     Math.round(selectedPanelHeight / 2)
                   )
@@ -2160,7 +2103,7 @@ export const RightSidebar: React.FC = () => {
                 onClick={() =>
                   splitColumnVertically(
                     currentWall.id,
-                    selectedColumnIndex,
+                    activeColumnIndex,
                     Math.round(selectedPanelWidth / 2)
                   )
                 }
@@ -2176,7 +2119,7 @@ export const RightSidebar: React.FC = () => {
                 color="red"
                 leftSection={<Trash2 size={14} />}
                 onClick={() =>
-                  clearCellMaterial(currentWall.id, selectedColumnIndex, activeSegmentIndex)
+                  clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex)
                 }
               >
                 Удалить деталь (Сделать ПУСТО)

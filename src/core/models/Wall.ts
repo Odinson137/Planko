@@ -2,9 +2,37 @@ import { Opening } from './Opening';
 import { ProfileType } from './Profile';
 import { SlatProfileShape } from './AllWallCatalog';
 import { MATERIAL_NONE_ID } from './Material';
-import { PolygonSubPiece } from '../geometry/PolygonSlicingEngine';
+import { Point2D, PolygonSubPiece } from '../geometry/PolygonSlicingEngine';
 
 export type LayoutOrientation = 'VERTICAL' | 'HORIZONTAL';
+
+export interface WallPanelPiece {
+  id: string;                       // Уникальный идентификатор детали
+  points: Point2D[];                // Абсолютные координаты вершин [ {x, y}, ... ] в мм от (0,0) стены
+  materialId: string;               // ID материала ('mat-none' для пустоты, 'RY8085' и т.д.)
+  decorCode?: string;               // Код декора ('7029', '5134')
+  decorName?: string;
+  color?: string;                   // HEX-цвет заливки
+  thickness?: number;               // Толщина детали в мм (например 5, 8, 15)
+  reliefType?: SlatProfileShape;    // Форма рельефа ('FLAT', 'FLUTED', 'WAVE' и др.)
+  textureCategory?: string;         // Категория текстуры ('WOOD', 'MARBLE', 'FABRIC' и др.)
+  partLabel: string;                // Производственная маркировка ('1.1', '1.2.1', 'ПУСТО')
+  patternAngleDeg?: number;         // Угол поворота рисунка/волокон (0°, 45°, 90°)
+  patternFlipX?: boolean;           // Зеркалирование текстуры по горизонтали
+  isVoid?: boolean;                 // true для пустоты
+  radiusConfig?: RadiusConfig;      // Радиус изгиба (если попадает на угол)
+}
+
+export interface WallJointLine {
+  id: string;                       // Уникальный идентификатор шва
+  p1: Point2D;                      // Начальная точка отрезка
+  p2: Point2D;                      // Конечная точка отрезка
+  width: number;                    // Толщина шва в мм (0, 5, 8, 10...)
+  isLED: boolean;                   // Включена ли LED-подсветка
+  orientation?: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
+  groupId?: string;                 // Идентификатор группы объединенных швов
+  isOuterEdge?: boolean;            // Внешний край стены
+}
 
 export interface PanelSegmentConfig {
   id: string;
@@ -94,18 +122,37 @@ export interface Wall {
   openings: Opening[];             // проемы на стене
   bends?: WallBend[];              // зоны изгиба и углы стены
   zone: WallZone;                  // зона раскладки материала
-  customPanels: Record<number, CustomPanelConfig>; // настройки ячеек сетки
-  customJoints: Record<string, JointEdgeConfig>;   // настройки каждого стыка/края
+  panels?: WallPanelPiece[];       // Единый плоский массив всех деталей стены
+  joints?: WallJointLine[];        // Единый список всех швов стены
+  customPanels: Record<number, CustomPanelConfig>; // настройки ячеек сетки (обратная совместимость)
+  customJoints: Record<string, JointEdgeConfig>;   // настройки каждого стыка/края (обратная совместимость)
 }
 
 export function createDefaultWall(id: string, name: string = 'Стена 1'): Wall {
+  const width = 3600;
+  const height = 2750;
   return {
     id,
     name,
-    width: 3600,
-    height: 2750,
+    width,
+    height,
     openings: [],
     bends: [],
+    panels: [
+      {
+        id: `panel-${id}-0`,
+        points: [
+          { x: 0, y: 0 },
+          { x: width, y: 0 },
+          { x: width, y: height },
+          { x: 0, y: height },
+        ],
+        materialId: MATERIAL_NONE_ID,
+        isVoid: true,
+        partLabel: 'ПУСТО',
+      },
+    ],
+    joints: [],
     customPanels: {},
     customJoints: {},
     zone: {
