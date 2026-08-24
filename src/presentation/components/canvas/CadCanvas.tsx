@@ -43,6 +43,7 @@ export const CadCanvas: React.FC = () => {
     showTextures,
     activeTool,
     editMode,
+    setEditMode,
   } = useEditorStore();
 
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
@@ -591,167 +592,6 @@ export const CadCanvas: React.FC = () => {
               );
             })}
 
-            {/* ИНТЕРАКТИВНЫЕ СТЫКИ И КРАЯ ПЛИТ */}
-            {showProfiles &&
-              layout?.joints.map((joint) => {
-                const isJointsMode = editMode === 'JOINTS';
-                const isHoriz = joint.orientation === 'HORIZONTAL';
-                const selectedJointConfig = selectedJointId ? selectedWall.customJoints[selectedJointId] : null;
-                const selectedGroupId = selectedJointConfig?.groupId;
-
-                const isJointSelected =
-                  isJointsMode &&
-                  (selectedJointIds.includes(joint.id) ||
-                  selectedJointId === joint.id ||
-                  (Boolean(selectedGroupId) && joint.groupId === selectedGroupId));
-
-                const isLED = joint.isLED;
-                const visualWidth = isJointsMode
-                  ? Math.max(joint.width, 3.5 / zoom)
-                  : Math.max(joint.width, 1.5 / zoom);
-
-                const fillColor = isJointsMode
-                  ? (isJointSelected
-                      ? '#339AF0'
-                      : isLED
-                      ? '#FFD43B'
-                      : joint.width > 0
-                      ? '#4DABF7'
-                      : '#74C0FC')
-                  : (isJointSelected
-                      ? '#339AF0'
-                      : isLED
-                      ? '#FFD43B'
-                      : joint.width > 0
-                      ? '#343A40'
-                      : 'rgba(255, 255, 255, 0.08)');
-
-                // Наклонные / произвольные стыки раскроя
-                if (joint.p1 && joint.p2) {
-                  const p1C = { x: joint.p1.x, y: wallH - joint.p1.y };
-                  const p2C = { x: joint.p2.x, y: wallH - joint.p2.y };
-                  const midC = { x: (p1C.x + p2C.x) / 2, y: (p1C.y + p2C.y) / 2 };
-                  const hitPadding = Math.max(22 / zoom, 16);
-
-                  return (
-                    <Group
-                      key={joint.id}
-                      listening={isJointsMode}
-                      onClick={(e) => {
-                        e.cancelBubble = true;
-                        selectJoint(joint.id, !!e.evt.shiftKey);
-                      }}
-                    >
-                      {isJointsMode && (
-                        <Line
-                          points={[p1C.x, p1C.y, p2C.x, p2C.y]}
-                          stroke="rgba(0, 0, 0, 0.001)"
-                          strokeWidth={hitPadding}
-                          lineCap="round"
-                        />
-                      )}
-                      <Line
-                        points={[p1C.x, p1C.y, p2C.x, p2C.y]}
-                        stroke={fillColor}
-                        strokeWidth={visualWidth}
-                        lineCap="square"
-                      />
-
-                      {isJointSelected && (
-                        <Group x={midC.x + 10} y={midC.y - 12} listening={false}>
-                          <Rect
-                            width={120}
-                            height={22}
-                            fill="#1A1B1E"
-                            stroke="#339AF0"
-                            strokeWidth={1}
-                            cornerRadius={3}
-                          />
-                          <Text
-                            x={6}
-                            y={5}
-                            text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
-                            fontSize={11}
-                            fill="#74C0FC"
-                            fontFamily="JetBrains Mono"
-                            fontStyle="bold"
-                          />
-                        </Group>
-                      )}
-                    </Group>
-                  );
-                }
-
-                const jointX = joint.x;
-                const jointY = isHoriz
-                  ? wallH - joint.y - (joint.width > 0 ? joint.width : 0)
-                  : wallH - (joint.y + joint.length);
-                const jointW = isHoriz ? joint.length : visualWidth;
-                const jointH = isHoriz ? visualWidth : joint.length;
-
-                const hitPadding = Math.max(20 / zoom, 14);
-                const hitX = isHoriz ? jointX : jointX - (hitPadding - visualWidth) / 2;
-                const hitY = isHoriz ? jointY - (hitPadding - visualWidth) / 2 : jointY;
-                const hitW = isHoriz ? joint.length : hitPadding;
-                const hitH = isHoriz ? hitPadding : joint.length;
-
-                return (
-                  <Group
-                    key={joint.id}
-                    listening={isJointsMode}
-                    onClick={(e) => {
-                      e.cancelBubble = true;
-                      selectJoint(joint.id, !!e.evt.shiftKey);
-                    }}
-                  >
-                    {isJointsMode && (
-                      <Rect
-                        x={hitX}
-                        y={hitY}
-                        width={hitW}
-                        height={hitH}
-                        fill="rgba(0, 0, 0, 0.001)"
-                      />
-                    )}
-                    <Rect
-                      x={jointX}
-                      y={jointY}
-                      width={jointW}
-                      height={jointH}
-                      fill={fillColor}
-                      stroke={isJointSelected ? '#FFFFFF' : isJointsMode ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
-                      strokeWidth={isJointSelected ? 2 / zoom : isJointsMode ? 1 / zoom : isLED ? 1 / zoom : 0}
-                    />
-
-                    {isJointSelected && (
-                      <Group
-                        x={jointX + (isHoriz ? 10 : 6)}
-                        y={jointY + (isHoriz ? -26 : 20)}
-                        listening={false}
-                      >
-                        <Rect
-                          width={120}
-                          height={22}
-                          fill="#1A1B1E"
-                          stroke="#339AF0"
-                          strokeWidth={1}
-                          cornerRadius={3}
-                        />
-                        <Text
-                          x={6}
-                          y={5}
-                          text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
-                          fontSize={11}
-                          fill="#74C0FC"
-                          fontFamily="JetBrains Mono"
-                          fontStyle="bold"
-                        />
-                      </Group>
-                    )}
-                  </Group>
-                );
-              })}
-
             {/* Отрисовка интерактивных проемов */}
             {selectedWall.openings.map((op) => {
               const isApplied = op.isApplied ?? false;
@@ -836,7 +676,6 @@ export const CadCanvas: React.FC = () => {
                       y: clampedY,
                     });
                   }}
-
                 >
                   {/* 2D РАЗВЕРТКА ОТКОСОВ (Если включен показ развертки) */}
                   {(() => {
@@ -1018,15 +857,13 @@ export const CadCanvas: React.FC = () => {
                       op.isCutout !== false && slopes.enabled
                         ? `\n📐 Откосы: ${
                             slopes.fitToOpeningDepth
-                              ? `${opDepth} мм (по проему)`
-                              : slopes.depthMode === 'SAME'
-                              ? `${effectiveD} мм`
-                              : `В:${slopes.top.depth} Н:${slopes.bottom.depth} Л:${slopes.left.depth} П:${slopes.right.depth}`
+                              ? `по проему (${opDepth} мм)`
+                              : `${effectiveD} мм (${slopes.depthMode === 'CUSTOM' ? 'индивид.' : 'общая'})`
                           }${
                             slopes.jointProfileType && slopes.jointProfileType !== 'NONE'
-                              ? ` (${
+                              ? `\n стык: (${
                                   slopes.jointProfileType === 'LED_10'
-                                    ? 'LED'
+                                    ? 'LED 10мм'
                                     : slopes.jointProfileType === 'CORNER'
                                     ? 'Уголок'
                                     : 'Шов 8мм'
@@ -1057,6 +894,166 @@ export const CadCanvas: React.FC = () => {
                 </Group>
               );
             })}
+
+            {/* ИНТЕРАКТИВНЫЕ СТЫКИ И КРАЯ ПЛИТ (Поверх проемов и панелей для четкого отображения и кликабельности) */}
+            {showProfiles &&
+              layout?.joints.map((joint) => {
+                const isJointsMode = editMode === 'JOINTS';
+                const isHoriz = joint.orientation === 'HORIZONTAL';
+                const selectedJointConfig = selectedJointId ? selectedWall.customJoints[selectedJointId] : null;
+                const selectedGroupId = selectedJointConfig?.groupId;
+
+                const isJointSelected =
+                  isJointsMode &&
+                  (selectedJointIds.includes(joint.id) ||
+                  selectedJointId === joint.id ||
+                  (Boolean(selectedGroupId) && joint.groupId === selectedGroupId));
+
+                const isLED = joint.isLED;
+                const visualWidth = isJointsMode
+                  ? Math.max(joint.width, 3.5 / zoom)
+                  : Math.max(joint.width, 1.5 / zoom);
+
+                const fillColor = isJointsMode
+                  ? (isJointSelected
+                      ? '#339AF0'
+                      : isLED
+                      ? '#FFD43B'
+                      : joint.width > 0
+                      ? '#4DABF7'
+                      : '#74C0FC')
+                  : (isJointSelected
+                      ? '#339AF0'
+                      : isLED
+                      ? '#FFD43B'
+                      : joint.width > 0
+                      ? '#343A40'
+                      : 'rgba(255, 255, 255, 0.08)');
+
+                const hitPadding = Math.max(26 / zoom, 20);
+
+                // Наклонные / произвольные стыки раскроя
+                if (joint.p1 && joint.p2) {
+                  const p1C = { x: joint.p1.x, y: wallH - joint.p1.y };
+                  const p2C = { x: joint.p2.x, y: wallH - joint.p2.y };
+                  const midC = { x: (p1C.x + p2C.x) / 2, y: (p1C.y + p2C.y) / 2 };
+
+                  return (
+                    <Group
+                      key={joint.id}
+                      listening={showProfiles}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        setEditMode('JOINTS');
+                        selectJoint(joint.id, !!e.evt.shiftKey);
+                      }}
+                    >
+                      <Line
+                        points={[p1C.x, p1C.y, p2C.x, p2C.y]}
+                        stroke="rgba(0, 0, 0, 0.001)"
+                        strokeWidth={hitPadding}
+                        lineCap="round"
+                        hitStrokeWidth={hitPadding}
+                      />
+                      <Line
+                        points={[p1C.x, p1C.y, p2C.x, p2C.y]}
+                        stroke={fillColor}
+                        strokeWidth={visualWidth}
+                        lineCap="square"
+                      />
+
+                      {isJointSelected && (
+                        <Group x={midC.x + 10} y={midC.y - 12} listening={false}>
+                          <Rect
+                            width={120}
+                            height={22}
+                            fill="#1A1B1E"
+                            stroke="#339AF0"
+                            strokeWidth={1}
+                            cornerRadius={3}
+                          />
+                          <Text
+                            x={6}
+                            y={5}
+                            text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
+                            fontSize={11}
+                            fill="#74C0FC"
+                            fontFamily="JetBrains Mono"
+                            fontStyle="bold"
+                          />
+                        </Group>
+                      )}
+                    </Group>
+                  );
+                }
+
+                const jointX = joint.x;
+                const jointY = isHoriz
+                  ? wallH - joint.y - (joint.width > 0 ? joint.width : 0)
+                  : wallH - (joint.y + joint.length);
+                const jointW = isHoriz ? joint.length : visualWidth;
+                const jointH = isHoriz ? visualWidth : joint.length;
+
+                const hitX = isHoriz ? jointX : jointX - (hitPadding - visualWidth) / 2;
+                const hitY = isHoriz ? jointY - (hitPadding - visualWidth) / 2 : jointY;
+                const hitW = isHoriz ? joint.length : hitPadding;
+                const hitH = isHoriz ? hitPadding : joint.length;
+
+                return (
+                  <Group
+                    key={joint.id}
+                    listening={showProfiles}
+                    onClick={(e) => {
+                      e.cancelBubble = true;
+                      setEditMode('JOINTS');
+                      selectJoint(joint.id, !!e.evt.shiftKey);
+                    }}
+                  >
+                    <Rect
+                      x={hitX}
+                      y={hitY}
+                      width={hitW}
+                      height={hitH}
+                      fill="rgba(0, 0, 0, 0.001)"
+                    />
+                    <Rect
+                      x={jointX}
+                      y={jointY}
+                      width={jointW}
+                      height={jointH}
+                      fill={fillColor}
+                      stroke={isJointSelected ? '#FFFFFF' : isJointsMode ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
+                      strokeWidth={isJointSelected ? 2 / zoom : isJointsMode ? 1 / zoom : isLED ? 1 / zoom : 0}
+                    />
+
+                    {isJointSelected && (
+                      <Group
+                        x={jointX + (isHoriz ? 10 : 6)}
+                        y={jointY + (isHoriz ? -26 : 20)}
+                        listening={false}
+                      >
+                        <Rect
+                          width={120}
+                          height={22}
+                          fill="#1A1B1E"
+                          stroke="#339AF0"
+                          strokeWidth={1}
+                          cornerRadius={3}
+                        />
+                        <Text
+                          x={6}
+                          y={5}
+                          text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
+                          fontSize={11}
+                          fill="#74C0FC"
+                          fontFamily="JetBrains Mono"
+                          fontStyle="bold"
+                        />
+                      </Group>
+                    )}
+                  </Group>
+                );
+              })}
 
             {/* ИНТЕРАКТИВНЫЕ МАРКЕРЫ ЗОН ИЗГИБА СТЕНЫ (WallBend) */}
             {selectedWall.bends?.map((bend) => {
