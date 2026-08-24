@@ -402,12 +402,20 @@ export class LayoutEngine {
           }
         }
 
+        const basePanelLabel = segmentsConfig.length > 1
+          ? `1.${columnIndex + 1}.${segmentIndex + 1}`
+          : `1.${columnIndex + 1}`;
+
+        let cleanSegLabel = segConfig?.partLabel;
+        if (cleanSegLabel && cleanSegLabel.startsWith('ПУСТО')) {
+          cleanSegLabel = cleanSegLabel === 'ПУСТО'
+            ? basePanelLabel
+            : cleanSegLabel.replace(/^ПУСТО/, basePanelLabel);
+        }
+
         const defaultLabel = isVoid
           ? 'ПУСТО'
-          : segConfig?.partLabel ||
-            (segmentsConfig.length > 1
-              ? `1.${columnIndex + 1}.${segmentIndex + 1}${bendLabelStr}`
-              : `1.${columnIndex + 1}${bendLabelStr}`);
+          : (cleanSegLabel ? `${cleanSegLabel}${bendLabelStr}` : `${basePanelLabel}${bendLabelStr}`);
 
         const effectiveSubPieces = segConfig?.subPieces || (segmentsConfig.length === 0 ? customConfig?.subPieces : undefined);
         const hasSubPieces = effectiveSubPieces && effectiveSubPieces.length > 0;
@@ -432,9 +440,23 @@ export class LayoutEngine {
             const pieceH = Math.round((maxYPt - minY) * 10) / 10;
 
             const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(polyPoints) / 1_000_000) * 1000) / 1000;
+
+            let cleanSubLabel = sub.partLabel;
+            if (cleanSubLabel && cleanSubLabel.startsWith('ПУСТО')) {
+              if (cleanSubLabel === 'ПУСТО') {
+                cleanSubLabel = effectiveSubPieces.length > 1
+                  ? `${basePanelLabel}.${subIdx + 1}`
+                  : basePanelLabel;
+              } else {
+                cleanSubLabel = cleanSubLabel.replace(/^ПУСТО/, basePanelLabel);
+              }
+            }
+
             const subLabel = isSubVoid
               ? 'ПУСТО'
-              : (sub.partLabel || `${columnIndex + 1}.${segmentIndex + 1}.${subIdx + 1}`);
+              : (cleanSubLabel || (effectiveSubPieces.length > 1
+                  ? `${basePanelLabel}.${subIdx + 1}`
+                  : basePanelLabel));
 
             panels.push({
               id: `panel-${columnIndex}-${segmentIndex}-${sub.id}`,

@@ -4,6 +4,7 @@ import {
   Title,
   NumberInput,
   TextInput,
+  ColorInput,
   Select,
   SegmentedControl,
   Divider,
@@ -63,6 +64,7 @@ export const RightSidebar: React.FC = () => {
     selectedSubPieceId,
     selectOpening,
     selectPanel,
+    selectSubPiece,
     selectJoint,
     selectWallBend,
     openSlicingModal,
@@ -1437,8 +1439,6 @@ export const RightSidebar: React.FC = () => {
       currentWall.zone.materialId ??
       MATERIAL_NONE_ID;
 
-    const isCellVoid = selectedPanelMaterialId === MATERIAL_NONE_ID;
-
     return (
       <Stack
         h="100%"
@@ -1459,18 +1459,17 @@ export const RightSidebar: React.FC = () => {
                 selectedCustomPanel?.subPieces ||
                 [];
 
-              const isSubPieceActive = Boolean(
-                selectedSubPieceId && activeSubPieces.some((sp) => sp.id === selectedSubPieceId)
-              );
-              const activeSub = isSubPieceActive
-                ? activeSubPieces.find((sp) => sp.id === selectedSubPieceId)!
-                : (selectedSubPieceId ? null : (activeSubPieces.length > 0 ? activeSubPieces[0] : null));
+              const activeSub = (selectedSubPieceId && activeSubPieces.find((sp) => sp.id === selectedSubPieceId)) || null;
+              const activeMaterialId = activeSub ? (activeSub.materialId || selectedPanelMaterialId) : selectedPanelMaterialId;
+              const activeMat = project.materials.find((m) => m.id === activeMaterialId);
+              const isCurrentVoid = activeMaterialId === MATERIAL_NONE_ID || !activeMat || Boolean(activeMat.isVoid);
+              const baseNum = (selectedCustomPanel?.segments && selectedCustomPanel.segments.length > 1)
+                ? `1.${selectedColumnIndex + 1}.${activeSegmentIndex + 1}`
+                : `1.${selectedColumnIndex + 1}`;
 
-              const activeMaterialId = activeSub ? activeSub.materialId : selectedPanelMaterialId;
-              const isCurrentVoid = isCellVoid || activeSub?.isVoid || activeMaterialId === MATERIAL_NONE_ID;
               const activePartLabel = activeSub
                 ? activeSub.partLabel
-                : (selectedSegment?.partLabel || `1.${selectedColumnIndex + 1}.${activeSegmentIndex + 1}`);
+                : (selectedSegment?.partLabel || baseNum);
 
               // Bounding box / Dimensions
               const subXs = activeSub ? activeSub.points.map((p) => p.x) : [];
@@ -1503,6 +1502,38 @@ export const RightSidebar: React.FC = () => {
                       </Tooltip>
                     </Group>
                   </Group>
+
+                  {/* Переключение между деталями раскроя */}
+                  {activeSubPieces.length > 1 && (
+                    <div>
+                      <Text size="xs" fw={600} c="dimmed" mb={4}>
+                        Детали раскроя ({activeSubPieces.length} шт):
+                      </Text>
+                      <Group gap={4} style={{ flexWrap: 'wrap' }}>
+                        {activeSubPieces.map((sp, spIdx) => {
+                          const isThisActive = activeSub?.id === sp.id;
+                          const spMat = project.materials.find((m) => m.id === sp.materialId);
+                          const isSpVoid = sp.isVoid || !spMat || spMat.isVoid || sp.materialId === MATERIAL_NONE_ID;
+                          return (
+                            <Button
+                              key={sp.id}
+                              size="compact-xs"
+                              variant={isThisActive ? 'filled' : 'default'}
+                              color={isSpVoid ? 'gray' : 'blue'}
+                              leftSection={
+                                !isSpVoid && sp.color ? (
+                                  <ColorSwatch color={sp.color} size={10} />
+                                ) : undefined
+                              }
+                              onClick={() => selectSubPiece(sp.id)}
+                            >
+                              {sp.partLabel || `${baseNum}.${spIdx + 1}`}
+                            </Button>
+                          );
+                        })}
+                      </Group>
+                    </div>
+                  )}
 
                   <Divider color="#2C2E33" />
 
@@ -1592,27 +1623,21 @@ export const RightSidebar: React.FC = () => {
                 selectedCustomPanel?.subPieces ||
                 [];
 
-              const isSubPieceActive = Boolean(
-                selectedSubPieceId && activeSubPieces.some((sp) => sp.id === selectedSubPieceId)
-              );
-              const activeSub = isSubPieceActive
-                ? activeSubPieces.find((sp) => sp.id === selectedSubPieceId)!
-                : (selectedSubPieceId ? null : (activeSubPieces.length > 0 ? activeSubPieces[0] : null));
-
-              const effectiveMaterialId = activeSub ? activeSub.materialId : selectedPanelMaterialId;
-              const effectiveIsVoid = isCellVoid || activeSub?.isVoid || effectiveMaterialId === MATERIAL_NONE_ID;
-              const effectiveColor = activeSub
-                ? activeSub.color || '#d6cbbe'
-                : (selectedSegment?.customColor || selectedCustomPanel?.customColor || currentMaterial?.color || '#d6cbbe');
-              const effectiveDecorCode = activeSub
-                ? activeSub.decorCode || ''
-                : (selectedSegment?.customDecorCode || selectedCustomPanel?.customDecorCode || currentMaterial?.decorCode || '');
-
+              const activeSub = (selectedSubPieceId && activeSubPieces.find((sp) => sp.id === selectedSubPieceId)) || null;
+              const effectiveMaterialId = activeSub ? (activeSub.materialId || selectedPanelMaterialId) : selectedPanelMaterialId;
               const targetMat = project.materials.find((m) => m.id === effectiveMaterialId);
+              const effectiveIsVoid = effectiveMaterialId === MATERIAL_NONE_ID || !targetMat || Boolean(targetMat.isVoid);
+              const effectiveColor = activeSub
+                ? (activeSub.color || targetMat?.color || '#d6cbbe')
+                : (selectedSegment?.customColor || selectedCustomPanel?.customColor || targetMat?.color || currentMaterial?.color || '#d6cbbe');
+              const effectiveDecorCode = activeSub
+                ? (activeSub.decorCode !== undefined ? activeSub.decorCode : (targetMat?.decorCode || ''))
+                : (selectedSegment?.customDecorCode !== undefined ? selectedSegment.customDecorCode : (selectedCustomPanel?.customDecorCode !== undefined ? selectedCustomPanel.customDecorCode : (targetMat?.decorCode || currentMaterial?.decorCode || '')));
+
               const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
                 ? targetMat.thicknessOptions
                 : [targetMat?.thickness || 5];
-              const currentThick = selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
+              const currentThick = activeSub?.thickness || selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
               const decorsList = targetMat?.availableDecors || [];
 
               return (
@@ -1715,21 +1740,34 @@ export const RightSidebar: React.FC = () => {
                         )}
                       </Group>
 
-                      <TextInput
-                        size="xs"
-                        placeholder="Введите код декора AllWall (напр: 7029, 5134, RY8056)..."
-                        value={effectiveDecorCode}
-                        onChange={(e) => {
-                          const val = e.currentTarget.value.trim();
-                          const found = findDecorByCode(val);
-                          setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
-                            customDecorCode: val,
-                            ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
-                          });
-                        }}
-                        leftSection={<Search size={14} />}
-                        styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' } }}
-                      />
+                      <Group grow gap="xs">
+                        <TextInput
+                          size="xs"
+                          placeholder="Код декора (7029, 5134...)"
+                          value={effectiveDecorCode}
+                          onChange={(e) => {
+                            const val = e.currentTarget.value.trim();
+                            const found = findDecorByCode(val);
+                            setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                              customDecorCode: val,
+                              ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
+                            });
+                          }}
+                          leftSection={<Search size={14} />}
+                          styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' } }}
+                        />
+                        <ColorInput
+                          size="xs"
+                          placeholder="Цвет (#HEX)"
+                          value={effectiveColor}
+                          onChange={(colorVal) => {
+                            setCellProperties(currentWall.id, selectedColumnIndex, activeSegmentIndex, {
+                              customColor: colorVal,
+                            });
+                          }}
+                          styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' } }}
+                        />
+                      </Group>
 
                       {/* Свотчи декоров AllWall */}
                       {decorsList.length > 0 && (
@@ -1741,7 +1779,7 @@ export const RightSidebar: React.FC = () => {
                             {decorsList.map((decor) => {
                               const isSelected =
                                 effectiveDecorCode === decor.code ||
-                                effectiveColor.toLowerCase() === decor.color.toLowerCase();
+                                (effectiveColor && effectiveColor.toLowerCase() === decor.color.toLowerCase());
                               return (
                                 <Tooltip
                                   key={decor.code}

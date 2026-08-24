@@ -162,45 +162,8 @@ export class PolygonSlicingEngine {
    */
   public static doesSegmentCrossPolygon(polygon: Point2D[], p1: Point2D, p2: Point2D): boolean {
     if (!polygon || polygon.length < 3) return false;
-
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1e-4) return false;
-
-    const vx = dx / len;
-    const vy = dy / len;
-
-    // Небольшой запас 2 мм на концах отрезка для гарантированного пересечения примагниченных границ
-    const eps = 2.0;
-    const e1: Point2D = { x: p1.x - vx * eps, y: p1.y - vy * eps };
-    const e2: Point2D = { x: p2.x + vx * eps, y: p2.y + vy * eps };
-
-    let interCount = 0;
-    const n = polygon.length;
-
-    for (let i = 0; i < n; i++) {
-      const a = polygon[i];
-      const b = polygon[(i + 1) % n];
-      const inter = this.lineIntersection(e1, e2, a, b);
-      if (inter) {
-        interCount++;
-      }
-    }
-
-    if (interCount >= 2) return true;
-
-    // Также проверяем, находится ли середина отрезка внутри полигона
-    const mid: Point2D = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-    if (this.isPointInPolygon(mid, polygon)) {
-      return true;
-    }
-
-    if (interCount >= 1 && (this.isPointInPolygon(p1, polygon) || this.isPointInPolygon(p2, polygon))) {
-      return true;
-    }
-
-    return false;
+    const split = this.splitPolygonByLine(polygon, p1, p2, 0);
+    return split !== null;
   }
 
   /**
@@ -361,20 +324,40 @@ export class PolygonSlicingEngine {
     // Сортируем точки пересечения вдоль линии
     intersections.sort((a, b) => (a.t || 0) - (b.t || 0));
 
-    // Связываем партнеров на внутренних отрезках линии
+    // Проверяем, что отрезок ножа [p1, p2] реально рассекает полигон (не уходит бесконечно дальше точки p2)
+    // Допуск 3.0 мм на примагничивание к граням и округление координат
+    const tol = 3.0;
+    const validPairs: { n1: AugNode; n2: AugNode }[] = [];
+
     for (let i = 0; i < intersections.length - 1; i += 2) {
       const n1 = intersections[i];
       const n2 = intersections[i + 1];
-      n1.linePartner = n2;
-      n2.linePartner = n1;
+      const d1 = (n1.t || 0) / len;
+      const d2 = (n2.t || 0) / len;
+
+      if (d1 >= -tol && d2 <= len + tol) {
+        n1.linePartner = n2;
+        n2.linePartner = n1;
+        validPairs.push({ n1, n2 });
+      } else {
+        // Линия ножа не дошла до этого участка или началась позже
+        n1.isInter = false;
+        n2.isInter = false;
+      }
     }
+
+    if (validPairs.length === 0) {
+      return null;
+    }
+
+    const activeIntersections = intersections.filter((node) => node.linePartner !== undefined);
 
     // 2. Сборка замкнутых полигонов для каждой стороны
     const buildSidePolygons = (targetSideA: boolean): Point2D[][] => {
       const resultPolys: Point2D[][] = [];
-      intersections.forEach((node) => (node.visited = false));
+      activeIntersections.forEach((node) => (node.visited = false));
 
-      for (const startNode of intersections) {
+      for (const startNode of activeIntersections) {
         const isStart = targetSideA ? startNode.enteringA : !startNode.enteringA;
         if (!isStart || startNode.visited) continue;
 
@@ -530,6 +513,10 @@ export class PolygonSlicingEngine {
     });
 
     // Присваиваем площади и понятные маркировки
+    const cleanBaseLabel = (!baseLabel || baseLabel.startsWith('ПУСТО'))
+      ? (baseLabel && baseLabel.startsWith('ПУСТО.') ? baseLabel.replace(/^ПУСТО/, '1.1') : '1.1')
+      : baseLabel;
+
     return finalPolys.map((polyPts, idx) => {
       const areaSqM =
         Math.round((this.calculatePolygonArea(polyPts) / 1_000_000) * 1000) / 1000;
@@ -537,7 +524,7 @@ export class PolygonSlicingEngine {
         ...baseSubPiece,
         id: `piece-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
         points: polyPts,
-        partLabel: finalPolys.length > 1 ? `${baseLabel}.${idx + 1}` : baseLabel,
+        partLabel: finalPolys.length > 1 ? `${cleanBaseLabel}.${idx + 1}` : cleanBaseLabel,
         areaSqM,
       };
     });

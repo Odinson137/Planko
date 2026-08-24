@@ -7,6 +7,7 @@ import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
+import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
 export type JointPreset = 'NONE' | '5' | '8' | '10' | 'LED_10';
@@ -41,6 +42,8 @@ interface ProjectState {
   selectedSubPieceId: string | null;
   isSlicingModalOpen: boolean;
   slicingTarget: { wallId: string; columnIndex: number; segmentIndex?: number | null } | null;
+  isDirty?: boolean;
+  lastSavedAt?: string | null;
 
   // Выбор
   selectWall: (wallId: string) => void;
@@ -57,6 +60,17 @@ interface ProjectState {
   toggleCellSelection: (panelId: string, columnIndex: number, segmentIndex: number, isShift: boolean) => void;
   selectJoint: (jointId: string | null, isShift?: boolean) => void;
   selectWallBend: (bendId: string | null) => void;
+
+  // Сохранение и проекты
+  saveCurrentProject: () => Promise<void>;
+  loadProjectById: (id: string) => Promise<boolean>;
+  createNewProject: (name?: string, wallWidth?: number, wallHeight?: number) => Project;
+  setProject: (project: Project) => void;
+  setProjectName: (name: string) => void;
+  duplicateProject: (id: string, newName?: string) => Promise<Project | null>;
+  deleteProjectById: (id: string) => Promise<void>;
+  exportProjectFile: () => void;
+  importProjectFromFile: (jsonString: string) => Promise<Project>;
 
   // Объединение и массовое редактирование панелей через Shift
   mergeSelectedCells: (wallId: string) => void;
@@ -3765,6 +3779,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   removeOpening: (wallId: string, openingId: string) =>
     set((state) => ({
+      isDirty: true,
       project: {
         ...state.project,
         selectedOpeningId:
@@ -3776,4 +3791,116 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ),
       },
     })),
+
+  // Сохранение и управление проектами
+  saveCurrentProject: async () => {
+    const currentProject = get().project;
+    const updated = {
+      ...currentProject,
+      updatedAt: new Date().toISOString(),
+    };
+    await localProjectRepository.saveProject(updated);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    set({
+      project: updated,
+      isDirty: false,
+      lastSavedAt: timeStr,
+    });
+  },
+
+  loadProjectById: async (id: string) => {
+    const loaded = await localProjectRepository.getProject(id);
+    if (!loaded) return false;
+    const initialWallId = loaded.walls[0]?.id || null;
+    const timeStr = new Date(loaded.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    set({
+      project: {
+        ...loaded,
+        selectedWallId: initialWallId,
+        selectedOpeningId: null,
+      },
+      selectedColumnIndex: null,
+      selectedSegmentIndex: null,
+      selectedCellKeys: [],
+      selectedPieceIds: [],
+      selectedJointId: null,
+      selectedJointIds: [],
+      selectedWallBendId: null,
+      selectedSubPieceId: null,
+      isDirty: false,
+      lastSavedAt: timeStr,
+    });
+    return true;
+  },
+
+  createNewProject: (name?: string, wallWidth?: number, wallHeight?: number) => {
+    const newProj = createDefaultProject(name || 'Новый проект', wallWidth || 3600, wallHeight || 2750);
+    localProjectRepository.saveProject(newProj);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    set({
+      project: newProj,
+      selectedColumnIndex: null,
+      selectedSegmentIndex: null,
+      selectedCellKeys: [],
+      selectedPieceIds: [],
+      selectedJointId: null,
+      selectedJointIds: [],
+      selectedWallBendId: null,
+      selectedSubPieceId: null,
+      isDirty: false,
+      lastSavedAt: timeStr,
+    });
+    return newProj;
+  },
+
+  setProject: (project: Project) => {
+    const initialWallId = project.walls[0]?.id || null;
+    const timeStr = new Date(project.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    set({
+      project: {
+        ...project,
+        selectedWallId: initialWallId,
+        selectedOpeningId: null,
+      },
+      selectedColumnIndex: null,
+      selectedSegmentIndex: null,
+      selectedCellKeys: [],
+      selectedPieceIds: [],
+      selectedJointId: null,
+      selectedJointIds: [],
+      selectedWallBendId: null,
+      selectedSubPieceId: null,
+      isDirty: false,
+      lastSavedAt: timeStr,
+    });
+  },
+
+  setProjectName: (name: string) => {
+    set((state) => ({
+      isDirty: true,
+      project: {
+        ...state.project,
+        name,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  },
+
+  duplicateProject: async (id: string, newName?: string) => {
+    return await localProjectRepository.duplicateProject(id, newName);
+  },
+
+  deleteProjectById: async (id: string) => {
+    await localProjectRepository.deleteProject(id);
+  },
+
+  exportProjectFile: () => {
+    localProjectRepository.exportProjectAsJson(get().project);
+  },
+
+  importProjectFromFile: async (jsonString: string) => {
+    const imported = await localProjectRepository.importProjectFromJson(jsonString);
+    get().setProject(imported);
+    return imported;
+  },
 }));

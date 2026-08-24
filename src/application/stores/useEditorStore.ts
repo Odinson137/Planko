@@ -4,8 +4,10 @@ export type ActiveTool = 'SELECT' | 'PAN' | 'ADD_DOOR' | 'ADD_WINDOW' | 'ADD_TV_
 
 export type ViewMode = '2D' | '3D';
 export type EditMode = 'PANELS' | 'JOINTS';
+export type AppScreen = 'WELCOME' | 'EDITOR';
 
 interface EditorState {
+  currentScreen: AppScreen;
   activeTool: ActiveTool;
   viewMode: ViewMode;
   editMode: EditMode;
@@ -16,7 +18,9 @@ interface EditorState {
   showDimensions: boolean;
   showProfiles: boolean;
   showTextures: boolean;
+  saveNotification: string | null;
 
+  setCurrentScreen: (screen: AppScreen) => void;
   setActiveTool: (tool: ActiveTool) => void;
   setViewMode: (mode: ViewMode) => void;
   setEditMode: (mode: EditMode) => void;
@@ -29,9 +33,11 @@ interface EditorState {
   toggleProfiles: () => void;
   toggleTextures: () => void;
   resetView: () => void;
+  setSaveNotification: (message: string | null) => void;
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
+  currentScreen: 'WELCOME', // По умолчанию при запуске открывается экран выбора проектов
   activeTool: 'SELECT',
   viewMode: '2D',
   editMode: 'PANELS',
@@ -42,7 +48,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   showDimensions: true,
   showProfiles: true,
   showTextures: false,
+  saveNotification: null,
 
+  setCurrentScreen: (screen: AppScreen) => set({ currentScreen: screen }),
   setActiveTool: (tool: ActiveTool) => set({ activeTool: tool }),
   setViewMode: (viewMode: ViewMode) => set({ viewMode }),
   setEditMode: (editMode: EditMode) => set({ editMode }),
@@ -55,4 +63,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   toggleProfiles: () => set((state) => ({ showProfiles: !state.showProfiles })),
   toggleTextures: () => set((state) => ({ showTextures: !state.showTextures })),
   resetView: () => set({ zoom: 1, panX: 0, panY: 0 }),
+  setSaveNotification: (saveNotification: string | null) => set({ saveNotification }),
 }));
+

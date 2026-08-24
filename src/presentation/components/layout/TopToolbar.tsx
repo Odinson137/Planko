@@ -4,15 +4,12 @@ import {
   Button,
   ActionIcon,
   Tooltip,
-  Title,
-  Badge,
   Divider,
   Text,
   Menu,
   SegmentedControl,
 } from '@mantine/core';
 import {
-  MousePointer,
   DoorOpen,
   AppWindow,
   Tv,
@@ -24,6 +21,9 @@ import {
   Ruler,
   Layers,
   Palette,
+  Save,
+  FolderKanban,
+  Check,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
@@ -31,8 +31,6 @@ import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
 
 export const TopToolbar: React.FC = () => {
   const {
-    activeTool,
-    setActiveTool,
     viewMode,
     setViewMode,
     editMode,
@@ -46,11 +44,28 @@ export const TopToolbar: React.FC = () => {
     toggleDimensions,
     showTextures,
     toggleTextures,
+    setCurrentScreen,
   } = useEditorStore();
 
-  const { project, addOpening, addWallBend } = useProjectStore();
+  const {
+    project,
+    isDirty,
+    lastSavedAt,
+    saveCurrentProject,
+    addOpening,
+    addWallBend,
+  } = useProjectStore();
+
   const [catalogOpened, setCatalogOpened] = useState(false);
+  const [isSavedRecently, setIsSavedRecently] = useState(false);
+
   const selectedWallId = project.selectedWallId;
+
+  const handleSave = async () => {
+    await saveCurrentProject();
+    setIsSavedRecently(true);
+    setTimeout(() => setIsSavedRecently(false), 2500);
+  };
 
   const handleAddOpening = (type: 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE') => {
     if (selectedWallId) {
@@ -67,22 +82,66 @@ export const TopToolbar: React.FC = () => {
   return (
     <>
       <Group justify="space-between" px="md" py={6} style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#1A1B1E' }}>
-        {/* Логотип и переключатель 2D / 3D */}
-        <Group gap="sm">
-          <Title order={4} style={{ color: '#E9ECEF', letterSpacing: '0.5px' }}>
-            PLANKO
-          </Title>
-          <Badge size="xs" variant="outline" color="yellow">
-            v0.1 CAD
-          </Badge>
+        {/* Меню проектов и Кнопка сохранения */}
+        <Group gap="xs">
+          {/* Кнопка возврата в меню проектов */}
+          <Tooltip label="Меню проектов" position="bottom">
+            <Button
+              size="xs"
+              variant="subtle"
+              color="gray"
+              leftSection={<FolderKanban size={15} color="#3884FF" />}
+              onClick={() => setCurrentScreen('WELCOME')}
+              styles={{
+                root: {
+                  fontWeight: 700,
+                  backgroundColor: '#26282D',
+                  border: '1px solid #363940',
+                  color: '#DFE1E5',
+                  paddingLeft: 8,
+                  paddingRight: 10,
+                },
+              }}
+            >
+              Проекты
+            </Button>
+          </Tooltip>
+
+          {/* Кнопка "Сохранить проект" */}
+          <Tooltip label="Сохранить проект в хранилище (Ctrl + S)" position="bottom">
+            <Button
+              size="xs"
+              variant={isSavedRecently ? 'light' : isDirty ? 'filled' : 'light'}
+              color={isSavedRecently ? 'green' : isDirty ? 'blue' : 'gray'}
+              leftSection={isSavedRecently ? <Check size={14} color="#10B981" /> : <Save size={14} />}
+              onClick={handleSave}
+              styles={{
+                root: {
+                  fontWeight: 600,
+                  fontSize: 12,
+                },
+              }}
+            >
+              {isSavedRecently
+                ? 'Сохранено!'
+                : isDirty
+                ? 'Сохранить*'
+                : lastSavedAt
+                ? `Сохранено (${lastSavedAt})`
+                : 'Сохранить'}
+            </Button>
+          </Tooltip>
+
           <Divider orientation="vertical" />
+
+          {/* Переключатель 2D / 3D */}
           <SegmentedControl
             size="xs"
             value={viewMode}
             onChange={(val: any) => setViewMode(val)}
             data={[
               { label: '📐 2D Чертёж', value: '2D' },
-              { label: '🧊 3D Вид (30°)', value: '3D' },
+              { label: '🧊 3D Вид', value: '3D' },
             ]}
           />
 
@@ -95,7 +154,7 @@ export const TopToolbar: React.FC = () => {
                 onChange={(val: any) => setEditMode(val)}
                 data={[
                   { label: '📄 Панели', value: 'PANELS' },
-                  { label: '⚡ Стыки & LED', value: 'JOINTS' },
+                  { label: 'Стыки', value: 'JOINTS' },
                 ]}
                 color={editMode === 'JOINTS' ? 'yellow' : 'blue'}
               />
@@ -110,23 +169,12 @@ export const TopToolbar: React.FC = () => {
             leftSection={<Layers size={14} />}
             onClick={() => setCatalogOpened(true)}
           >
-            Каталог AllWall
+            AllWall
           </Button>
         </Group>
 
-        {/* Инструменты добавления радиусов, проемов и курсор */}
+        {/* Инструменты добавления радиусов и проемов */}
         <Group gap={6}>
-          <Tooltip label="Выбор и перемещение (V)" position="bottom">
-            <ActionIcon
-              variant={activeTool === 'SELECT' ? 'filled' : 'subtle'}
-              color={activeTool === 'SELECT' ? 'blue' : 'gray'}
-              onClick={() => setActiveTool('SELECT')}
-            >
-              <MousePointer size={16} />
-            </ActionIcon>
-          </Tooltip>
-
-          <Divider orientation="vertical" />
 
           {/* Меню добавления углов и поворотов */}
           <Menu shadow="md" width={200} position="bottom-start">
@@ -138,7 +186,7 @@ export const TopToolbar: React.FC = () => {
                 leftSection={<Text size="xs" fw={700} style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
                 disabled={!selectedWallId}
               >
-                + Угол стены
+                Угол стены
               </Button>
             </Menu.Target>
 
@@ -164,7 +212,7 @@ export const TopToolbar: React.FC = () => {
                 leftSection={<DoorOpen size={14} />}
                 disabled={!selectedWallId}
               >
-                + Проём / Зона
+                Проём / Зона
               </Button>
             </Menu.Target>
 
@@ -237,9 +285,6 @@ export const TopToolbar: React.FC = () => {
           <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom - 0.1)}>
             <ZoomOut size={16} />
           </ActionIcon>
-          <Text size="xs" c="dimmed" style={{ minWidth: 45, textAlign: 'center' }}>
-            {Math.round(zoom * 100)}%
-          </Text>
           <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom + 0.1)}>
             <ZoomIn size={16} />
           </ActionIcon>

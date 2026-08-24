@@ -132,7 +132,7 @@ export const PanelSlicingModal: React.FC = () => {
         color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : (customSeg?.customColor || customCol?.customColor || panelMaterial.color),
         decorCode: isPanelVoid ? '' : (customSeg?.customDecorCode || customCol?.customDecorCode || panelMaterial.decorCode),
         decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
-        partLabel: isPanelVoid ? 'ПУСТО' : `${colIdx + 1}.${segIdx + 1}`,
+        partLabel: isPanelVoid ? 'ПУСТО' : `1.${colIdx + 1}.${segIdx + 1}`,
         patternAngleDeg: customSeg?.patternAngleDeg || customCol?.patternAngleDeg || 0,
         patternFlipX: customSeg?.patternFlipX || customCol?.patternFlipX || false,
         areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
@@ -175,7 +175,7 @@ export const PanelSlicingModal: React.FC = () => {
       });
 
       if (didSplitAny) {
-        const baseLabel = `${colIdx + 1}.${segIdx + 1}`;
+        const baseLabel = `1.${colIdx + 1}.${segIdx + 1}`;
         const indexedPieces = nextPieces.map((p, idx) => ({
           ...p,
           partLabel: p.isVoid || p.materialId === MATERIAL_NONE_ID
@@ -205,7 +205,7 @@ export const PanelSlicingModal: React.FC = () => {
       color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : panelMaterial.color,
       decorCode: isPanelVoid ? '' : panelMaterial.decorCode,
       decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
-      partLabel: isPanelVoid ? 'ПУСТО' : `${colIdx + 1}.${segIdx + 1}`,
+      partLabel: isPanelVoid ? 'ПУСТО' : `1.${colIdx + 1}.${segIdx + 1}`,
       patternAngleDeg: 0,
       areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
     };
