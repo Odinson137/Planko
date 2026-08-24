@@ -233,49 +233,21 @@ export class PolygonSlicingEngine {
     const shiftY = (-dx / len) * halfGap;
 
     const dist = (pt: Point2D) => (pt.x - p1.x) * dy - (pt.y - p1.y) * dx;
+    const EPS = 1e-4;
 
-    // 1. Поиск точек пересечения ребер с линией
-    interface EdgeInter {
-      edgeIdx: number;
-      pt: Point2D;
-      t: number;
-      da: number;
-      db: number;
-      enteringA: boolean;
-    }
+    const d = ccw.map((pt) => dist(pt));
 
-    const edgeIntersections: EdgeInter[] = [];
-
+    // Проверяем, есть ли вершины по обе стороны линии
+    let hasPos = false;
+    let hasNeg = false;
     for (let i = 0; i < n; i++) {
-      const a = ccw[i];
-      const b = ccw[(i + 1) % n];
-      const da = dist(a);
-      const db = dist(b);
-
-      if ((da < -1e-4 && db > 1e-4) || (da > 1e-4 && db < -1e-4)) {
-        const u = da / (da - db);
-        const interPt: Point2D = {
-          x: a.x + u * (b.x - a.x),
-          y: a.y + u * (b.y - a.y),
-        };
-        const t = (interPt.x - p1.x) * dx + (interPt.y - p1.y) * dy;
-        edgeIntersections.push({
-          edgeIdx: i,
-          pt: interPt,
-          t,
-          da,
-          db,
-          enteringA: da < 0 && db > 0,
-        });
-      }
+      if (d[i] > EPS) hasPos = true;
+      if (d[i] < -EPS) hasNeg = true;
     }
-
-    if (edgeIntersections.length < 2) {
+    // Если все вершины строго с одной стороны (или на линии), линия не разрезает полигон
+    if (!hasPos || !hasNeg) {
       return null;
     }
-
-    // Сортируем пересечения вдоль линии
-    edgeIntersections.sort((a, b) => a.t - b.t);
 
     interface AugNode {
       pt: Point2D;
@@ -289,53 +261,120 @@ export class PolygonSlicingEngine {
       visited?: boolean;
     }
 
-    // 2. Строим расширенный список вершин
     const augPoly: AugNode[] = [];
+    const intersections: AugNode[] = [];
+
+    // 1. Построение расширенного списка вершин с учетом пересечений граней и прохождения через вершины/углы
     for (let i = 0; i < n; i++) {
-      augPoly.push({ pt: ccw[i], isInter: false, d: dist(ccw[i]) });
-      const onEdge = edgeIntersections.filter((ei) => ei.edgeIdx === i);
-      onEdge.sort(
-        (e1, e2) =>
-          Math.hypot(e1.pt.x - ccw[i].x, e1.pt.y - ccw[i].y) -
-          Math.hypot(e2.pt.x - ccw[i].x, e2.pt.y - ccw[i].y)
-      );
-      onEdge.forEach((ei) => {
-        augPoly.push({ pt: ei.pt, isInter: true, t: ei.t, enteringA: ei.enteringA });
-      });
+      const curPt = ccw[i];
+      const curD = d[i];
+
+      if (Math.abs(curD) <= EPS) {
+        // Вершина лежит на линии реза
+        // Ищем предыдущую и следующую вершины, не лежащие на линии
+        let prevNonZeroD = 0;
+        for (let step = 1; step < n; step++) {
+          const pd = d[(i - step + n) % n];
+          if (Math.abs(pd) > EPS) {
+            prevNonZeroD = pd;
+            break;
+          }
+        }
+
+        let nextNonZeroD = 0;
+        for (let step = 1; step < n; step++) {
+          const nd = d[(i + step) % n];
+          if (Math.abs(nd) > EPS) {
+            nextNonZeroD = nd;
+            break;
+          }
+        }
+
+        // Проверяем, не была ли предыдущая вершина уже на линии
+        const prevIdx = (i - 1 + n) % n;
+        const prevIsOnLine = Math.abs(d[prevIdx]) <= EPS;
+
+        // Если знаки по обе стороны разные, контур пересекает линию в этой вершине
+        if (prevNonZeroD * nextNonZeroD < 0 && !prevIsOnLine) {
+          const t = (curPt.x - p1.x) * dx + (curPt.y - p1.y) * dy;
+          const enteringA = prevNonZeroD < 0 && nextNonZeroD > 0;
+          const node: AugNode = {
+            pt: { ...curPt },
+            isInter: true,
+            t,
+            d: 0,
+            enteringA,
+          };
+          augPoly.push(node);
+          intersections.push(node);
+        } else {
+          // Линия касается вершины, не пересекая (локальный экстремум или продолжение коллинеарного ребра)
+          augPoly.push({
+            pt: { ...curPt },
+            isInter: false,
+            d: 0,
+          });
+        }
+      } else {
+        augPoly.push({
+          pt: { ...curPt },
+          isInter: false,
+          d: curD,
+        });
+      }
+
+      // Проверяем строгое пересечение ребра (i, i+1)
+      const nextIdx = (i + 1) % n;
+      const nextD = d[nextIdx];
+      if ((curD < -EPS && nextD > EPS) || (curD > EPS && nextD < -EPS)) {
+        const nextPt = ccw[nextIdx];
+        const u = curD / (curD - nextD);
+        const interPt: Point2D = {
+          x: curPt.x + u * (nextPt.x - curPt.x),
+          y: curPt.y + u * (nextPt.y - curPt.y),
+        };
+        const t = (interPt.x - p1.x) * dx + (interPt.y - p1.y) * dy;
+        const enteringA = curD < 0 && nextD > 0;
+        const node: AugNode = {
+          pt: interPt,
+          isInter: true,
+          t,
+          d: 0,
+          enteringA,
+        };
+        augPoly.push(node);
+        intersections.push(node);
+      }
     }
 
+    if (intersections.length < 2 || intersections.length % 2 !== 0) {
+      return null;
+    }
+
+    // Связываем соседей по кольцу
     const numAug = augPoly.length;
     for (let i = 0; i < numAug; i++) {
       augPoly[i].next = augPoly[(i + 1) % numAug];
       augPoly[i].prev = augPoly[(i - 1 + numAug) % numAug];
     }
 
-    // 3. Связываем партнеров на внутренних отрезках линии
-    for (let i = 0; i < edgeIntersections.length - 1; i += 2) {
-      const e1 = edgeIntersections[i];
-      const e2 = edgeIntersections[i + 1];
+    // Сортируем точки пересечения вдоль линии
+    intersections.sort((a, b) => (a.t || 0) - (b.t || 0));
 
-      const n1 = augPoly.find(
-        (node) => node.isInter && Math.hypot(node.pt.x - e1.pt.x, node.pt.y - e1.pt.y) < 1e-3
-      );
-      const n2 = augPoly.find(
-        (node) => node.isInter && Math.hypot(node.pt.x - e2.pt.x, node.pt.y - e2.pt.y) < 1e-3
-      );
-
-      if (n1 && n2) {
-        n1.linePartner = n2;
-        n2.linePartner = n1;
-      }
+    // Связываем партнеров на внутренних отрезках линии
+    for (let i = 0; i < intersections.length - 1; i += 2) {
+      const n1 = intersections[i];
+      const n2 = intersections[i + 1];
+      n1.linePartner = n2;
+      n2.linePartner = n1;
     }
 
-    // 4. Сборка замкнутых полигонов для каждой стороны
+    // 2. Сборка замкнутых полигонов для каждой стороны
     const buildSidePolygons = (targetSideA: boolean): Point2D[][] => {
       const resultPolys: Point2D[][] = [];
-      const interNodes = augPoly.filter((node) => node.isInter);
+      intersections.forEach((node) => (node.visited = false));
 
-      interNodes.forEach((node) => (node.visited = false));
-
-      for (const startNode of interNodes) {
+      for (const startNode of intersections) {
         const isStart = targetSideA ? startNode.enteringA : !startNode.enteringA;
         if (!isStart || startNode.visited) continue;
 
