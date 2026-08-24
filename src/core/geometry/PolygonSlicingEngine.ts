@@ -257,12 +257,15 @@ export class PolygonSlicingEngine {
           }
         }
 
-        // Проверяем, не была ли предыдущая вершина уже на линии
-        const prevIdx = (i - 1 + n) % n;
-        const prevIsOnLine = Math.abs(d[prevIdx]) <= EPS;
+        const nextIdx = (i + 1) % n;
+        const nextIsOnLine = Math.abs(d[nextIdx]) <= EPS;
 
-        // Если знаки по обе стороны разные, контур пересекает линию в этой вершине
-        if (prevNonZeroD * nextNonZeroD < 0 && !prevIsOnLine) {
+        // Вершина является точкой пересечения линии с контуром, если:
+        // 1. Контур переходит с одной стороны линии на другую (prevNonZeroD * nextNonZeroD < 0)
+        // 2. При наличии коллинеарного ребра на линии точка выхода создается на его конце (!nextIsOnLine)
+        const isCrossingVertex = prevNonZeroD * nextNonZeroD < 0 && !nextIsOnLine;
+
+        if (isCrossingVertex) {
           const t = (curPt.x - p1.x) * dx + (curPt.y - p1.y) * dy;
           const enteringA = prevNonZeroD < 0 && nextNonZeroD > 0;
           const node: AugNode = {
@@ -275,7 +278,6 @@ export class PolygonSlicingEngine {
           augPoly.push(node);
           intersections.push(node);
         } else {
-          // Линия касается вершины, не пересекая (локальный экстремум или продолжение коллинеарного ребра)
           augPoly.push({
             pt: { ...curPt },
             isInter: false,
@@ -328,23 +330,26 @@ export class PolygonSlicingEngine {
     // Сортируем точки пересечения вдоль линии
     intersections.sort((a, b) => (a.t || 0) - (b.t || 0));
 
-    // Проверяем, что отрезок ножа [p1, p2] реально рассекает полигон (не уходит бесконечно дальше точки p2)
-    // Допуск 3.0 мм на примагничивание к граням и округление координат
-    const tol = 3.0;
+    // Проверяем, что отрезок ножа [p1, p2] реально рассекает полигон
+    const tol = Math.max(25.0, 0.05 * len);
     const validPairs: { n1: AugNode; n2: AugNode }[] = [];
 
     for (let i = 0; i < intersections.length - 1; i += 2) {
       const n1 = intersections[i];
       const n2 = intersections[i + 1];
-      const d1 = (n1.t || 0) / len;
-      const d2 = (n2.t || 0) / len;
+      const t1 = n1.t || 0;
+      const t2 = n2.t || 0;
+      const minT = Math.min(t1, t2);
+      const maxT = Math.max(t1, t2);
 
-      if (d1 >= -tol && d2 <= len + tol) {
+      const s1 = minT / len;
+      const s2 = maxT / len;
+
+      if (s2 >= -tol && s1 <= len + tol) {
         n1.linePartner = n2;
         n2.linePartner = n1;
         validPairs.push({ n1, n2 });
       } else {
-        // Линия ножа не дошла до этого участка или началась позже
         n1.isInter = false;
         n2.isInter = false;
       }

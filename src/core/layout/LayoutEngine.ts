@@ -1041,22 +1041,26 @@ export class LayoutEngine {
         return;
       }
 
-      // 2. В полигональной модели (wall.panels) все швы уже имеют точные координаты p1 и p2
-      if (wall.panels && wall.panels.length > 0 && j.p1 && j.p2) {
+      // 2. Любой явный шов с точными координатами p1 и p2 (wall.joints, cut-joint-* и т.д.)
+      if (j.p1 && j.p2) {
         const midX = (j.p1.x + j.p2.x) / 2;
         const midY = (j.p1.y + j.p2.y) / 2;
         let isInsideSolid = false;
 
-        for (const p of wall.panels) {
-          const xs = p.points.map((pt) => pt.x);
-          const ys = p.points.map((pt) => pt.y);
+        const allPanelsToCheck = (wall.panels && wall.panels.length > 0) ? wall.panels : panels;
+
+        for (const p of allPanelsToCheck) {
+          const pts = (p as any).polygonPoints || (p as any).points;
+          if (!pts || pts.length < 3) continue;
+          const xs = pts.map((pt: Point2D) => pt.x);
+          const ys = pts.map((pt: Point2D) => pt.y);
           const minX = Math.min(...xs);
           const maxX = Math.max(...xs);
           const minY = Math.min(...ys);
           const maxY = Math.max(...ys);
 
           if (midX > minX + 3 && midX < maxX - 3 && midY > minY + 3 && midY < maxY - 3) {
-            if (PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY }, p.points)) {
+            if (PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY }, pts)) {
               isInsideSolid = true;
               break;
             }
