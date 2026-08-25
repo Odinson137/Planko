@@ -39,8 +39,8 @@ export function getProjectMetadata(project: Project): ProjectMetadata {
   };
 }
 
-export function createDefaultProject(name: string = 'Новый проект раскладки', wallWidth = 3600, wallHeight = 2750): Project {
-  const initialWall = createDefaultWall('wall-1', 'Стена 1');
+export function createDefaultProject(name: string = 'Новый проект раскладки', wallWidth = 3600, wallHeight = 2750, roomName?: string): Project {
+  const initialWall = createDefaultWall('wall-1', 'Стена 1', roomName);
   initialWall.width = wallWidth;
   initialWall.height = wallHeight;
 

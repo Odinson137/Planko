@@ -56,7 +56,7 @@ export const LeftSidebar: React.FC = () => {
           size="compact-xs"
           variant="light"
           leftSection={<Plus size={12} />}
-          onClick={addWall}
+          onClick={() => addWall()}
         >
           Стена
         </Button>
@@ -73,7 +73,18 @@ export const LeftSidebar: React.FC = () => {
               <div key={wall.id}>
                 <NavLink
                   active={isWallSelected && !selectedOpeningId && !selectedWallBendId}
-                  label={wall.name}
+                  label={
+                    <Group justify="space-between" wrap="nowrap" gap={4}>
+                      <Text size="xs" fw={500} truncate style={{ flex: 1 }}>
+                        {wall.name}
+                      </Text>
+                      {wall.roomName && (
+                        <Badge size="xs" variant="light" color="yellow" radius="sm" style={{ textTransform: 'none' }}>
+                          {wall.roomName}
+                        </Badge>
+                      )}
+                    </Group>
+                  }
                   description={`${wall.width} × ${wall.height} мм`}
                   leftSection={<Layout size={16} />}
                   rightSection={
@@ -196,7 +207,9 @@ export const LeftSidebar: React.FC = () => {
           Активная стена:
         </Text>
         <Text size="xs" fw={500} c="bright">
-          {currentWall ? `${currentWall.name} (${currentWall.width}×${currentWall.height} мм)` : 'Не выбрана'}
+          {currentWall
+            ? `${currentWall.name}${currentWall.roomName ? ` [${currentWall.roomName}]` : ''} (${currentWall.width}×${currentWall.height} мм)`
+            : 'Не выбрана'}
         </Text>
       </Stack>
     </Stack>

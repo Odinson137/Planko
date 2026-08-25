@@ -123,9 +123,9 @@ export const ProjectWelcomeScreen: React.FC = () => {
     }
   };
 
-  const handleCreateProject = (name: string, width: number, height: number) => {
+  const handleCreateProject = (name: string, width: number, height: number, roomName?: string) => {
     setIsNewProjectModalOpen(false);
-    createNewProject(name, width, height);
+    createNewProject(name, width, height, roomName);
     setCurrentScreen('EDITOR');
   };
 

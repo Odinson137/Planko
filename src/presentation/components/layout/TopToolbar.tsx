@@ -24,10 +24,16 @@ import {
   Save,
   FolderKanban,
   Check,
+  Download,
+  FileText,
+  Boxes,
+  Wrench,
+  Loader2,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
+import { PdfExportService } from '../../../application/services/PdfExportService';
 
 export const TopToolbar: React.FC = () => {
   const {
@@ -58,6 +64,7 @@ export const TopToolbar: React.FC = () => {
 
   const [catalogOpened, setCatalogOpened] = useState(false);
   const [isSavedRecently, setIsSavedRecently] = useState(false);
+  const [exportingType, setExportingType] = useState<string | null>(null);
 
   const selectedWallId = project.selectedWallId;
 
@@ -65,6 +72,39 @@ export const TopToolbar: React.FC = () => {
     await saveCurrentProject();
     setIsSavedRecently(true);
     setTimeout(() => setIsSavedRecently(false), 2500);
+  };
+
+  const handleExportPanelsLayout = async () => {
+    try {
+      setExportingType('PANELS');
+      await PdfExportService.exportPanelsLayoutPdf(project);
+    } catch (e) {
+      console.error('Export panels layout failed', e);
+    } finally {
+      setExportingType(null);
+    }
+  };
+
+  const handleExport3DAlbum = async () => {
+    try {
+      setExportingType('3D');
+      await PdfExportService.exportAxonometric3DPdf(project);
+    } catch (e) {
+      console.error('Export 3D failed', e);
+    } finally {
+      setExportingType(null);
+    }
+  };
+
+  const handleExportInstaller = async () => {
+    try {
+      setExportingType('INSTALLER');
+      await PdfExportService.exportInstallerPdf(project);
+    } catch (e) {
+      console.error('Export installer doc failed', e);
+    } finally {
+      setExportingType(null);
+    }
   };
 
   const handleAddOpening = (type: 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE') => {
@@ -82,7 +122,7 @@ export const TopToolbar: React.FC = () => {
   return (
     <>
       <Group justify="space-between" px="md" py={6} style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#1A1B1E' }}>
-        {/* Меню проектов и Кнопка сохранения */}
+        {/* Меню проектов, Сохранение и Экспорт */}
         <Group gap="xs">
           {/* Кнопка возврата в меню проектов */}
           <Tooltip label="Меню проектов" position="bottom">
@@ -131,6 +171,58 @@ export const TopToolbar: React.FC = () => {
                 : 'Сохранить'}
             </Button>
           </Tooltip>
+
+          {/* Меню Экспорта в различные форматы */}
+          <Menu shadow="md" width={300} trigger="hover" openDelay={100} closeDelay={200} position="bottom-start">
+            <Menu.Target>
+              <Button
+                size="xs"
+                variant="light"
+                color="violet"
+                leftSection={exportingType ? <Loader2 size={14} /> : <Download size={14} />}
+                disabled={Boolean(exportingType)}
+                styles={{
+                  root: {
+                    fontWeight: 600,
+                    fontSize: 12,
+                  },
+                }}
+              >
+                {exportingType ? 'Экспорт...' : 'Экспорт ▾'}
+              </Button>
+            </Menu.Target>
+
+            <Menu.Dropdown>
+              <Menu.Label>Форматы экспорта в PDF</Menu.Label>
+              <Menu.Item
+                leftSection={<FileText size={16} color="#3b82f6" />}
+                onClick={handleExportPanelsLayout}
+              >
+                <div>
+                  <Text size="xs" fw={700} c="blue.4">1. Раскладка панелей (PDF)</Text>
+                  <Text size="10px" c="dimmed">План стены + карты раскроя листов 1220×2800</Text>
+                </div>
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<Boxes size={16} color="#10b981" />}
+                onClick={handleExport3DAlbum}
+              >
+                <div>
+                  <Text size="xs" fw={700} c="green.4">2. 3D Аксонометрия (PDF)</Text>
+                  <Text size="10px" c="dimmed">3D альбом всех стен с текстурами и размерами</Text>
+                </div>
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<Wrench size={16} color="#f59e0b" />}
+                onClick={handleExportInstaller}
+              >
+                <div>
+                  <Text size="xs" fw={700} c="yellow.4">3. Для монтажников (PDF)</Text>
+                  <Text size="10px" c="dimmed">Сводка панелей, 2D стыки и расчет 3м профилей</Text>
+                </div>
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
 
           <Divider orientation="vertical" />
 

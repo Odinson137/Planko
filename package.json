@@ -13,6 +13,7 @@
     "@mantine/hooks": "^7.12.2",
     "clsx": "^2.1.1",
     "immer": "^10.1.1",
+    "jspdf": "^4.2.1",
     "konva": "^9.3.16",
     "lucide-react": "^0.439.0",
     "react": "^18.3.1",

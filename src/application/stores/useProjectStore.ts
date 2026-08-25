@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
-import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine } from '../../core/models/Wall';
+import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
 import { ProfileType, findProfileByArticle } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
@@ -64,7 +64,7 @@ interface ProjectState {
   // Сохранение и проекты
   saveCurrentProject: () => Promise<void>;
   loadProjectById: (id: string) => Promise<boolean>;
-  createNewProject: (name?: string, wallWidth?: number, wallHeight?: number) => Project;
+  createNewProject: (name?: string, wallWidth?: number, wallHeight?: number, roomName?: string) => Project;
   setProject: (project: Project) => void;
   setProjectName: (name: string) => void;
   duplicateProject: (id: string, newName?: string) => Promise<Project | null>;
@@ -88,7 +88,10 @@ interface ProjectState {
   setJointColorForSelected: (wallId: string, colorHex: string) => void;
 
   // Управление стенами
-  addWall: () => void;
+  addWall: (name?: string, roomName?: string) => void;
+  updateWallName: (wallId: string, name: string) => void;
+  updateWallRoom: (wallId: string, roomName: string) => void;
+  updateWall: (wallId: string, updates: Partial<Wall>) => void;
   updateWallDimensions: (wallId: string, width: number, height: number) => void;
   setWallMaterial: (
     wallId: string,
@@ -1674,8 +1677,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             (targetIds.length === 0 && (state.selectedCellKeys.includes(`0-${idx}`) || state.selectedCellKeys.length === 0));
           if (!isMatch) return [p];
 
+          let points = p.points;
+          if (wall.panels && wall.panels.length === 1) {
+            points = [
+              { x: 0, y: 0 },
+              { x: wall.width, y: 0 },
+              { x: wall.width, y: wall.height },
+              { x: 0, y: wall.height },
+            ];
+          }
+
           const updated: WallPanelPiece = {
             ...p,
+            points,
             materialId,
             isVoid: isVoidMat,
             color: targetMaterial?.color || p.color,
@@ -1684,7 +1698,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             thickness: targetMaterial?.thickness || p.thickness,
             textureCategory: (targetMaterial?.textureCategory as any) || p.textureCategory,
             reliefType: (targetMaterial?.reliefType as any) || p.reliefType,
-            partLabel: isVoidMat ? 'ПУСТО' : p.partLabel,
+            partLabel: isVoidMat ? 'ПУСТО' : (p.partLabel === 'ПУСТО' ? '1.1' : p.partLabel),
           };
 
           if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
@@ -1885,10 +1899,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     }),
 
-  addWall: () =>
+  addWall: (name?: string, roomName?: string) =>
     set((state) => {
       const nextIndex = state.project.walls.length + 1;
-      const newWall = createDefaultWall(`wall-${Date.now()}`, `Стена ${nextIndex}`);
+      const currentWall = state.project.walls.find((w) => w.id === state.project.selectedWallId);
+      const defaultRoom = roomName !== undefined ? roomName : currentWall?.roomName;
+      const newWall = createDefaultWall(`wall-${Date.now()}`, name || `Стена ${nextIndex}`, defaultRoom);
       return {
         selectedColumnIndex: null,
         selectedSegmentIndex: null,
@@ -1896,6 +1912,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         selectedPieceIds: [],
         selectedJointId: null,
         selectedJointIds: [],
+        isDirty: true,
         project: {
           ...state.project,
           walls: [...state.project.walls, newWall],
@@ -1905,19 +1922,120 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     }),
 
-  updateWallDimensions: (wallId: string, width: number, height: number) =>
+  updateWallName: (wallId: string, name: string) =>
     set((state) => ({
+      isDirty: true,
       project: {
         ...state.project,
         walls: state.project.walls.map((w) =>
-          w.id === wallId
-            ? {
-                ...w,
-                width: typeof width === 'number' ? Math.max(0, width) : 0,
-                height: typeof height === 'number' ? Math.max(0, height) : 0,
-              }
-            : w
+          w.id === wallId ? { ...w, name } : w
         ),
+      },
+    })),
+
+  updateWallRoom: (wallId: string, roomName: string) =>
+    set((state) => ({
+      isDirty: true,
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) =>
+          w.id === wallId ? { ...w, roomName } : w
+        ),
+      },
+    })),
+
+  updateWall: (wallId: string, updates: Partial<Wall>) =>
+    set((state) => ({
+      isDirty: true,
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) =>
+          w.id === wallId ? { ...w, ...updates } : w
+        ),
+      },
+    })),
+
+  updateWallDimensions: (wallId: string, width: number, height: number) =>
+    set((state) => ({
+      isDirty: true,
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const newW = typeof width === 'number' ? Math.max(0, width) : 0;
+          const newH = typeof height === 'number' ? Math.max(0, height) : 0;
+          const oldW = w.width || 3600;
+          const oldH = w.height || 2750;
+
+          let nextPanels = w.panels;
+          if (nextPanels && nextPanels.length > 0) {
+            if (nextPanels.length === 1) {
+              // Если на стене 1 цельная панель (пустая или сплошная)
+              nextPanels = [
+                {
+                  ...nextPanels[0],
+                  points: [
+                    { x: 0, y: 0 },
+                    { x: newW, y: 0 },
+                    { x: newW, y: newH },
+                    { x: 0, y: newH },
+                  ],
+                },
+              ];
+            } else {
+              // Множество нарезанных панелей: корректируем граничные точки
+              nextPanels = nextPanels.map((p) => {
+                const nextPoints = p.points.map((pt) => {
+                  let px = pt.x;
+                  let py = pt.y;
+                  if (Math.abs(px - oldW) < 5) {
+                    px = newW;
+                  } else {
+                    px = Math.min(newW, px);
+                  }
+                  if (Math.abs(py - oldH) < 5) {
+                    py = newH;
+                  } else {
+                    py = Math.min(newH, py);
+                  }
+                  return { x: px, y: py };
+                });
+                return {
+                  ...p,
+                  points: nextPoints,
+                };
+              });
+            }
+          }
+
+          let nextJoints = w.joints;
+          if (nextJoints && nextJoints.length > 0) {
+            nextJoints = nextJoints.map((j) => {
+              const adjustPt = (pt: Point2D) => {
+                let px = pt.x;
+                let py = pt.y;
+                if (Math.abs(px - oldW) < 5) px = newW;
+                else px = Math.min(newW, px);
+                if (Math.abs(py - oldH) < 5) py = newH;
+                else py = Math.min(newH, py);
+                return { x: px, y: py };
+              };
+              return {
+                ...j,
+                p1: adjustPt(j.p1),
+                p2: adjustPt(j.p2),
+              };
+            });
+          }
+
+          return {
+            ...w,
+            width: newW,
+            height: newH,
+            panels: nextPanels,
+            joints: nextJoints,
+          };
+        }),
       },
     })),
 
@@ -1943,6 +2061,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return m;
       });
 
+      const isVoid = targetMat?.isVoid ?? (materialId === MATERIAL_NONE_ID);
+
       return {
         selectedColumnIndex: null,
         selectedSegmentIndex: null,
@@ -1953,16 +2073,55 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         project: {
           ...state.project,
           materials: nextMaterials,
-          walls: state.project.walls.map((w) =>
-            w.id === wallId
-              ? {
-                  ...w,
-                  customPanels: {},
-                  customJoints: {},
-                  zone: { ...w.zone, materialId },
-                }
-              : w
-          ),
+          walls: state.project.walls.map((w) => {
+            if (w.id !== wallId) return w;
+
+            let nextPanels = w.panels;
+            if (nextPanels && nextPanels.length > 0) {
+              if (nextPanels.length === 1) {
+                nextPanels = [
+                  {
+                    ...nextPanels[0],
+                    points: [
+                      { x: 0, y: 0 },
+                      { x: w.width, y: 0 },
+                      { x: w.width, y: w.height },
+                      { x: 0, y: w.height },
+                    ],
+                    materialId,
+                    decorCode: chosenDecor?.code || targetMat?.decorCode,
+                    decorName: chosenDecor?.name || targetMat?.decorName,
+                    color: chosenDecor?.color || targetMat?.color,
+                    thickness: isVoid ? 0 : (targetMat?.thickness || 5),
+                    reliefType: targetMat?.reliefType || 'FLAT',
+                    textureCategory: chosenDecor?.category || targetMat?.textureCategory || 'WOOD',
+                    isVoid,
+                    partLabel: isVoid ? 'ПУСТО' : '1.1',
+                  },
+                ];
+              } else {
+                nextPanels = nextPanels.map((p) => ({
+                  ...p,
+                  materialId,
+                  decorCode: chosenDecor?.code || targetMat?.decorCode,
+                  decorName: chosenDecor?.name || targetMat?.decorName,
+                  color: chosenDecor?.color || targetMat?.color,
+                  thickness: isVoid ? 0 : (targetMat?.thickness || 5),
+                  reliefType: targetMat?.reliefType || 'FLAT',
+                  textureCategory: chosenDecor?.category || targetMat?.textureCategory || 'WOOD',
+                  isVoid,
+                }));
+              }
+            }
+
+            return {
+              ...w,
+              customPanels: {},
+              customJoints: {},
+              panels: nextPanels,
+              zone: { ...w.zone, materialId },
+            };
+          }),
         },
       };
     }),
@@ -2372,8 +2531,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
         if (pIdx >= 0 && nextPanels[pIdx]) {
           const p = nextPanels[pIdx];
+          let points = p.points;
+          if (nextPanels.length === 1) {
+            points = [
+              { x: 0, y: 0 },
+              { x: wall.width, y: 0 },
+              { x: wall.width, y: wall.height },
+              { x: 0, y: wall.height },
+            ];
+          }
+
           const updated: WallPanelPiece = {
             ...p,
+            points,
             materialId,
             isVoid: isVoidMat,
             color: targetMaterial?.color || p.color,
@@ -2382,7 +2552,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             thickness: targetMaterial?.thickness || p.thickness,
             textureCategory: (targetMaterial?.textureCategory as any) || p.textureCategory,
             reliefType: (targetMaterial?.reliefType as any) || p.reliefType,
-            partLabel: isVoidMat ? 'ПУСТО' : p.partLabel,
+            partLabel: isVoidMat ? 'ПУСТО' : (p.partLabel === 'ПУСТО' ? '1.1' : p.partLabel),
           };
 
           if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
@@ -5168,8 +5338,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     return true;
   },
 
-  createNewProject: (name?: string, wallWidth?: number, wallHeight?: number) => {
-    const newProj = createDefaultProject(name || 'Новый проект', wallWidth || 3600, wallHeight || 2750);
+  createNewProject: (name?: string, wallWidth?: number, wallHeight?: number, roomName?: string) => {
+    const newProj = createDefaultProject(name || 'Новый проект', wallWidth || 3600, wallHeight || 2750, roomName);
     localProjectRepository.saveProject(newProj);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     set({

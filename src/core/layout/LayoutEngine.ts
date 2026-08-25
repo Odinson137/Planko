@@ -1,6 +1,6 @@
 import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
-import { ensureOpeningSlopes } from '../models/Opening';
+import { Opening, ensureOpeningSlopes } from '../models/Opening';
 import { Point2D, PolygonSlicingEngine } from '../geometry/PolygonSlicingEngine';
 
 export interface CalculatedSlopePiece {
@@ -113,7 +113,7 @@ export class LayoutEngine {
     defaultMaterial: Material,
     allMaterials: Material[] = DEFAULT_MATERIALS
   ): LayoutCalculationResult {
-    const panels: CalculatedPanelPiece[] = [];
+    let panels: CalculatedPanelPiece[] = [];
     const rawJoints: CalculatedJointLine[] = [];
 
     const materialsMap = new Map<string, Material>();
@@ -164,17 +164,34 @@ export class LayoutEngine {
     if (wall.panels && wall.panels.length > 0) {
       // 2. ПРЯМАЯ ПОЛИГОНАЛЬНАЯ МОДЕЛЬ (Pure 2D Polygon Mesh)
       wall.panels.forEach((p, pIdx) => {
+        let points = p.points;
+        if (wall.panels!.length === 1) {
+          // Если это единственная цельная панель стены, её габариты всегда совпадают с размерами стены
+          points = [
+            { x: 0, y: 0 },
+            { x: wall.width, y: 0 },
+            { x: wall.width, y: wall.height },
+            { x: 0, y: wall.height },
+          ];
+        } else {
+          // Для всех деталей гарантируем, что координаты вершин не вылезают за пределы стены
+          points = points.map((pt) => ({
+            x: Math.max(0, Math.min(wall.width, pt.x)),
+            y: Math.max(0, Math.min(wall.height, pt.y)),
+          }));
+        }
+
         const mat = (p.materialId && materialsMap.get(p.materialId)) || defaultMaterial;
         const isVoid = p.isVoid || mat.id === MATERIAL_NONE_ID || mat.isVoid === true;
-        const xs = p.points.map((pt) => pt.x);
-        const ys = p.points.map((pt) => pt.y);
+        const xs = points.map((pt) => pt.x);
+        const ys = points.map((pt) => pt.y);
         const minX = Math.min(...xs);
         const maxXPt = Math.max(...xs);
         const minY = Math.min(...ys);
         const maxYPt = Math.max(...ys);
         const pieceW = Math.round((maxXPt - minX) * 10) / 10;
         const pieceH = Math.round((maxYPt - minY) * 10) / 10;
-        const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(p.points) / 1_000_000) * 1000) / 1000;
+        const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(points) / 1_000_000) * 1000) / 1000;
 
         const defaultLabel = isVoid ? 'ПУСТО' : (p.partLabel || `1.${pIdx + 1}`);
 
@@ -198,7 +215,7 @@ export class LayoutEngine {
           reliefType: p.reliefType || mat.reliefType || 'FLAT',
           textureCategory: p.textureCategory || mat.textureCategory || 'WOOD',
           partLabel: defaultLabel,
-          polygonPoints: p.points,
+          polygonPoints: points,
           patternAngleDeg: p.patternAngleDeg || 0,
           patternFlipX: p.patternFlipX || false,
           areaSqM,
@@ -793,6 +810,11 @@ export class LayoutEngine {
 
     finalJoints.push(...unmergedJoints);
 
+    // 2.9. Автоматическое физическое вычитание проемов (двери, окна, ниши) из панелей для раскроя и производства
+    if (!wall.panels || wall.panels.length === 0 || wall.panels.length === 1) {
+      panels = this.subtractOpeningsFromPanels(panels, wall.openings);
+    }
+
     // Расчет площадей и расхода
     const wallAreaSqM = (wall.width * wall.height) / 1_000_000;
     const cutoutOpenings = wall.openings.filter((op) => op.isCutout !== false);
@@ -1173,6 +1195,126 @@ export class LayoutEngine {
     }));
 
     return { panels, joints };
+  }
+
+  /**
+   * Физическое вычитание сквозных проемов (двери, окна, ниши) из прямоугольных панелей для раскроя и производства
+   */
+  private static subtractOpeningsFromPanels(
+    panels: CalculatedPanelPiece[],
+    openings: Opening[]
+  ): CalculatedPanelPiece[] {
+    const cutoutOpenings = openings.filter((op) => op.isCutout !== false);
+    if (cutoutOpenings.length === 0 || panels.length === 0) return panels;
+
+    const resultPanels: CalculatedPanelPiece[] = [];
+
+    panels.forEach((p) => {
+      let currentPieces: CalculatedPanelPiece[] = [p];
+
+      cutoutOpenings.forEach((op) => {
+        const nextPieces: CalculatedPanelPiece[] = [];
+
+        currentPieces.forEach((piece) => {
+          const interX1 = Math.max(piece.x, op.x);
+          const interX2 = Math.min(piece.x + piece.width, op.x + op.width);
+          const interY1 = Math.max(piece.y, op.y);
+          const interY2 = Math.min(piece.y + piece.height, op.y + op.height);
+
+          // Если проем пересекает деталь
+          if (interX2 > interX1 + 0.5 && interY2 > interY1 + 0.5) {
+            // 1. Верхняя деталь (над проемом / фрамуга)
+            if (piece.y + piece.height > interY2 + 0.5) {
+              const topH = Math.round((piece.y + piece.height - interY2) * 10) / 10;
+              if (topH >= 5) {
+                nextPieces.push({
+                  ...piece,
+                  id: `${piece.id}-top`,
+                  x: piece.x,
+                  y: interY2,
+                  width: piece.width,
+                  height: topH,
+                  isCut: true,
+                  polygonPoints: undefined,
+                  areaSqM: Math.round(((piece.width * topH) / 1_000_000) * 1000) / 1000,
+                });
+              }
+            }
+
+            // 2. Нижняя деталь (под проемом / подоконник)
+            if (interY1 > piece.y + 0.5) {
+              const botH = Math.round((interY1 - piece.y) * 10) / 10;
+              if (botH >= 5) {
+                nextPieces.push({
+                  ...piece,
+                  id: `${piece.id}-bot`,
+                  x: piece.x,
+                  y: piece.y,
+                  width: piece.width,
+                  height: botH,
+                  isCut: true,
+                  polygonPoints: undefined,
+                  areaSqM: Math.round(((piece.width * botH) / 1_000_000) * 1000) / 1000,
+                });
+              }
+            }
+
+            // 3. Левая деталь (слева от проема в пределах высоты проема)
+            if (interX1 > piece.x + 0.5) {
+              const leftW = Math.round((interX1 - piece.x) * 10) / 10;
+              const midH = Math.round((interY2 - interY1) * 10) / 10;
+              if (leftW >= 5 && midH >= 5) {
+                nextPieces.push({
+                  ...piece,
+                  id: `${piece.id}-left`,
+                  x: piece.x,
+                  y: interY1,
+                  width: leftW,
+                  height: midH,
+                  isCut: true,
+                  polygonPoints: undefined,
+                  areaSqM: Math.round(((leftW * midH) / 1_000_000) * 1000) / 1000,
+                });
+              }
+            }
+
+            // 4. Правая деталь (справа от проема в пределах высоты проема)
+            if (piece.x + piece.width > interX2 + 0.5) {
+              const rightW = Math.round((piece.x + piece.width - interX2) * 10) / 10;
+              const midH = Math.round((interY2 - interY1) * 10) / 10;
+              if (rightW >= 5 && midH >= 5) {
+                nextPieces.push({
+                  ...piece,
+                  id: `${piece.id}-right`,
+                  x: interX2,
+                  y: interY1,
+                  width: rightW,
+                  height: midH,
+                  isCut: true,
+                  polygonPoints: undefined,
+                  areaSqM: Math.round(((rightW * midH) / 1_000_000) * 1000) / 1000,
+                });
+              }
+            }
+          } else {
+            nextPieces.push(piece);
+          }
+        });
+
+        currentPieces = nextPieces;
+      });
+
+      resultPanels.push(...currentPieces);
+    });
+
+    // Последовательная маркировка оставшихся деталей 1.1, 1.2, 1.3...
+    resultPanels.forEach((p, idx) => {
+      if (!p.isVoid) {
+        p.partLabel = `1.${idx + 1}`;
+      }
+    });
+
+    return resultPanels;
   }
 }
 

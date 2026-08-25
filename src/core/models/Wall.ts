@@ -121,6 +121,7 @@ export interface WallZone {
 export interface Wall {
   id: string;
   name: string;
+  roomName?: string;               // Название помещения (например, 'Гостиная', 'Спальня', 'Кухня')
   width: number;                   // ширина стены в мм
   height: number;                  // высота стены в мм
   openings: Opening[];             // проемы на стене
@@ -132,12 +133,13 @@ export interface Wall {
   customJoints: Record<string, JointEdgeConfig>;   // настройки каждого стыка/края (обратная совместимость)
 }
 
-export function createDefaultWall(id: string, name: string = 'Стена 1'): Wall {
+export function createDefaultWall(id: string, name: string = 'Стена 1', roomName?: string): Wall {
   const width = 3600;
   const height = 2750;
   return {
     id,
     name,
+    roomName,
     width,
     height,
     openings: [],

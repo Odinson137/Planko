@@ -4,6 +4,7 @@ import {
   Title,
   NumberInput,
   TextInput,
+  Autocomplete,
   ColorInput,
   Select,
   SegmentedControl,
@@ -35,6 +36,8 @@ import {
   Link,
   Search,
   Scissors,
+  Home,
+  Layout,
 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
@@ -87,6 +90,24 @@ const getFilteredProfilesStrict = (width: number, type: string) => {
   });
 };
 
+const POPULAR_ROOM_PRESETS = [
+  'Гостиная',
+  'Спальня',
+  'Кухня',
+  'Прихожая',
+  'Коридор',
+  'Кабинет',
+  'Ванная',
+  'Детская',
+  'Гардеробная',
+  'Холл',
+  'Столовая',
+  'Мастер-спальня',
+  'Санузел',
+  'Лоджия',
+  'Офис',
+];
+
 export const RightSidebar: React.FC = () => {
   const { editMode } = useEditorStore();
   const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
@@ -107,6 +128,8 @@ export const RightSidebar: React.FC = () => {
     selectWallBend,
     openSlicingModal,
     updateWallDimensions,
+    updateWallName,
+    updateWallRoom,
     updateOpening,
     applyOpening,
     removeOpening,
@@ -2232,13 +2255,68 @@ export const RightSidebar: React.FC = () => {
             </Alert>
           )}
 
+          {/* Основная информация о стене и помещении */}
           <div>
-            <Title order={6} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
+            <Title order={6} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }} mb="xs">
               Параметры стены
             </Title>
-            <Text size="xs" fw={500} c="bright">
-              {currentWall.name}
-            </Text>
+            <Stack gap="xs">
+              <TextInput
+                size="xs"
+                label="Название стены"
+                placeholder="например: Стена 1"
+                leftSection={<Layout size={14} color="#339af0" />}
+                value={currentWall.name}
+                onChange={(e) => updateWallName(currentWall.id, e.currentTarget.value)}
+              />
+
+              <div>
+                <Autocomplete
+                  size="xs"
+                  label="Помещение"
+                  placeholder="например: Гостиная, Спальня..."
+                  leftSection={<Home size={14} color="#fab005" />}
+                  value={currentWall.roomName || ''}
+                  data={Array.from(
+                    new Set([
+                      ...project.walls
+                        .map((w) => w.roomName?.trim())
+                        .filter((r): r is string => Boolean(r && r.length > 0)),
+                      ...POPULAR_ROOM_PRESETS,
+                    ])
+                  )}
+                  onChange={(val) => updateWallRoom(currentWall.id, val)}
+                  clearable
+                />
+                <Group gap={4} mt={6}>
+                  {Array.from(
+                    new Set([
+                      ...project.walls
+                        .map((w) => w.roomName?.trim())
+                        .filter((r): r is string => Boolean(r && r.length > 0)),
+                      'Гостиная',
+                      'Спальня',
+                      'Кухня',
+                      'Прихожая',
+                      'Коридор',
+                    ])
+                  )
+                    .slice(0, 5)
+                    .map((r) => (
+                      <Badge
+                        key={r}
+                        size="xs"
+                        variant={currentWall.roomName === r ? 'filled' : 'light'}
+                        color={currentWall.roomName === r ? 'yellow' : 'gray'}
+                        style={{ cursor: 'pointer', textTransform: 'none' }}
+                        onClick={() => updateWallRoom(currentWall.id, r)}
+                      >
+                        {r}
+                      </Badge>
+                    ))}
+                </Group>
+              </div>
+            </Stack>
           </div>
 
           <Divider color="#2C2E33" />

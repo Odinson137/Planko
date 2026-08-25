@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Modal,
   TextInput,
+  Autocomplete,
   NumberInput,
   Button,
   Group,
@@ -10,23 +11,25 @@ import {
   ThemeIcon,
   Divider,
 } from '@mantine/core';
-import { Plus } from 'lucide-react';
+import { Plus, Home } from 'lucide-react';
 
 interface NewProjectModalProps {
   opened: boolean;
   onClose: () => void;
-  onCreate: (name: string, width: number, height: number) => void;
+  onCreate: (name: string, width: number, height: number, roomName?: string) => void;
 }
 
 export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClose, onCreate }) => {
   const [name, setName] = useState('');
+  const [roomName, setRoomName] = useState('');
   const [width, setWidth] = useState<number>(3600);
   const [height, setHeight] = useState<number>(2750);
 
   const handleCreate = () => {
     const finalName = name.trim() || 'Новый проект';
-    onCreate(finalName, width, height);
+    onCreate(finalName, width, height, roomName.trim() || undefined);
     setName('');
+    setRoomName('');
     setWidth(3600);
     setHeight(2750);
   };
@@ -62,6 +65,30 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClos
           onChange={(e) => setName(e.currentTarget.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
           data-autofocus
+          styles={{
+            input: { backgroundColor: '#2B2D30', borderColor: '#3E4249', color: '#FFF' },
+            label: { color: '#C0C4CC', fontSize: 13, marginBottom: 4 },
+          }}
+        />
+
+        <Autocomplete
+          label="Помещение (комната)"
+          placeholder="Например: Гостиная, Спальня, Кухня..."
+          leftSection={<Home size={14} color="#fab005" />}
+          value={roomName}
+          onChange={setRoomName}
+          data={[
+            'Гостиная',
+            'Спальня',
+            'Кухня',
+            'Прихожая',
+            'Коридор',
+            'Кабинет',
+            'Ванная',
+            'Детская',
+            'Гардеробная',
+            'Холл',
+          ]}
           styles={{
             input: { backgroundColor: '#2B2D30', borderColor: '#3E4249', color: '#FFF' },
             label: { color: '#C0C4CC', fontSize: 13, marginBottom: 4 },
