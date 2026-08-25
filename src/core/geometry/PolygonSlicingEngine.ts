@@ -1326,194 +1326,191 @@ export class PolygonSlicingEngine {
   }
 
   /**
-   * Вырезает прямоугольный проем (дверь, окно, нишу) из набора WallPanelPiece (Архитектурный раскрой: цельные простенки + фрамуга)
+   * Вычитает прямоугольник выреза (проем двери, окна, ниши) из полигона без повреждения смежных областей
+   */
+  public static subtractRectangleFromPolygon(
+    polygon: Point2D[],
+    rect: { x: number; y: number; width: number; height: number }
+  ): Point2D[][] {
+    if (!polygon || polygon.length < 3) return [];
+
+    const opLeft = rect.x;
+    const opRight = rect.x + rect.width;
+    const opBottom = rect.y;
+    const opTop = rect.y + rect.height;
+
+    const xs = polygon.map((p) => p.x);
+    const ys = polygon.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    // 1. Если полигон вообще не пересекается с вырезом -> возвращаем неизменным
+    if (maxX <= opLeft + 0.1 || minX >= opRight - 0.1 || maxY <= opBottom + 0.1 || minY >= opTop - 0.1) {
+      return [polygon];
+    }
+
+    // 2. Если полигон полностью лежит внутри выреза -> удаляем
+    if (minX >= opLeft - 0.1 && maxX <= opRight + 0.1 && minY >= opBottom - 0.1 && maxY <= opTop + 0.1) {
+      return [];
+    }
+
+    // 3. Отсекаем левую область (x <= opLeft) — она полностью вне проема
+    let leftPieces: Point2D[][] = [];
+    let remAfterLeft: Point2D[][] = [polygon];
+
+    if (opLeft > minX + 0.1 && opLeft < maxX - 0.1) {
+      const split = this.splitPolygonByLine(polygon, { x: opLeft, y: -10000 }, { x: opLeft, y: 10000 }, 0);
+      if (split && split.allPieces && split.allPieces.length >= 2) {
+        leftPieces = split.allPieces.filter((p) => this.calculateCentroid(p).x <= opLeft + 0.05);
+        remAfterLeft = split.allPieces.filter((p) => this.calculateCentroid(p).x > opLeft + 0.05);
+      }
+    } else if (maxX <= opLeft + 0.1) {
+      return [polygon];
+    }
+
+    // 4. Из оставшейся части отсекаем правую область (x >= opRight) — она полностью вне проема
+    let rightPieces: Point2D[][] = [];
+    let centerColPieces: Point2D[][] = [];
+
+    for (const poly of remAfterLeft) {
+      const polyXs = poly.map((p) => p.x);
+      const polyMinX = Math.min(...polyXs);
+      const polyMaxX = Math.max(...polyXs);
+
+      if (opRight > polyMinX + 0.1 && opRight < polyMaxX - 0.1) {
+        const split = this.splitPolygonByLine(poly, { x: opRight, y: -10000 }, { x: opRight, y: 10000 }, 0);
+        if (split && split.allPieces && split.allPieces.length >= 2) {
+          centerColPieces.push(...split.allPieces.filter((p) => this.calculateCentroid(p).x <= opRight + 0.05));
+          rightPieces.push(...split.allPieces.filter((p) => this.calculateCentroid(p).x > opRight + 0.05));
+        } else {
+          centerColPieces.push(poly);
+        }
+      } else if (polyMinX >= opRight - 0.1) {
+        rightPieces.push(poly);
+      } else {
+        centerColPieces.push(poly);
+      }
+    }
+
+    // 5. Только центральную колонку (opLeft <= x <= opRight) рассекаем по горизонтали (верх и низ проема)
+    let centerTopPieces: Point2D[][] = [];
+    let centerBottomPieces: Point2D[][] = [];
+
+    for (const poly of centerColPieces) {
+      let currentSub = [poly];
+
+      const polyYs = poly.map((p) => p.y);
+      const polyMinY = Math.min(...polyYs);
+      const polyMaxY = Math.max(...polyYs);
+
+      // Рез по верху проема opTop
+      if (opTop > polyMinY + 0.1 && opTop < polyMaxY - 0.1) {
+        const nextSub: Point2D[][] = [];
+        for (const sp of currentSub) {
+          const split = this.splitPolygonByLine(sp, { x: -10000, y: opTop }, { x: 10000, y: opTop }, 0);
+          if (split && split.allPieces && split.allPieces.length >= 2) {
+            nextSub.push(...split.allPieces);
+          } else {
+            nextSub.push(sp);
+          }
+        }
+        currentSub = nextSub;
+      }
+
+      // Рез по низу проема opBottom
+      if (opBottom > polyMinY + 0.1 && opBottom < polyMaxY - 0.1) {
+        const nextSub: Point2D[][] = [];
+        for (const sp of currentSub) {
+          const split = this.splitPolygonByLine(sp, { x: -10000, y: opBottom }, { x: 10000, y: opBottom }, 0);
+          if (split && split.allPieces && split.allPieces.length >= 2) {
+            nextSub.push(...split.allPieces);
+          } else {
+            nextSub.push(sp);
+          }
+        }
+        currentSub = nextSub;
+      }
+
+      // Удаляем кусок строго внутри выреза
+      for (const sp of currentSub) {
+        const c = this.calculateCentroid(sp);
+        const isInsideCutout =
+          c.x >= opLeft - 0.5 &&
+          c.x <= opRight + 0.5 &&
+          c.y >= opBottom - 0.5 &&
+          c.y <= opTop + 0.5;
+
+        if (!isInsideCutout && this.calculatePolygonArea(sp) >= 10) {
+          if (c.y >= opTop - 0.1) {
+            centerTopPieces.push(sp);
+          } else if (c.y <= opBottom + 0.1) {
+            centerBottomPieces.push(sp);
+          }
+        }
+      }
+    }
+
+    // 6. Собираем все сохраненные детали: leftPieces, centerTopPieces, centerBottomPieces, rightPieces
+    const allKept = [...leftPieces, ...centerTopPieces, ...centerBottomPieces, ...rightPieces].filter(
+      (p) => this.calculatePolygonArea(p) >= 10
+    );
+
+    if (allKept.length <= 1) {
+      return allKept;
+    }
+
+    // 7. Объединяем смежные примыкающие детали одной панели
+    let clusters: Point2D[][] = [...allKept];
+    let merged = true;
+    let iterations = 0;
+    while (merged && iterations++ < 15 && clusters.length > 1) {
+      merged = false;
+      for (let i = 0; i < clusters.length; i++) {
+        for (let j = i + 1; j < clusters.length; j++) {
+          if (this.arePolygonsAdjacent(clusters[i], clusters[j], 16)) {
+            const united = this.unionTwoPolygons(clusters[i], clusters[j], 16);
+            if (united && united.length >= 3) {
+              clusters.splice(j, 1);
+              clusters[i] = united;
+              merged = true;
+              break;
+            }
+          }
+        }
+        if (merged) break;
+      }
+    }
+
+    return clusters;
+  }
+
+  /**
+   * Вырезает прямоугольный проем (дверь, окно, нишу) из набора WallPanelPiece без создания искусственных блоков над проемом
    */
   public static cutOpeningFromWallPanels(
     panels: WallPanelPiece[],
     opening: { id: string; name?: string; x: number; y: number; width: number; height: number },
-    seamGap: number = 8
+    _seamGap: number = 8
   ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
     const resultPanels: WallPanelPiece[] = [];
-    const newJoints: WallJointLine[] = [];
-
-    const opLeft = opening.x;
-    const opRight = opening.x + opening.width;
-    const opBottom = opening.y;
-    const opTop = opening.y + opening.height;
 
     for (const panel of panels) {
-      const xs = panel.points.map((p) => p.x);
-      const ys = panel.points.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-
-      // Проверка на непересечение
-      if (maxX <= opLeft || minX >= opRight || maxY <= opBottom || minY >= opTop) {
-        resultPanels.push(panel);
+      const remainingPolys = this.subtractRectangleFromPolygon(panel.points, opening);
+      if (remainingPolys.length === 0) {
         continue;
       }
-
-      // 1. Отсекаем цельный левый простенок (x <= opLeft) во всю высоту панели
-      let leftPierPolys: Point2D[][] = [];
-      let rightRemPolys: Point2D[][] = [panel.points];
-
-      if (opLeft > minX && opLeft < maxX) {
-        const cut = this.splitPolygonByLine(panel.points, { x: opLeft, y: -10000 }, { x: opLeft, y: 10000 }, 0);
-        if (cut && cut.allPieces && cut.allPieces.length >= 2) {
-          leftPierPolys = cut.allPieces.filter((p) => {
-            const c = this.calculateCentroid(p);
-            return c.x <= opLeft + 0.1;
-          });
-          rightRemPolys = cut.allPieces.filter((p) => {
-            const c = this.calculateCentroid(p);
-            return c.x > opLeft + 0.1;
-          });
-        }
-      }
-
-      // 2. Из оставшейся части отсекаем цельный правый простенок (x >= opRight) во всю высоту панели
-      let rightPierPolys: Point2D[][] = [];
-      let centerColPolys: Point2D[][] = [];
-
-      for (const poly of rightRemPolys) {
-        const polyXs = poly.map((p) => p.x);
-        const polyMinX = Math.min(...polyXs);
-        const polyMaxX = Math.max(...polyXs);
-
-        if (opRight > polyMinX && opRight < polyMaxX) {
-          const cut = this.splitPolygonByLine(poly, { x: opRight, y: -10000 }, { x: opRight, y: 10000 }, 0);
-          if (cut && cut.allPieces && cut.allPieces.length >= 2) {
-            centerColPolys.push(
-              ...cut.allPieces.filter((p) => {
-                const c = this.calculateCentroid(p);
-                return c.x <= opRight + 0.1;
-              })
-            );
-            rightPierPolys.push(
-              ...cut.allPieces.filter((p) => {
-                const c = this.calculateCentroid(p);
-                return c.x > opRight + 0.1;
-              })
-            );
-          } else {
-            centerColPolys.push(poly);
-          }
-        } else if (polyMinX >= opRight - 0.1) {
-          rightPierPolys.push(poly);
-        } else {
-          centerColPolys.push(poly);
-        }
-      }
-
-      // 3. Только центральная колонка (opLeft <= x <= opRight) рассекается по горизонтали:
-      // Вверху — фрамуга (y >= opTop), внизу (если есть) — подоконник/фартук (y <= opBottom)
-      let transomAndBottomPolys: Point2D[][] = [];
-
-      for (const poly of centerColPolys) {
-        let currentSub = [poly];
-
-        // Горизонтальный рез по верху проема opTop
-        const polyYs = poly.map((p) => p.y);
-        const polyMinY = Math.min(...polyYs);
-        const polyMaxY = Math.max(...polyYs);
-
-        if (opTop > polyMinY && opTop < polyMaxY) {
-          const nextSub: Point2D[][] = [];
-          for (const sp of currentSub) {
-            const cut = this.splitPolygonByLine(sp, { x: -10000, y: opTop }, { x: 10000, y: opTop }, 0);
-            if (cut && cut.allPieces && cut.allPieces.length >= 2) {
-              nextSub.push(...cut.allPieces);
-            } else {
-              nextSub.push(sp);
-            }
-          }
-          currentSub = nextSub;
-        }
-
-        // Горизонтальный рез по низу проема opBottom (если окно/ниша)
-        if (opBottom > polyMinY && opBottom < polyMaxY) {
-          const nextSub: Point2D[][] = [];
-          for (const sp of currentSub) {
-            const cut = this.splitPolygonByLine(sp, { x: -10000, y: opBottom }, { x: 10000, y: opBottom }, 0);
-            if (cut && cut.allPieces && cut.allPieces.length >= 2) {
-              nextSub.push(...cut.allPieces);
-            } else {
-              nextSub.push(sp);
-            }
-          }
-          currentSub = nextSub;
-        }
-
-        // Удаляем кусок строго внутри выреза проема
-        const kept = currentSub.filter((sp) => {
-          const c = this.calculateCentroid(sp);
-          const isInside =
-            c.x >= opLeft - 0.5 &&
-            c.x <= opRight + 0.5 &&
-            c.y >= opBottom - 0.5 &&
-            c.y <= opTop + 0.5;
-          return !isInside;
-        });
-
-        transomAndBottomPolys.push(...kept);
-      }
-
-      // Собираем все итоговые полигоны для этой панели:
-      // Левый простенок (цельный) + Фрамуга / Низ + Правый простенок (цельный)
-      const allResultPolys = [...leftPierPolys, ...transomAndBottomPolys, ...rightPierPolys];
-
-      allResultPolys.forEach((poly, kIdx) => {
+      remainingPolys.forEach((poly, kIdx) => {
         resultPanels.push({
           ...panel,
           id: `panel-${Date.now()}-${resultPanels.length + 1}-${kIdx + 1}-${Math.random().toString(36).substring(2, 5)}`,
           points: poly,
-          partLabel: allResultPolys.length > 1 ? `${panel.partLabel}.${kIdx + 1}` : panel.partLabel,
+          partLabel: remainingPolys.length > 1 ? `${panel.partLabel}.${kIdx + 1}` : panel.partLabel,
         });
       });
     }
 
-    // 4. Формируем швы вокруг проема и фрамуги
-    // Левый вертикальный стык (вдоль проема)
-    newJoints.push({
-      id: `joint-op-left-${opening.id}`,
-      p1: { x: opLeft, y: opBottom },
-      p2: { x: opLeft, y: opTop },
-      width: seamGap,
-      isLED: false,
-      orientation: 'VERTICAL',
-    });
-    // Правый вертикальный стык (вдоль проема)
-    newJoints.push({
-      id: `joint-op-right-${opening.id}`,
-      p1: { x: opRight, y: opBottom },
-      p2: { x: opRight, y: opTop },
-      width: seamGap,
-      isLED: false,
-      orientation: 'VERTICAL',
-    });
-    // Верхний горизонтальный стык (над дверью)
-    newJoints.push({
-      id: `joint-op-top-${opening.id}`,
-      p1: { x: opLeft, y: opTop },
-      p2: { x: opRight, y: opTop },
-      width: seamGap,
-      isLED: false,
-      orientation: 'HORIZONTAL',
-    });
-    // Нижний стык (если подоконник/ниша)
-    if (opBottom > 0) {
-      newJoints.push({
-        id: `joint-op-bot-${opening.id}`,
-        p1: { x: opLeft, y: opBottom },
-        p2: { x: opRight, y: opBottom },
-        width: seamGap,
-        isLED: false,
-        orientation: 'HORIZONTAL',
-      });
-    }
-
-    return { newPanels: resultPanels, joints: newJoints };
+    return { newPanels: resultPanels, joints: [] };
   }
 }

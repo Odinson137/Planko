@@ -134,78 +134,6 @@ export class LayoutEngine {
     const maxX = Math.max(currentX, wall.width - rightEdgeWidth);
     const maxY = Math.max(botEdgeWidth, wall.height - topEdgeWidth);
 
-    // 1. Собираем и настраиваем швы вокруг ВСЕХ проемов (двери, окна, ниши)
-    wall.openings.forEach((op) => {
-      const leftJointId = `joint-op-left-${op.id}`;
-      const rightJointId = `joint-op-right-${op.id}`;
-      const topJointId = `joint-op-top-${op.id}`;
-      const botJointId = `joint-op-bot-${op.id}`;
-
-      const customLeft = wall.customJoints[leftJointId];
-      const customRight = wall.customJoints[rightJointId];
-      const customTop = wall.customJoints[topJointId];
-      const customBot = wall.customJoints[botJointId];
-
-      const leftGap = customLeft !== undefined ? customLeft.width : 8;
-      const rightGap = customRight !== undefined ? customRight.width : 8;
-      const topGap = customTop !== undefined ? customTop.width : 8;
-      const botGap = op.y > 0 ? (customBot !== undefined ? customBot.width : 8) : 0;
-
-      // 1.1 Шов слева от проема
-      rawJoints.push({
-        id: leftJointId,
-        name: `Стык слева от: ${op.name}`,
-        x: op.x - leftGap,
-        y: op.y,
-        width: leftGap,
-        length: op.height,
-        orientation: 'VERTICAL',
-        isLED: customLeft?.isLED ?? false,
-        isOuterEdge: false,
-      });
-
-      // 1.2 Шов справа от проема
-      rawJoints.push({
-        id: rightJointId,
-        name: `Стык справа от: ${op.name}`,
-        x: op.x + op.width,
-        y: op.y,
-        width: rightGap,
-        length: op.height,
-        orientation: 'VERTICAL',
-        isLED: customRight?.isLED ?? false,
-        isOuterEdge: false,
-      });
-
-      // 1.3 Шов сверху над проемом
-      rawJoints.push({
-        id: topJointId,
-        name: `Стык сверху от: ${op.name}`,
-        x: op.x,
-        y: op.y + op.height,
-        width: topGap,
-        length: op.width,
-        orientation: 'HORIZONTAL',
-        isLED: customTop?.isLED ?? false,
-        isOuterEdge: false,
-      });
-
-      // 1.4 Шов снизу под проемом
-      if (op.y > 0) {
-        rawJoints.push({
-          id: botJointId,
-          name: `Стык снизу от: ${op.name}`,
-          x: op.x,
-          y: op.y - botGap,
-          width: botGap,
-          length: op.width,
-          orientation: 'HORIZONTAL',
-          isLED: customBot?.isLED ?? false,
-          isOuterEdge: false,
-        });
-      }
-    });
-
     let columnIndex = 0;
 
     const columnBoundaries: {
@@ -1034,61 +962,60 @@ export class LayoutEngine {
 
       // 1. Диагональные / наклонные швы (гипотенузы, наклонные резы)
       if (isDiag && j.p1 && j.p2) {
-        cleanFinalJoints.push({
-          ...j,
-          orientation: 'DIAGONAL',
-        });
-        return;
-      }
-
-      // 2. Любой явный шов с точными координатами p1 и p2 (wall.joints, cut-joint-* и т.д.)
-      if (j.p1 && j.p2) {
         const midX = (j.p1.x + j.p2.x) / 2;
         const midY = (j.p1.y + j.p2.y) / 2;
-        let isInsideSolid = false;
-
-        const allPanelsToCheck = (wall.panels && wall.panels.length > 0) ? wall.panels : panels;
-
-        for (const p of allPanelsToCheck) {
-          const pts = (p as any).polygonPoints || (p as any).points;
-          if (!pts || pts.length < 3) continue;
-          const xs = pts.map((pt: Point2D) => pt.x);
-          const ys = pts.map((pt: Point2D) => pt.y);
-          const minX = Math.min(...xs);
-          const maxX = Math.max(...xs);
-          const minY = Math.min(...ys);
-          const maxY = Math.max(...ys);
-
-          if (midX > minX + 3 && midX < maxX - 3 && midY > minY + 3 && midY < maxY - 3) {
-            if (PolygonSlicingEngine.isPointInPolygon({ x: midX, y: midY }, pts)) {
-              isInsideSolid = true;
-              break;
-            }
-          }
-        }
-
-        if (!isInsideSolid) {
-          cleanFinalJoints.push(j);
+        const insideOp = wall.openings.some(
+          (op) =>
+            op.isCutout !== false &&
+            midX > op.x &&
+            midX < op.x + op.width &&
+            midY > op.y &&
+            midY < op.y + op.height
+        );
+        if (!insideOp) {
+          cleanFinalJoints.push({
+            ...j,
+            orientation: 'DIAGONAL',
+          });
         }
         return;
       }
 
-      // 3. Для legacy сетки
-      if (isHoriz) {
-        const jointY = j.y;
-        let intervals: Interval1D[] = [{ start: j.x, end: j.x + j.length }];
+      const allPanelsToCheck = (wall.panels && wall.panels.length > 0) ? wall.panels : panels;
 
+      // 2. Горизонтальные швы
+      if (isHoriz) {
+        const startX = j.p1 ? Math.min(j.p1.x, j.p2!.x) : j.x;
+        const endX = j.p1 ? Math.max(j.p1.x, j.p2!.x) : j.x + j.length;
+        const jointY = j.p1 ? j.p1.y : j.y;
+
+        let intervals: Interval1D[] = [{ start: startX, end: endX }];
+
+        // Вычитаем вырезы проемов (только если шов проходит СТРОГО внутри выреза)
         wall.openings.forEach((op) => {
-          if (op.isCutout !== false && jointY > op.y + 2 && jointY < op.y + op.height - 2) {
+          if (op.isCutout !== false && jointY > op.y + 0.5 && jointY < op.y + op.height - 0.5) {
             intervals = subtractInterval(intervals, op.x, op.x + op.width);
           }
         });
 
-        panels.forEach((p) => {
-          if (p.y < jointY - 2 && p.y + p.height > jointY + 2) {
-            intervals = subtractInterval(intervals, p.x, p.x + p.width);
+        // Вычитаем цельные панели, которые вертикально перекрывают этот шов
+        for (const p of allPanelsToCheck) {
+          const pts = (p as any).polygonPoints || (p as any).points;
+          if (pts && pts.length >= 3) {
+            const xs = pts.map((pt: Point2D) => pt.x);
+            const ys = pts.map((pt: Point2D) => pt.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+
+            if (minY < jointY - 2 && maxY > jointY + 2) {
+              intervals = subtractInterval(intervals, minX, maxX);
+            }
+          } else if ((p as any).y !== undefined && (p as any).y < jointY - 2 && (p as any).y + (p as any).height > jointY + 2) {
+            intervals = subtractInterval(intervals, (p as any).x, (p as any).x + (p as any).width);
           }
-        });
+        }
 
         intervals.forEach((inv, idx) => {
           const len = inv.end - inv.start;
@@ -1105,20 +1032,38 @@ export class LayoutEngine {
           }
         });
       } else {
-        const jointX = j.x;
-        let intervals: Interval1D[] = [{ start: j.y, end: j.y + j.length }];
+        // 3. Вертикальные швы
+        const startY = j.p1 ? Math.min(j.p1.y, j.p2!.y) : j.y;
+        const endY = j.p1 ? Math.max(j.p1.y, j.p2!.y) : j.y + j.length;
+        const jointX = j.p1 ? j.p1.x : j.x;
 
+        let intervals: Interval1D[] = [{ start: startY, end: endY }];
+
+        // Вычитаем вырезы проемов (только если шов проходит СТРОГО внутри выреза)
         wall.openings.forEach((op) => {
-          if (op.isCutout !== false && jointX > op.x + 2 && jointX < op.x + op.width - 2) {
+          if (op.isCutout !== false && jointX > op.x + 0.5 && jointX < op.x + op.width - 0.5) {
             intervals = subtractInterval(intervals, op.y, op.y + op.height);
           }
         });
 
-        panels.forEach((p) => {
-          if (p.x < jointX - 2 && p.x + p.width > jointX + 2) {
-            intervals = subtractInterval(intervals, p.y, p.y + p.height);
+        // Вычитаем цельные панели, которые горизонтально перекрывают этот шов
+        for (const p of allPanelsToCheck) {
+          const pts = (p as any).polygonPoints || (p as any).points;
+          if (pts && pts.length >= 3) {
+            const xs = pts.map((pt: Point2D) => pt.x);
+            const ys = pts.map((pt: Point2D) => pt.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+
+            if (minX < jointX - 2 && maxX > jointX + 2) {
+              intervals = subtractInterval(intervals, minY, maxY);
+            }
+          } else if ((p as any).x !== undefined && (p as any).x < jointX - 2 && (p as any).x + (p as any).width > jointX + 2) {
+            intervals = subtractInterval(intervals, (p as any).y, (p as any).y + (p as any).height);
           }
-        });
+        }
 
         intervals.forEach((inv, idx) => {
           const len = inv.end - inv.start;

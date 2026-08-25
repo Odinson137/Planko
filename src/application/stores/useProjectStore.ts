@@ -4606,13 +4606,56 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!opening || opening.isApplied) return state;
 
       let nextPanels = wall.panels;
-      let nextJoints = wall.joints || [];
+      let nextJoints = (wall.joints || []).filter((j) => !j.id.startsWith('joint-op-'));
 
-      // Если в стене включена полигональная модель (wall.panels)
+      // Если в стене еще нет wall.panels, инициализируем их из текущего layout'а
+      if ((!nextPanels || nextPanels.length === 0) && opening.isCutout !== false) {
+        const defaultMat =
+          state.project.materials.find((m) => m.id === wall.zone.materialId) ||
+          state.project.materials[0];
+        const layout = LayoutEngine.calculateWallLayout(
+          wall,
+          defaultMat,
+          state.project.materials
+        );
+        nextPanels = layout.panels.map((p) => ({
+          id: p.id,
+          points: p.polygonPoints || [
+            { x: p.x, y: p.y },
+            { x: p.x + p.width, y: p.y },
+            { x: p.x + p.width, y: p.y + p.height },
+            { x: p.x, y: p.y + p.height },
+          ],
+          materialId: p.materialId,
+          color: p.materialColor,
+          decorCode: p.decorCode,
+          decorName: p.decorName,
+          partLabel: p.partLabel,
+          isVoid: p.isVoid,
+          thickness: p.thickness,
+          reliefType: p.reliefType as any,
+          textureCategory: p.textureCategory as any,
+          patternAngleDeg: p.patternAngleDeg,
+          patternFlipX: p.patternFlipX,
+        }));
+        nextJoints = layout.joints.map((j) => ({
+          id: j.id,
+          p1: j.p1 || { x: j.x, y: j.y },
+          p2:
+            j.p2 ||
+            (j.orientation === 'HORIZONTAL'
+              ? { x: j.x + j.length, y: j.y }
+              : { x: j.x, y: j.y + j.length }),
+          width: j.width,
+          orientation: j.orientation,
+          isLED: j.isLED,
+        }));
+      }
+
       if (nextPanels && nextPanels.length > 0 && opening.isCutout !== false) {
         const cutResult = PolygonSlicingEngine.cutOpeningFromWallPanels(nextPanels, opening, 8);
         nextPanels = cutResult.newPanels;
-        nextJoints = [...nextJoints, ...cutResult.joints];
+        nextJoints = [...nextJoints, ...(cutResult.joints || [])];
       }
 
       const updatedOpenings = wall.openings.map((op) =>
@@ -4646,7 +4689,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           state.project.selectedOpeningId === openingId ? null : state.project.selectedOpeningId,
         walls: state.project.walls.map((w) =>
           w.id === wallId
-            ? { ...w, openings: w.openings.filter((op) => op.id !== openingId) }
+            ? {
+                ...w,
+                openings: w.openings.filter((op) => op.id !== openingId),
+                joints: (w.joints || []).filter((j) => !j.id.includes(openingId)),
+              }
             : w
         ),
       },
