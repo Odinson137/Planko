@@ -21,19 +21,18 @@ import {
   ColorInput,
   ScrollArea,
   Alert,
+  Box,
 } from '@mantine/core';
 import {
-  Search,
-  Plus,
   Layers,
-  Sparkles,
   ExternalLink,
   Check,
   Trash2,
   Eye,
-  Sliders,
   Edit3,
   AlertTriangle,
+  Columns2,
+  Zap,
 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import {
@@ -41,6 +40,10 @@ import {
   AllWallDecor,
   SlatProfileShape,
 } from '../../../core/models/AllWallCatalog';
+import {
+  ALLWALL_PROFILES_CATALOG,
+  AllWallProfileItem,
+} from '../../../core/models/Profile';
 import { Material } from '../../../core/models/Material';
 
 interface AllWallCatalogModalProps {
@@ -51,31 +54,21 @@ interface AllWallCatalogModalProps {
 export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened, onClose }) => {
   const {
     project,
+    selectedJointId,
+    selectedJointIds,
     setWallMaterial,
-    addCustomCatalogPanel,
     updateCatalogPanel,
     deleteCatalogPanel,
+    setJointProfile,
+    setJointProfileForSelected,
   } = useProjectStore();
 
-  const [activeTab, setActiveTab] = useState<string | null>('SHEET');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<string | null>('PANELS');
+  const [panelCategoryFilter, setPanelCategoryFilter] = useState<string>('ALL');
+  const [panelThicknessFilter, setPanelThicknessFilter] = useState<string>('ALL');
   const [selectedDecorByModel, setSelectedDecorByModel] = useState<Record<string, AllWallDecor>>({});
-
-  // Состояние создания новой кастомной панели
-  const [isCreatingCustom, setIsCreatingCustom] = useState(false);
-  const [customName, setCustomName] = useState('');
-  const [customCategory, setCustomCategory] = useState<'SHEET' | 'SLAT' | 'HQ'>('SHEET');
-  const [customWidth, setCustomWidth] = useState<number>(1220);
-  const [customHeight, setCustomHeight] = useState<number>(2800);
-  const [customThicknesses, setCustomThicknesses] = useState<string[]>(['5', '8']);
-  const [customTextureCategory, setCustomTextureCategory] = useState<string>('WOOD');
-  const [customReliefType, setCustomReliefType] = useState<SlatProfileShape>('FLAT');
-  const [customColorsList, setCustomColorsList] = useState<{ code: string; color: string; name: string }[]>([
-    { code: 'CUSTOM-01', color: '#c4b5a2', name: 'Кастомный цвет 1' },
-  ]);
-  const [newColorCode, setNewColorCode] = useState('7001');
-  const [newColorHex, setNewColorHex] = useState('#a0784a');
-  const [newColorName, setNewColorName] = useState('Светлый дуб');
+  const [profileRoleFilter, setProfileRoleFilter] = useState<string>('ALL');
+  const [profileThicknessFilter, setProfileThicknessFilter] = useState<string>('ALL');
 
   // Состояние редактирования существующей панели
   const [editingModel, setEditingModel] = useState<AllWallPanelModel | null>(null);
@@ -134,22 +127,45 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
       });
   }, [project.materials]);
 
-  // Фильтрация по поисковому запросу и вкладке
+  // Фильтрация панелей AllWall по категории и толщине
   const filteredModels = useMemo(() => {
     return allModels.filter((model) => {
-      const matchesTab = model.category === activeTab;
-      if (!searchQuery.trim()) return matchesTab;
-
-      const q = searchQuery.toLowerCase().trim();
-      const matchesName = model.name.toLowerCase().includes(q);
-      const matchesDescription = model.description.toLowerCase().includes(q);
-      const matchesDecorCode = model.decors.some(
-        (d) => d.code.toLowerCase().includes(q) || d.name.toLowerCase().includes(q)
-      );
-
-      return (matchesName || matchesDescription || matchesDecorCode) && (matchesTab || searchQuery.length > 2);
+      if (panelCategoryFilter !== 'ALL' && model.category !== panelCategoryFilter) {
+        return false;
+      }
+      if (panelThicknessFilter !== 'ALL') {
+        const targetThick = Number(panelThicknessFilter);
+        if (targetThick === 15) {
+          if (!model.thicknessOptions.some((t) => t >= 15)) return false;
+        } else {
+          if (!model.thicknessOptions.includes(targetThick)) return false;
+        }
+      }
+      return true;
     });
-  }, [allModels, activeTab, searchQuery]);
+  }, [allModels, panelCategoryFilter, panelThicknessFilter]);
+
+  // Фильтрация профилей AllWall по роли и толщине
+  const filteredProfiles = useMemo(() => {
+    return ALLWALL_PROFILES_CATALOG.filter((p) => {
+      const matchesRole = profileRoleFilter === 'ALL' || p.functionalRole === profileRoleFilter;
+      const matchesThickness =
+        profileThicknessFilter === 'ALL' ||
+        p.allowedThicknesses.includes(Number(profileThicknessFilter));
+
+      return matchesRole && matchesThickness;
+    });
+  }, [profileRoleFilter, profileThicknessFilter]);
+
+  const handleApplyProfileToJoint = (profile: AllWallProfileItem) => {
+    if (!selectedWall) return;
+    if (selectedJointIds && selectedJointIds.length > 1) {
+      setJointProfileForSelected(selectedWall.id, profile.article, profile.defaultColorHex);
+    } else if (selectedJointId) {
+      setJointProfile(selectedWall.id, selectedJointId, profile.article, profile.defaultColorHex);
+    }
+    onClose();
+  };
 
   const handleApplyToWall = (model: AllWallPanelModel, decorToApply?: AllWallDecor) => {
     if (!selectedWall) return;
@@ -163,52 +179,6 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
 
     setWallMaterial(selectedWall.id, model.id, activeDecor);
     onClose();
-  };
-
-  const handleAddCustomColor = () => {
-    if (!newColorHex) return;
-    setCustomColorsList((prev) => [
-      ...prev,
-      {
-        code: newColorCode || `DEC-${prev.length + 1}`,
-        color: newColorHex,
-        name: newColorName || `Цвет ${prev.length + 1}`,
-      },
-    ]);
-    setNewColorCode('');
-  };
-
-  const handleSaveCustomPanel = () => {
-    if (!customName.trim()) return;
-
-    const parsedThicknesses = customThicknesses.map((t) => Number(t)).filter((t) => !isNaN(t) && t > 0);
-    const defThick = parsedThicknesses[0] || 5;
-
-    const newMat: Material = {
-      id: `custom-mat-${Date.now()}`,
-      name: customName.trim(),
-      type: customCategory,
-      width: customWidth,
-      height: customHeight,
-      thickness: defThick,
-      thicknessOptions: parsedThicknesses,
-      color: customColorsList[0]?.color || '#d6cbbe',
-      decorCode: customColorsList[0]?.code || '001',
-      decorName: customColorsList[0]?.name || customName,
-      reliefType: customReliefType,
-      textureCategory: customTextureCategory as any,
-      isCustom: true,
-      availableDecors: customColorsList.map((c) => ({
-        code: c.code,
-        name: c.name,
-        color: c.color,
-        category: customTextureCategory as any,
-      })),
-    };
-
-    addCustomCatalogPanel(newMat);
-    setIsCreatingCustom(false);
-    setCustomName('');
   };
 
   const handleStartEdit = (model: AllWallPanelModel) => {
@@ -286,386 +256,467 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           </Group>
         }
         size="90%"
+        centered
         styles={{
-          content: { backgroundColor: '#141517', border: '1px solid #2C2E33' },
-          header: { backgroundColor: '#1A1B1E', borderBottom: '1px solid #2C2E33' },
-          body: { padding: '16px' },
+          content: {
+            backgroundColor: '#141517',
+            border: '1px solid #2C2E33',
+            height: '90vh',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          },
+          header: {
+            backgroundColor: '#1A1B1E',
+            borderBottom: '1px solid #2C2E33',
+            flexShrink: 0,
+          },
+          body: {
+            padding: '16px',
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            minHeight: 0,
+          },
         }}
       >
-        <Stack gap="md">
-          {/* Верхняя панель управления: Поиск и переключатель создания */}
-          <Group justify="space-between" align="center">
-            <TextInput
-              placeholder="🔍 Поиск по названию или коду декора (например: 7029, 5134, GW90, RY8056)..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.currentTarget.value)}
-              style={{ flex: 1, maxWidth: 500 }}
-              leftSection={<Search size={16} />}
-              styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
-            />
+        <Stack gap="md" style={{ flex: 1, height: '100%', minHeight: 0, overflow: 'hidden' }}>
+          {/* Вкладки каталога: 1. Стеновые панели AllWall, 2. Профили и фурнитура */}
+          <Box style={{ flexShrink: 0 }}>
+            <Tabs value={activeTab} onChange={setActiveTab} variant="outline" radius="md">
+              <Tabs.List style={{ borderColor: '#2C2E33' }}>
+                <Tabs.Tab value="PANELS" leftSection={<Layers size={16} />}>
+                  1. Стеновые панели AllWall ({allModels.length})
+                </Tabs.Tab>
+                <Tabs.Tab value="PROFILES" leftSection={<Columns2 size={16} />}>
+                  2. Профили и фурнитура ({ALLWALL_PROFILES_CATALOG.length})
+                </Tabs.Tab>
+              </Tabs.List>
+            </Tabs>
+          </Box>
 
-            <Button
-              leftSection={<Plus size={16} />}
-              variant={isCreatingCustom ? 'filled' : 'light'}
-              color="blue"
-              onClick={() => setIsCreatingCustom(!isCreatingCustom)}
-            >
-              {isCreatingCustom ? 'Закрыть конструктор' : 'Создать свою панель'}
-            </Button>
-          </Group>
+          {/* Фильтры для вкладки Панелей */}
+          {activeTab === 'PANELS' && (
+            <Box style={{ flexShrink: 0 }}>
+              <Paper p="xs" radius="md" style={{ backgroundColor: '#1A1B1E', border: '1px solid #2C2E33' }}>
+                <Stack gap="xs">
+                  <Group justify="space-between" align="center" style={{ flexWrap: 'wrap' }}>
+                    <Group gap={6}>
+                      <Text size="xs" fw={600} c="dimmed">
+                        Категория панелей:
+                      </Text>
+                      {[
+                        { value: 'ALL', label: `Все (${allModels.length})` },
+                        {
+                          value: 'SHEET',
+                          label: `📄 Сплошные (${allModels.filter((m) => m.category === 'SHEET').length})`,
+                        },
+                        {
+                          value: 'SLAT',
+                          label: `🪵 Реечные GW (${allModels.filter((m) => m.category === 'SLAT').length})`,
+                        },
+                        {
+                          value: 'HQ',
+                          label: `✨ HQ Мрамор & Золото (${allModels.filter((m) => m.category === 'HQ').length})`,
+                        },
+                      ].map((f) => (
+                        <Button
+                          key={f.value}
+                          size="compact-xs"
+                          variant={panelCategoryFilter === f.value ? 'filled' : 'subtle'}
+                          color={f.value === 'HQ' ? 'yellow' : f.value === 'SLAT' ? 'teal' : 'blue'}
+                          onClick={() => setPanelCategoryFilter(f.value)}
+                        >
+                          {f.label}
+                        </Button>
+                      ))}
+                    </Group>
 
-          {/* Форма создания своей панели */}
-          {isCreatingCustom && (
-            <Paper p="md" radius="md" style={{ backgroundColor: '#1A1B1E', border: '1px solid #339af0' }}>
-              <Stack gap="sm">
-                <Group justify="space-between">
-                  <Text fw={600} size="sm" c="blue.4">
-                    Конструктор новой панели с индивидуальными характеристиками
-                  </Text>
-                  <Badge color="blue">Пользовательский шаблон</Badge>
-                </Group>
-
-                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
-                  <TextInput
-                    label="Название панели"
-                    placeholder="Например: Стеновая панель Дуб Премиум"
-                    value={customName}
-                    onChange={(e) => setCustomName(e.currentTarget.value)}
-                    required
-                  />
-                  <Select
-                    label="Категория"
-                    value={customCategory}
-                    onChange={(v) => setCustomCategory((v as any) || 'SHEET')}
-                    data={[
-                      { value: 'SHEET', label: 'Сплошная панель' },
-                      { value: 'SLAT', label: 'Реечная панель' },
-                      { value: 'HQ', label: 'HQ-панель (высокий глянец)' },
-                    ]}
-                  />
-                  <Select
-                    label="Фактура / Текстура"
-                    value={customTextureCategory}
-                    onChange={(v) => setCustomTextureCategory(v || 'WOOD')}
-                    data={[
-                      { value: 'WOOD', label: '🪵 Дерево / Шпон' },
-                      { value: 'FABRIC', label: '🧵 Ткань / Лен / Рогожка' },
-                      { value: 'STONE', label: '🪨 Камень / Бетон' },
-                      { value: 'MIRROR', label: '🪞 Зеркало / Глянец' },
-                      { value: 'METAL', label: '🪙 Металл / Брашинг' },
-                      { value: 'SOFT_TOUCH', label: '✨ Soft Touch / Кожа' },
-                      { value: 'MARBLE_HQ', label: '🏛️ Мрамор HQ' },
-                      { value: 'GOLD_HQ', label: '👑 Золото HQ' },
-                    ]}
-                  />
-                </SimpleGrid>
-
-                <SimpleGrid cols={{ base: 1, sm: 4 }} spacing="sm">
-                  <NumberInput
-                    label="Ширина (мм)"
-                    value={customWidth}
-                    onChange={(v) => setCustomWidth(Number(v) || 1220)}
-                    min={50}
-                    max={6000}
-                  />
-                  <NumberInput
-                    label="Высота (мм)"
-                    value={customHeight}
-                    onChange={(v) => setCustomHeight(Number(v) || 2800)}
-                    min={100}
-                    max={6000}
-                  />
-                  <MultiSelect
-                    label="Доступные толщины (мм)"
-                    data={['5', '8', '9', '10', '11', '12', '14', '15', '16', '17', '18', '22', '25']}
-                    value={customThicknesses}
-                    onChange={setCustomThicknesses}
-                  />
-                  <Select
-                    label="Форма 3D-рельефа"
-                    value={customReliefType}
-                    onChange={(v) => setCustomReliefType((v as any) || 'FLAT')}
-                    data={[
-                      { value: 'FLAT', label: 'Плоская плита' },
-                      { value: 'WAVE_GW90', label: 'Волна (Гофре GW90)' },
-                      { value: 'CONCAVE_GW30', label: 'Желоб + Рейки (GW30)' },
-                      { value: 'STEP_SLAT', label: 'Прямоугольные рейки' },
-                    ]}
-                  />
-                </SimpleGrid>
-
-                {/* Настройка списка цветов для панели */}
-                <Divider my="xs" label="Цвета и декоры для этой панели" labelPosition="center" />
-                <Group align="flex-end" gap="sm">
-                  <TextInput
-                    label="Код декора"
-                    placeholder="7001"
-                    value={newColorCode}
-                    onChange={(e) => setNewColorCode(e.currentTarget.value)}
-                    style={{ width: 110 }}
-                  />
-                  <TextInput
-                    label="Название цвета"
-                    placeholder="Светлый беж"
-                    value={newColorName}
-                    onChange={(e) => setNewColorName(e.currentTarget.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <ColorInput
-                    label="Цвет (HEX)"
-                    placeholder="#a0784a"
-                    value={newColorHex}
-                    onChange={setNewColorHex}
-                    format="hex"
-                    style={{ width: 140 }}
-                  />
-
-                  <Button variant="light" color="teal" onClick={handleAddCustomColor}>
-                    + Добавить цвет
-                  </Button>
-                </Group>
-
-                {/* Список добавленных цветов */}
-                <Group gap="xs" mt={4}>
-                  {customColorsList.map((c, idx) => (
-                    <Badge
-                      key={idx}
-                      variant="filled"
-                      style={{ backgroundColor: '#25262B', color: '#E9ECEF', textTransform: 'none' }}
-                      leftSection={<ColorSwatch color={c.color} size={10} />}
-                      rightSection={
-                        customColorsList.length > 1 ? (
-                          <ActionIcon
-                            size="xs"
-                            color="red"
-                            variant="subtle"
-                            onClick={() => setCustomColorsList(customColorsList.filter((_, i) => i !== idx))}
-                          >
-                            <Trash2 size={10} />
-                          </ActionIcon>
-                        ) : undefined
-                      }
-                    >
-                      <strong>{c.code}</strong>: {c.name}
-                    </Badge>
-                  ))}
-                </Group>
-
-                <Group justify="flex-end" mt="sm">
-                  <Button variant="default" onClick={() => setIsCreatingCustom(false)}>
-                    Отмена
-                  </Button>
-                  <Button color="blue" onClick={handleSaveCustomPanel}>
-                    Сохранить панель в каталог
-                  </Button>
-                </Group>
-              </Stack>
-            </Paper>
+                    <Group gap={6}>
+                      <Text size="xs" fw={600} c="dimmed">
+                        Толщина:
+                      </Text>
+                      {[
+                        { value: 'ALL', label: 'Все толщины' },
+                        { value: '5', label: '5 мм' },
+                        { value: '8', label: '8 мм' },
+                        { value: '15', label: '15+ мм (рейки)' },
+                      ].map((t) => (
+                        <Button
+                          key={t.value}
+                          size="compact-xs"
+                          variant={panelThicknessFilter === t.value ? 'filled' : 'subtle'}
+                          color="cyan"
+                          onClick={() => setPanelThicknessFilter(t.value)}
+                        >
+                          {t.label}
+                        </Button>
+                      ))}
+                    </Group>
+                  </Group>
+                </Stack>
+              </Paper>
+            </Box>
           )}
 
-          {/* Вкладки типов панелей */}
-          <Tabs value={activeTab} onChange={setActiveTab} variant="outline" radius="md">
-            <Tabs.List style={{ borderColor: '#2C2E33' }}>
-              <Tabs.Tab value="SHEET" leftSection={<Layers size={16} />}>
-                1. Сплошные панели AllWall ({allModels.filter((m) => m.category === 'SHEET').length})
-              </Tabs.Tab>
-              <Tabs.Tab value="SLAT" leftSection={<Sliders size={16} />}>
-                2. Реечные панели GW10–GW99 ({allModels.filter((m) => m.category === 'SLAT').length})
-              </Tabs.Tab>
-              <Tabs.Tab value="HQ" leftSection={<Sparkles size={16} />}>
-                3. HQ-панели (Глянец & Золото) ({allModels.filter((m) => m.category === 'HQ').length})
-              </Tabs.Tab>
-            </Tabs.List>
-          </Tabs>
-
-          {/* Сетка карточек панелей */}
-          <ScrollArea h={560} offsetScrollbars>
-            <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md" p="xs">
-              {filteredModels.map((model) => {
-                const currentProjectMat = project.materials.find((m) => m.id === model.id);
-                const isWallUsingThisModel = selectedWall?.zone.materialId === model.id;
-                const currentWallDecor = isWallUsingThisModel
-                  ? model.decors.find((d) => d.code === currentProjectMat?.decorCode) ||
-                    model.decors.find((d) => d.color.toLowerCase() === currentProjectMat?.color?.toLowerCase())
-                  : undefined;
-                const activeDecor = selectedDecorByModel[model.id] || currentWallDecor || model.decors[0];
-                const isCurrentDecorApplied =
-                  isWallUsingThisModel &&
-                  (currentWallDecor
-                    ? activeDecor?.code === currentWallDecor.code
-                    : currentProjectMat?.decorCode
-                    ? activeDecor?.code === currentProjectMat.decorCode
-                    : true);
-
-                return (
-                  <Card
-                    key={model.id}
-                    padding="md"
-                    radius="md"
-                    style={{
-                      backgroundColor: '#1A1B1E',
-                      border: isCurrentDecorApplied
-                        ? '2px solid #339af0'
-                        : isWallUsingThisModel
-                        ? '2px dashed #339af0'
-                        : '1px solid #2C2E33',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div>
-                      <Group justify="space-between" align="flex-start" mb="xs">
-                        <div style={{ flex: 1 }}>
-                          <Text fw={700} size="sm" c="gray.1">
-                            {model.name}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            {model.width} × {model.height} мм | Толщины:{' '}
-                            <strong style={{ color: '#74C0FC' }}>
-                              {model.thicknessOptions.join(', ')} мм
-                            </strong>
-                          </Text>
-                        </div>
-
-                        <Group gap={4}>
-                          <Tooltip label="Редактировать параметры панели">
-                            <ActionIcon
-                              size="sm"
-                              color="blue"
-                              variant="subtle"
-                              onClick={() => handleStartEdit(model)}
-                            >
-                              <Edit3 size={15} />
-                            </ActionIcon>
-                          </Tooltip>
-
-                          <Tooltip label="Удалить панель из каталога">
-                            <ActionIcon
-                              size="sm"
-                              color="red"
-                              variant="subtle"
-                              onClick={() => setDeletingModel(model)}
-                            >
-                              <Trash2 size={15} />
-                            </ActionIcon>
-                          </Tooltip>
-                        </Group>
-                      </Group>
-
-                      <Text size="xs" c="gray.4" mb="sm" lineClamp={2}>
-                        {model.description}
+          {/* Фильтры для вкладки Профилей */}
+          {activeTab === 'PROFILES' && (
+            <Box style={{ flexShrink: 0 }}>
+              <Paper p="xs" radius="md" style={{ backgroundColor: '#1A1B1E', border: '1px solid #2C2E33' }}>
+                <Stack gap="xs">
+                  <Group justify="space-between" align="center" style={{ flexWrap: 'wrap' }}>
+                    <Group gap={6}>
+                      <Text size="xs" fw={600} c="dimmed">
+                        Назначение профиля:
                       </Text>
+                      {[
+                        { value: 'ALL', label: `Все (${ALLWALL_PROFILES_CATALOG.length})` },
+                        { value: 'LED', label: '💡 LED (10 мм)' },
+                        { value: 'JOINT', label: '🔗 Соединительные' },
+                        { value: 'END', label: '🏁 Торцевые' },
+                        { value: 'CORNER', label: '📐 Угловые' },
+                        { value: 'BASEBOARD', label: '🔲 Плинтусы' },
+                        { value: 'SHADOW', label: '🌑 Теневые' },
+                      ].map((f) => (
+                        <Button
+                          key={f.value}
+                          size="compact-xs"
+                          variant={profileRoleFilter === f.value ? 'filled' : 'subtle'}
+                          color={f.value === 'LED' ? 'yellow' : 'blue'}
+                          onClick={() => setProfileRoleFilter(f.value)}
+                        >
+                          {f.label}
+                        </Button>
+                      ))}
+                    </Group>
 
-                      {/* Выбранный декор и его код */}
-                      {activeDecor && (
-                        <Paper p="xs" mb="xs" radius="sm" style={{ backgroundColor: '#25262B' }}>
-                          <Group justify="space-between" align="center">
-                            <Group gap="xs">
-                              <ColorSwatch color={activeDecor.color} size={20} />
-                              <div>
-                                <Group gap={4}>
-                                  <Badge
-                                    size="xs"
-                                    color="dark"
-                                    style={{ backgroundColor: '#000', color: '#fff' }}
-                                  >
-                                    {activeDecor.code}
-                                  </Badge>
-                                  <Text size="xs" fw={600}>
-                                    {activeDecor.name}
-                                  </Text>
-                                </Group>
-                              </div>
-                            </Group>
-                            <Text size="xs" c="dimmed">
-                              {activeDecor.color}
-                            </Text>
-                          </Group>
-                        </Paper>
-                      )}
-
-                      {/* Линейка свотчей с заводскими кодами AllWall */}
-                      <Text size="xs" c="dimmed" mb={4}>
-                        Доступные декоры ({model.decors.length} шт):
+                    <Group gap={6}>
+                      <Text size="xs" fw={600} c="dimmed">
+                        Толщина плит:
                       </Text>
-                      <Group gap={6} mb="md" style={{ flexWrap: 'wrap' }}>
-                        {model.decors.slice(0, 14).map((decor) => {
-                          const isSelected = activeDecor?.code === decor.code;
-                          return (
-                            <Tooltip
-                              key={decor.code}
-                              label={
-                                <div style={{ textAlign: 'center' }}>
-                                  <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                                    {decor.code}
-                                  </Badge>
-                                  <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
-                                </div>
-                              }
-                              withArrow
-                            >
-                              <div
-                                onClick={() =>
-                                  setSelectedDecorByModel((prev) => ({
-                                    ...prev,
-                                    [model.id]: decor,
-                                  }))
-                                }
-                                style={{
-                                  cursor: 'pointer',
-                                  padding: 2,
-                                  borderRadius: '50%',
-                                  border: isSelected ? '2px solid #339af0' : '2px solid transparent',
-                                  transform: isSelected ? 'scale(1.15)' : 'scale(1)',
-                                  transition: 'all 0.15s ease',
-                                }}
+                      {[
+                        { value: 'ALL', label: 'Все толщины' },
+                        { value: '5', label: '5 мм' },
+                        { value: '8', label: '8 мм' },
+                      ].map((t) => (
+                        <Button
+                          key={t.value}
+                          size="compact-xs"
+                          variant={profileThicknessFilter === t.value ? 'filled' : 'subtle'}
+                          color="cyan"
+                          onClick={() => setProfileThicknessFilter(t.value)}
+                        >
+                          {t.label}
+                        </Button>
+                      ))}
+                    </Group>
+                  </Group>
+                </Stack>
+              </Paper>
+            </Box>
+          )}
+
+          {/* Сетка карточек: Профили ИЛИ Панели */}
+          <ScrollArea style={{ flex: 1, minHeight: 0 }} offsetScrollbars scrollbars="y">
+            {activeTab === 'PROFILES' ? (
+              <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md" p="xs">
+                {filteredProfiles.map((prof) => {
+                  const hasJointSelected = Boolean(
+                    selectedJointId || (selectedJointIds && selectedJointIds.length > 0)
+                  );
+
+                  return (
+                    <Card
+                      key={prof.article}
+                      padding="md"
+                      radius="md"
+                      style={{
+                        backgroundColor: '#1A1B1E',
+                        border: prof.isLEDCompatible ? '1px solid #fab005' : '1px solid #2C2E33',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <Group justify="space-between" align="flex-start" mb="xs">
+                          <div>
+                            <Group gap={6} mb={4}>
+                              <Badge
+                                size="sm"
+                                color={prof.isLEDCompatible ? 'yellow' : 'blue'}
+                                variant="filled"
                               >
-                                <ColorSwatch color={decor.color} size={18} />
-                              </div>
+                                {prof.article}
+                              </Badge>
+                              <Badge size="xs" color="gray" variant="outline">
+                                Хлыст {prof.stockLength} мм
+                              </Badge>
+                            </Group>
+                            <Text fw={700} size="sm" c="gray.1">
+                              {prof.name}
+                            </Text>
+                          </div>
+                        </Group>
+
+                        <Text size="xs" c="gray.4" mb="sm">
+                          {prof.description}
+                        </Text>
+
+                        {/* Характеристики профиля */}
+                        <Group gap={6} mb="sm" style={{ flexWrap: 'wrap' }}>
+                          <Badge size="xs" variant="outline" color="cyan">
+                            📏 Видимая ширина: {prof.visibleWidth} мм
+                          </Badge>
+                          <Badge size="xs" variant="outline" color="teal">
+                            📐 Панели: {prof.allowedThicknesses.join(' / ')} мм
+                          </Badge>
+                          {prof.dimensionsNote && (
+                            <Badge size="xs" variant="outline" color="grape">
+                              📦 {prof.dimensionsNote}
+                            </Badge>
+                          )}
+                          {prof.isLEDCompatible && (
+                            <Badge size="xs" color="yellow" variant="light" leftSection={<Zap size={10} />}>
+                              Паз 10 мм под RGB ленту
+                            </Badge>
+                          )}
+                        </Group>
+
+                        {/* Цвета профиля AllWall */}
+                        <Text size="xs" c="dimmed" mb={4}>
+                          Доступные цвета отделки ({prof.availableColors.length}):
+                        </Text>
+                        <Group gap="xs" mb="sm">
+                          {prof.availableColors.map((c) => (
+                            <Tooltip key={c.code} label={c.name} withArrow>
+                              <Group gap={4}>
+                                <ColorSwatch color={c.hex} size={16} />
+                                <Text size="xs" c="dimmed">
+                                  {c.name}
+                                </Text>
+                              </Group>
                             </Tooltip>
-                          );
-                        })}
-                        {model.decors.length > 14 && (
-                          <Text size="xs" c="dimmed">
-                            +{model.decors.length - 14}
-                          </Text>
+                          ))}
+                        </Group>
+                      </div>
+
+                      {/* Нижние действия */}
+                      <Group justify="space-between" mt="sm">
+                        <Badge size="xs" color="dark" variant="filled">
+                          AllWall Original
+                        </Badge>
+
+                        {hasJointSelected ? (
+                          <Button
+                            size="xs"
+                            color={prof.isLEDCompatible ? 'yellow' : 'blue'}
+                            variant="filled"
+                            leftSection={<Check size={14} />}
+                            onClick={() => handleApplyProfileToJoint(prof)}
+                          >
+                            Применить к шву
+                          </Button>
+                        ) : (
+                          <Badge size="xs" color="blue" variant="light">
+                            Стандарт 3.0 м
+                          </Badge>
                         )}
                       </Group>
-                    </div>
+                    </Card>
+                  );
+                })}
+              </SimpleGrid>
+            ) : (
+              <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md" p="xs">
+                {filteredModels.map((model) => {
+                  const currentProjectMat = project.materials.find((m) => m.id === model.id);
+                  const isWallUsingThisModel = selectedWall?.zone.materialId === model.id;
+                  const currentWallDecor = isWallUsingThisModel
+                    ? model.decors.find((d) => d.code === currentProjectMat?.decorCode) ||
+                      model.decors.find((d) => d.color.toLowerCase() === currentProjectMat?.color?.toLowerCase())
+                    : undefined;
+                  const activeDecor = selectedDecorByModel[model.id] || currentWallDecor || model.decors[0];
+                  const isCurrentDecorApplied =
+                    isWallUsingThisModel &&
+                    (currentWallDecor
+                      ? activeDecor?.code === currentWallDecor.code
+                      : currentProjectMat?.decorCode
+                      ? activeDecor?.code === currentProjectMat.decorCode
+                      : true);
 
-                    {/* Нижние действия */}
-                    <Group justify="space-between" mt="sm">
-                      {model.url ? (
+                  return (
+                    <Card
+                      key={model.id}
+                      padding="md"
+                      radius="md"
+                      style={{
+                        backgroundColor: '#1A1B1E',
+                        border: isCurrentDecorApplied
+                          ? '2px solid #339af0'
+                          : isWallUsingThisModel
+                          ? '2px dashed #339af0'
+                          : '1px solid #2C2E33',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <Group justify="space-between" align="flex-start" mb="xs">
+                          <div style={{ flex: 1 }}>
+                            <Text fw={700} size="sm" c="gray.1">
+                              {model.name}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {model.width} × {model.height} мм | Толщины:{' '}
+                              <strong style={{ color: '#74C0FC' }}>
+                                {model.thicknessOptions.join(', ')} мм
+                              </strong>
+                            </Text>
+                          </div>
+
+                          <Group gap={4}>
+                            <Tooltip label="Редактировать параметры панели">
+                              <ActionIcon
+                                size="sm"
+                                color="blue"
+                                variant="subtle"
+                                onClick={() => handleStartEdit(model)}
+                              >
+                                <Edit3 size={15} />
+                              </ActionIcon>
+                            </Tooltip>
+
+                            <Tooltip label="Удалить панель из каталога">
+                              <ActionIcon
+                                size="sm"
+                                color="red"
+                                variant="subtle"
+                                onClick={() => setDeletingModel(model)}
+                              >
+                                <Trash2 size={15} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </Group>
+
+                        <Text size="xs" c="gray.4" mb="sm" lineClamp={2}>
+                          {model.description}
+                        </Text>
+
+                        {/* Выбранный декор и его код */}
+                        {activeDecor && (
+                          <Paper p="xs" mb="xs" radius="sm" style={{ backgroundColor: '#25262B' }}>
+                            <Group justify="space-between" align="center">
+                              <Group gap="xs">
+                                <ColorSwatch color={activeDecor.color} size={20} />
+                                <div>
+                                  <Group gap={4}>
+                                    <Badge
+                                      size="xs"
+                                      color="dark"
+                                      style={{ backgroundColor: '#000', color: '#fff' }}
+                                    >
+                                      {activeDecor.code}
+                                    </Badge>
+                                    <Text size="xs" fw={600}>
+                                      {activeDecor.name}
+                                    </Text>
+                                  </Group>
+                                </div>
+                              </Group>
+                              <Text size="xs" c="dimmed">
+                                {activeDecor.color}
+                              </Text>
+                            </Group>
+                          </Paper>
+                        )}
+
+                        {/* Линейка свотчей с заводскими кодами AllWall */}
+                        <Text size="xs" c="dimmed" mb={4}>
+                          Доступные декоры ({model.decors.length} шт):
+                        </Text>
+                        <Group gap={6} mb="md" style={{ flexWrap: 'wrap' }}>
+                          {model.decors.slice(0, 14).map((decor) => {
+                            const isSelected = activeDecor?.code === decor.code;
+                            return (
+                              <Tooltip
+                                key={decor.code}
+                                label={
+                                  <div style={{ textAlign: 'center' }}>
+                                    <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
+                                      {decor.code}
+                                    </Badge>
+                                    <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
+                                  </div>
+                                }
+                                withArrow
+                              >
+                                <div
+                                  onClick={() =>
+                                    setSelectedDecorByModel((prev) => ({
+                                      ...prev,
+                                      [model.id]: decor,
+                                    }))
+                                  }
+                                  style={{
+                                    cursor: 'pointer',
+                                    padding: 2,
+                                    borderRadius: '50%',
+                                    border: isSelected ? '2px solid #339af0' : '2px solid transparent',
+                                    transform: isSelected ? 'scale(1.15)' : 'scale(1)',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                >
+                                  <ColorSwatch color={decor.color} size={18} />
+                                </div>
+                              </Tooltip>
+                            );
+                          })}
+                          {model.decors.length > 14 && (
+                            <Text size="xs" c="dimmed">
+                              +{model.decors.length - 14}
+                            </Text>
+                          )}
+                        </Group>
+                      </div>
+
+                      {/* Нижние действия */}
+                      <Group justify="space-between" mt="sm">
+                        {model.url ? (
+                          <Button
+                            component="a"
+                            href={model.url}
+                            target="_blank"
+                            size="xs"
+                            variant="subtle"
+                            color="gray"
+                            leftSection={<ExternalLink size={12} />}
+                          >
+                            allwall.by
+                          </Button>
+                        ) : (
+                          <div />
+                        )}
+
                         <Button
-                          component="a"
-                          href={model.url}
-                          target="_blank"
                           size="xs"
-                          variant="subtle"
-                          color="gray"
-                          leftSection={<ExternalLink size={12} />}
+                          color="blue"
+                          variant={isCurrentDecorApplied ? 'filled' : 'light'}
+                          leftSection={isCurrentDecorApplied ? <Check size={14} /> : <Eye size={14} />}
+                          onClick={() => handleApplyToWall(model, activeDecor)}
                         >
-                          allwall.by
+                          {isCurrentDecorApplied ? 'Выбрано на стене' : 'Применить к стене'}
                         </Button>
-                      ) : (
-                        <div />
-                      )}
-
-                      <Button
-                        size="xs"
-                        color="blue"
-                        variant={isCurrentDecorApplied ? 'filled' : 'light'}
-                        leftSection={isCurrentDecorApplied ? <Check size={14} /> : <Eye size={14} />}
-                        onClick={() => handleApplyToWall(model, activeDecor)}
-                      >
-                        {isCurrentDecorApplied ? 'Выбрано на стене' : 'Применить к стене'}
-                      </Button>
-                    </Group>
-                  </Card>
-                );
-              })}
-            </SimpleGrid>
+                      </Group>
+                    </Card>
+                  );
+                })}
+              </SimpleGrid>
+            )}
           </ScrollArea>
         </Stack>
       </Modal>

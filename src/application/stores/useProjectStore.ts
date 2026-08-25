@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
-import { ProfileType } from '../../core/models/Profile';
+import { ProfileType, findProfileByArticle } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
@@ -10,7 +10,7 @@ import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geome
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
-export type JointPreset = 'NONE' | '5' | '8' | '10' | 'LED_10';
+export type JointPreset = 'NONE' | '0.8' | '5' | '8' | '10' | 'LED_10';
 
 export interface SelectedCellCoord {
   columnIndex: number;
@@ -84,6 +84,8 @@ interface ProjectState {
   setJointPresetForSelected: (wallId: string, preset: JointPreset) => void;
   setJointWidthForSelected: (wallId: string, width: number) => void;
   setJointLEDForSelected: (wallId: string, isLED: boolean) => void;
+  setJointProfileForSelected: (wallId: string, article: string, colorHex?: string) => void;
+  setJointColorForSelected: (wallId: string, colorHex: string) => void;
 
   // Управление стенами
   addWall: () => void;
@@ -104,6 +106,8 @@ interface ProjectState {
   setJointWidth: (wallId: string, jointId: string, width: number) => void;
   setJointLED: (wallId: string, jointId: string, isLED: boolean) => void;
   setJointPreset: (wallId: string, jointId: string, preset: JointPreset) => void;
+  setJointProfile: (wallId: string, jointId: string, article: string, colorHex?: string) => void;
+  setJointColor: (wallId: string, jointId: string, colorHex: string) => void;
 
   // Управление ячейками сетки (материалы, размеры, пустоты)
   setCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number, materialId: string) => void;
@@ -835,27 +839,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       let width = 8;
       let isLED = false;
+      let defaultProfileArticle: string | undefined = undefined;
 
       switch (preset) {
         case 'NONE':
           width = 0;
           isLED = false;
+          defaultProfileArticle = undefined;
+          break;
+        case '0.8':
+          width = 0.8;
+          isLED = false;
+          defaultProfileArticle = 'MC-06';
           break;
         case '5':
           width = 5;
           isLED = false;
+          defaultProfileArticle = 'EC-08';
           break;
         case '8':
           width = 8;
           isLED = false;
+          defaultProfileArticle = 'MC-05';
           break;
         case '10':
           width = 10;
           isLED = false;
+          defaultProfileArticle = 'DL-13';
           break;
         case 'LED_10':
           width = 10;
           isLED = true;
+          defaultProfileArticle = 'DL-13';
           break;
       }
 
@@ -867,14 +882,153 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           orientation,
           width,
           isLED,
+          profileArticle: defaultProfileArticle,
         };
       });
+
+      let nextWallJoints = wall.joints;
+      if (nextWallJoints && nextWallJoints.length > 0) {
+        nextWallJoints = nextWallJoints.map((j) => {
+          if (state.selectedJointIds.includes(j.id)) {
+            return {
+              ...j,
+              width,
+              isLED,
+              profileArticle: defaultProfileArticle,
+            };
+          }
+          return j;
+        });
+      }
+
+      let nextPanels = wall.panels;
+      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+        state.selectedJointIds.forEach((jId) => {
+          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          if (targetJoint) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+              nextPanels!,
+              targetJoint,
+              oldW,
+              width,
+              wall.width,
+              wall.height
+            );
+          }
+        });
+      }
 
       return {
         project: {
           ...state.project,
           walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customJoints: nextCustomJoints } : w
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints, panels: nextPanels } : w
+          ),
+        },
+      };
+    }),
+
+  setJointProfileForSelected: (wallId: string, article: string, colorHex?: string) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall || state.selectedJointIds.length === 0) return state;
+
+      const profile = findProfileByArticle(article);
+      const width = profile ? profile.visibleWidth : 8;
+      const isLED = profile ? (profile.isLEDCompatible ?? false) : false;
+      const profileColor = colorHex || profile?.defaultColorHex || '#212529';
+
+      const nextCustomJoints = { ...wall.customJoints };
+      state.selectedJointIds.forEach((id) => {
+        const orientation = id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL';
+        nextCustomJoints[id] = {
+          ...(nextCustomJoints[id] || { id }),
+          orientation,
+          width,
+          isLED,
+          profileArticle: article,
+          profileColor,
+        };
+      });
+
+      let nextWallJoints = wall.joints;
+      if (nextWallJoints && nextWallJoints.length > 0) {
+        nextWallJoints = nextWallJoints.map((j) => {
+          if (state.selectedJointIds.includes(j.id)) {
+            return {
+              ...j,
+              width,
+              isLED,
+              profileArticle: article,
+              profileColor,
+            };
+          }
+          return j;
+        });
+      }
+
+      let nextPanels = wall.panels;
+      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+        state.selectedJointIds.forEach((jId) => {
+          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          if (targetJoint) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+              nextPanels!,
+              targetJoint,
+              oldW,
+              width,
+              wall.width,
+              wall.height
+            );
+          }
+        });
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints, panels: nextPanels } : w
+          ),
+        },
+      };
+    }),
+
+  setJointColorForSelected: (wallId: string, colorHex: string) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall || state.selectedJointIds.length === 0) return state;
+
+      const nextCustomJoints = { ...wall.customJoints };
+      state.selectedJointIds.forEach((id) => {
+        if (nextCustomJoints[id]) {
+          nextCustomJoints[id] = {
+            ...nextCustomJoints[id],
+            profileColor: colorHex,
+          };
+        }
+      });
+
+      let nextWallJoints = wall.joints;
+      if (nextWallJoints && nextWallJoints.length > 0) {
+        nextWallJoints = nextWallJoints.map((j) => {
+          if (state.selectedJointIds.includes(j.id)) {
+            return {
+              ...j,
+              profileColor: colorHex,
+            };
+          }
+          return j;
+        });
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints } : w
           ),
         },
       };
@@ -889,23 +1043,64 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const nextCustomJoints = { ...wall.customJoints };
 
       state.selectedJointIds.forEach((id) => {
-        const current = nextCustomJoints[id] || {
-          id,
-          orientation: id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-          width: 8,
-          isLED: false,
-        };
+        const current = nextCustomJoints[id];
+        const currentArticle = current?.profileArticle;
+        const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
+        const isMatch = currentProfile && currentProfile.visibleWidth === clampedW;
+        const profileArticle = isMatch ? currentArticle : undefined;
+        const isLED = isMatch ? (currentProfile.isLEDCompatible ?? false) : false;
+
         nextCustomJoints[id] = {
-          ...current,
+          ...(current || {
+            id,
+            orientation: id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
+          }),
           width: clampedW,
+          isLED,
+          profileArticle,
         };
       });
+
+      let nextWallJoints = wall.joints;
+      if (nextWallJoints && nextWallJoints.length > 0) {
+        nextWallJoints = nextWallJoints.map((j) => {
+          if (state.selectedJointIds.includes(j.id)) {
+            const currentProfile = j.profileArticle ? findProfileByArticle(j.profileArticle) : undefined;
+            const isMatch = currentProfile && currentProfile.visibleWidth === clampedW;
+            return {
+              ...j,
+              width: clampedW,
+              isLED: isMatch ? (currentProfile?.isLEDCompatible ?? false) : false,
+              profileArticle: isMatch ? j.profileArticle : undefined,
+            };
+          }
+          return j;
+        });
+      }
+
+      let nextPanels = wall.panels;
+      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+        state.selectedJointIds.forEach((jId) => {
+          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          if (targetJoint) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+              nextPanels!,
+              targetJoint,
+              oldW,
+              clampedW,
+              wall.width,
+              wall.height
+            );
+          }
+        });
+      }
 
       return {
         project: {
           ...state.project,
           walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customJoints: nextCustomJoints } : w
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints, panels: nextPanels } : w
           ),
         },
       };
@@ -1794,23 +1989,68 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           const nextJoints = { ...w.customJoints };
           const clamped = Math.max(0, width);
 
+          const updateJointItem = (existing: any) => {
+            const currentArticle = existing?.profileArticle;
+            const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
+            const isMatch = currentProfile && currentProfile.visibleWidth === clamped;
+            const profileArticle = isMatch ? currentArticle : undefined;
+            const isLED = isMatch ? (currentProfile.isLEDCompatible ?? false) : false;
+
+            return {
+              ...(existing || {
+                id: jointId,
+                orientation: jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
+              }),
+              width: clamped,
+              isLED,
+              profileArticle,
+            };
+          };
+
           if (targetGroupId) {
             Object.keys(nextJoints).forEach((k) => {
               if (nextJoints[k]?.groupId === targetGroupId) {
-                nextJoints[k] = { ...nextJoints[k], width: clamped };
+                nextJoints[k] = updateJointItem(nextJoints[k]);
               }
             });
           } else {
-            const current = nextJoints[jointId] || {
-              id: jointId,
-              orientation: jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-              width: 8,
-              isLED: false,
-            };
-            nextJoints[jointId] = { ...current, width: clamped };
+            nextJoints[jointId] = updateJointItem(nextJoints[jointId]);
           }
 
-          return { ...w, customJoints: nextJoints };
+          let nextWallJoints = w.joints;
+          if (nextWallJoints && nextWallJoints.length > 0) {
+            nextWallJoints = nextWallJoints.map((j) => {
+              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+                const currentArticle = j.profileArticle;
+                const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
+                const isMatch = currentProfile && currentProfile.visibleWidth === clamped;
+                return {
+                  ...j,
+                  width: clamped,
+                  isLED: isMatch ? (currentProfile?.isLEDCompatible ?? false) : false,
+                  profileArticle: isMatch ? currentArticle : undefined,
+                };
+              }
+              return j;
+            });
+          }
+
+          let nextPanels = w.panels;
+          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+
+          if (nextPanels && nextPanels.length > 0 && targetJoint) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+              nextPanels,
+              targetJoint,
+              oldW,
+              clamped,
+              w.width,
+              w.height
+            );
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
         }),
       },
     })),
@@ -1850,7 +2090,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             };
           }
 
-          return { ...w, customJoints: nextJoints };
+          let nextWallJoints = w.joints;
+          if (nextWallJoints && nextWallJoints.length > 0) {
+            nextWallJoints = nextWallJoints.map((j) => {
+              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+                return {
+                  ...j,
+                  width: isLED && j.width === 0 ? 10 : j.width,
+                  isLED,
+                };
+              }
+              return j;
+            });
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints };
         }),
       },
     })),
@@ -1867,27 +2121,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
           let width = 8;
           let isLED = false;
+          let defaultProfileArticle: string | undefined = undefined;
 
           switch (preset) {
             case 'NONE':
               width = 0;
               isLED = false;
+              defaultProfileArticle = undefined;
+              break;
+            case '0.8':
+              width = 0.8;
+              isLED = false;
+              defaultProfileArticle = 'MC-06';
               break;
             case '5':
               width = 5;
               isLED = false;
+              defaultProfileArticle = 'EC-08';
               break;
             case '8':
               width = 8;
               isLED = false;
+              defaultProfileArticle = 'MC-05';
               break;
             case '10':
               width = 10;
               isLED = false;
+              defaultProfileArticle = 'DL-13';
               break;
             case 'LED_10':
               width = 10;
               isLED = true;
+              defaultProfileArticle = 'DL-13';
               break;
           }
 
@@ -1901,6 +2166,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
                   orientation,
                   width,
                   isLED,
+                  profileArticle: defaultProfileArticle,
                 };
               }
             });
@@ -1910,10 +2176,172 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               orientation,
               width,
               isLED,
+              profileArticle: defaultProfileArticle,
             };
           }
 
-          return { ...w, customJoints: nextJoints };
+          let nextWallJoints = w.joints;
+          if (nextWallJoints && nextWallJoints.length > 0) {
+            nextWallJoints = nextWallJoints.map((j) => {
+              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+                return {
+                  ...j,
+                  width,
+                  isLED,
+                  profileArticle: defaultProfileArticle,
+                };
+              }
+              return j;
+            });
+          }
+
+          let nextPanels = w.panels;
+          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+
+          if (nextPanels && nextPanels.length > 0 && targetJoint) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+              nextPanels,
+              targetJoint,
+              oldW,
+              width,
+              w.width,
+              w.height
+            );
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
+        }),
+      },
+    })),
+
+  setJointProfile: (wallId: string, jointId: string, article: string, colorHex?: string) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const baseId = jointId.split('-part-')[0].split('-merged-')[0];
+          const targetGroupId = w.customJoints[jointId]?.groupId || w.customJoints[baseId]?.groupId;
+          const orientation = jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL';
+
+          const profile = findProfileByArticle(article);
+          const width = profile ? profile.visibleWidth : 8;
+          const isLED = profile ? (profile.isLEDCompatible ?? false) : false;
+          const profileColor = colorHex || profile?.defaultColorHex || '#212529';
+
+          const nextJoints = { ...w.customJoints };
+
+          if (targetGroupId) {
+            Object.keys(nextJoints).forEach((k) => {
+              if (nextJoints[k]?.groupId === targetGroupId) {
+                nextJoints[k] = {
+                  ...nextJoints[k],
+                  orientation,
+                  width,
+                  isLED,
+                  profileArticle: article,
+                  profileColor,
+                };
+              }
+            });
+          } else {
+            nextJoints[jointId] = {
+              ...(nextJoints[jointId] || { id: jointId }),
+              orientation,
+              width,
+              isLED,
+              profileArticle: article,
+              profileColor,
+            };
+          }
+
+          let nextWallJoints = w.joints;
+          if (nextWallJoints && nextWallJoints.length > 0) {
+            nextWallJoints = nextWallJoints.map((j) => {
+              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+                return {
+                  ...j,
+                  width,
+                  isLED,
+                  profileArticle: article,
+                  profileColor,
+                };
+              }
+              return j;
+            });
+          }
+
+          let nextPanels = w.panels;
+          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+
+          if (nextPanels && nextPanels.length > 0 && targetJoint) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+              nextPanels,
+              targetJoint,
+              oldW,
+              width,
+              w.width,
+              w.height
+            );
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
+        }),
+      },
+    })),
+
+  setJointColor: (wallId: string, jointId: string, colorHex: string) =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const baseId = jointId.split('-part-')[0].split('-merged-')[0];
+          const targetGroupId = w.customJoints[jointId]?.groupId || w.customJoints[baseId]?.groupId;
+
+          const nextJoints = { ...w.customJoints };
+
+          if (targetGroupId) {
+            Object.keys(nextJoints).forEach((k) => {
+              if (nextJoints[k]?.groupId === targetGroupId) {
+                nextJoints[k] = {
+                  ...nextJoints[k],
+                  profileColor: colorHex,
+                };
+              }
+            });
+          } else if (nextJoints[jointId]) {
+            nextJoints[jointId] = {
+              ...nextJoints[jointId],
+              profileColor: colorHex,
+            };
+          } else {
+            const orientation = jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL';
+            nextJoints[jointId] = {
+              id: jointId,
+              orientation,
+              width: 8,
+              isLED: false,
+              profileColor: colorHex,
+            };
+          }
+
+          let nextWallJoints = w.joints;
+          if (nextWallJoints && nextWallJoints.length > 0) {
+            nextWallJoints = nextWallJoints.map((j) => {
+              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+                return {
+                  ...j,
+                  profileColor: colorHex,
+                };
+              }
+              return j;
+            });
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints };
         }),
       },
     })),

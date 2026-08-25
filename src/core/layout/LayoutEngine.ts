@@ -59,6 +59,8 @@ export interface CalculatedJointLine {
   p2?: Point2D;
   isLED: boolean;     // true если включена светодиодная подсветка
   isOuterEdge: boolean; // true если это внешний край стены
+  profileArticle?: string; // Артикул AllWall профиля (DL-13, MC-06 и др.)
+  profileColor?: string;   // HEX цвет профиля
   columnIndex?: number;
   segmentIndex?: number;
   groupId?: string;
@@ -221,6 +223,14 @@ export class LayoutEngine {
           const orientation =
             j.orientation || (isVert ? 'VERTICAL' : isHoriz ? 'HORIZONTAL' : 'DIAGONAL');
 
+          const baseId = j.id.split('-part-')[0].split('-merged-')[0];
+          const customConfig = wall.customJoints?.[j.id] || wall.customJoints?.[baseId];
+          const effWidth = customConfig !== undefined && customConfig.width !== undefined ? customConfig.width : j.width;
+          const effLED = customConfig !== undefined && customConfig.isLED !== undefined ? customConfig.isLED : (j.isLED || false);
+          const effArticle = customConfig?.profileArticle !== undefined ? customConfig.profileArticle : j.profileArticle;
+          const effColor = customConfig?.profileColor || j.profileColor;
+          const effGroupId = customConfig?.groupId || j.groupId;
+
           rawJoints.push({
             id: j.id,
             name: `Шов ${j.id}`,
@@ -228,12 +238,14 @@ export class LayoutEngine {
             y: Math.min(p1.y, p2.y),
             p1,
             p2,
-            width: j.width,
+            width: effWidth,
             length: len,
             orientation,
-            isLED: j.isLED || false,
+            isLED: effLED,
             isOuterEdge: j.isOuterEdge || false,
-            groupId: j.groupId,
+            profileArticle: effArticle,
+            profileColor: effColor,
+            groupId: effGroupId,
           });
         });
       }
@@ -647,6 +659,8 @@ export class LayoutEngine {
       orientation: 'VERTICAL',
       isLED: leftEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
+      profileArticle: leftEdgeConfig?.profileArticle,
+      profileColor: leftEdgeConfig?.profileColor,
     });
 
     rawJoints.push({
@@ -659,6 +673,8 @@ export class LayoutEngine {
       orientation: 'VERTICAL',
       isLED: rightEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
+      profileArticle: rightEdgeConfig?.profileArticle,
+      profileColor: rightEdgeConfig?.profileColor,
     });
 
     rawJoints.push({
@@ -671,6 +687,8 @@ export class LayoutEngine {
       orientation: 'HORIZONTAL',
       isLED: botEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
+      profileArticle: botEdgeConfig?.profileArticle,
+      profileColor: botEdgeConfig?.profileColor,
     });
 
     rawJoints.push({
@@ -683,6 +701,8 @@ export class LayoutEngine {
       orientation: 'HORIZONTAL',
       isLED: topEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
+      profileArticle: topEdgeConfig?.profileArticle,
+      profileColor: topEdgeConfig?.profileColor,
     });
 
     // 6. Слияние объединенных коллинеарных швов (groupId) в единые непрерывные линии
@@ -732,6 +752,8 @@ export class LayoutEngine {
               orientation: 'HORIZONTAL',
               isLED: first.isLED,
               isOuterEdge: false,
+              profileArticle: first.profileArticle,
+              profileColor: first.profileColor,
               groupId,
             });
           }
@@ -760,6 +782,8 @@ export class LayoutEngine {
               orientation: 'VERTICAL',
               isLED: first.isLED,
               isOuterEdge: false,
+              profileArticle: first.profileArticle,
+              profileColor: first.profileColor,
               groupId,
             });
           }

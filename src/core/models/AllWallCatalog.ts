@@ -469,3 +469,7 @@ export function findDecorByCode(code: string): AllWallDecor | undefined {
 export function findModelById(modelId: string): AllWallPanelModel | undefined {
   return ALLWALL_CATALOG_MODELS.find((m) => m.id === modelId);
 }
+
+// Реэкспорт справочника профилей AllWall
+export * from './Profile';
+

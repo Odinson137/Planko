@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Stack,
   Title,
@@ -28,7 +28,6 @@ import {
   Ban,
   Trash2,
   X,
-  Zap,
   Sparkles,
   Combine,
   AlertTriangle,
@@ -37,11 +36,15 @@ import {
   Search,
   Scissors,
 } from 'lucide-react';
-import { useProjectStore, JointPreset } from '../../../application/stores/useProjectStore';
+import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { findDecorByCode } from '../../../core/models/AllWallCatalog';
+import {
+  ALLWALL_PROFILES_CATALOG,
+  findProfileByArticle,
+} from '../../../core/models/Profile';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import {
   ensureOpeningSlopes,
@@ -50,8 +53,43 @@ import {
   SlopeJointProfileType,
 } from '../../../core/models/Opening';
 
+const ALL_PROFILE_WIDTH_OPTIONS = [
+  { value: '0', label: '0 мм (без профиля)' },
+  ...Array.from(new Set(ALLWALL_PROFILES_CATALOG.map((p) => p.visibleWidth)))
+    .sort((a, b) => a - b)
+    .map((w) => ({
+      value: String(w),
+      label: `${w} мм`,
+    })),
+];
+
+const PROFILE_TYPE_OPTIONS = [
+  { value: 'ALL', label: 'Все типы профилей' },
+  { value: 'JOINT', label: '🔗 Соединительные' },
+  { value: 'LED', label: '💡 Светодиодные (LED)' },
+  { value: 'END', label: '🏁 Торцевые' },
+  { value: 'CORNER', label: '📐 Угловые' },
+  { value: 'BASEBOARD', label: '🔲 Плинтусы' },
+  { value: 'SHADOW', label: '🌑 Теневые' },
+];
+
+const getFilteredProfilesStrict = (width: number, type: string) => {
+  if (width === 0) return [];
+
+  return ALLWALL_PROFILES_CATALOG.filter((p) => {
+    // 1. Четкое равенство по видимой ширине
+    if (p.visibleWidth !== width) return false;
+
+    // 2. Фильтр по типу профиля
+    if (type !== 'ALL' && p.functionalRole !== type) return false;
+
+    return true;
+  });
+};
+
 export const RightSidebar: React.FC = () => {
   const { editMode } = useEditorStore();
+  const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
   const {
     project,
     selectedColumnIndex,
@@ -81,9 +119,12 @@ export const RightSidebar: React.FC = () => {
     syncSelectedJointsParams,
     setJointPresetForSelected,
     setJointWidthForSelected,
-    setJointLEDForSelected,
+    setJointProfileForSelected,
+    setJointColorForSelected,
     setJointWidth,
     setJointPreset,
+    setJointProfile,
+    setJointColor,
     updatePanelSegment,
     setCellProperties,
     clearCellMaterial,
@@ -231,96 +272,91 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color="#2C2E33" />
 
-            {/* Массовое управление параметрами всех выбранных швов */}
-            <div>
-              <Text size="xs" mb={6} c="dimmed">
-                Установить параметры для всех выбранных:
-              </Text>
-              <Group gap={4} grow mb={4}>
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  color="gray"
-                  onClick={() => setJointPresetForSelected(currentWall.id, 'NONE')}
-                >
-                  0 мм
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  color="blue"
-                  onClick={() => setJointPresetForSelected(currentWall.id, '5')}
-                >
-                  5 мм
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  color="blue"
-                  onClick={() => setJointPresetForSelected(currentWall.id, '8')}
-                >
-                  8 мм
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant="default"
-                  color="cyan"
-                  onClick={() => setJointPresetForSelected(currentWall.id, '10')}
-                >
-                  10 мм
-                </Button>
-              </Group>
-
-              <Button
-                size="xs"
-                fullWidth
-                variant="light"
-                color="yellow"
-                leftSection={<Zap size={14} />}
-                onClick={() => setJointPresetForSelected(currentWall.id, 'LED_10')}
-              >
-                ✨ Включить LED 10 мм для всех
-              </Button>
-            </div>
-
-            <NumberInput
+            {/* ФИЛЬТР 1: Селектор всех размеров шва (для всех) */}
+            <Select
               size="xs"
-              label="Точная ширина для всех выбранных (мм)"
-              description="Устанавливает заданную толщину для всех выделенных швов"
-              value={validation.widths[0] ?? 8}
-              clampBehavior="blur"
-              allowNegative={false}
-              allowDecimal={false}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(val) =>
-                setJointWidthForSelected(
-                  currentWall.id,
-                  typeof val === 'number' ? val : (val === '' ? 0 : Number(val))
-                )
-              }
+              label="Ширина шва / профиля (для всех)"
+              placeholder="Выберите ширину..."
+              value={validation.sameWidth ? String(validation.widths[0]) : null}
+              data={ALL_PROFILE_WIDTH_OPTIONS}
+              allowDeselect={false}
+              onChange={(val) => {
+                const w = val ? Number(val) : 0;
+                if (w === 0) {
+                  setJointPresetForSelected(currentWall.id, 'NONE');
+                } else {
+                  setJointWidthForSelected(currentWall.id, w);
+                }
+              }}
             />
 
-            <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
-              <Group justify="space-between">
-                <div>
-                  <Text size="xs" fw={500}>
-                    LED-подсветка для всех
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Включить/выключить LED для группы
-                  </Text>
-                </div>
-                <Switch
-                  checked={validation.sameLED && validation.ledStates[0] === true}
-                  color="yellow"
-                  onChange={(e) =>
-                    setJointLEDForSelected(currentWall.id, e.currentTarget.checked)
-                  }
+            {/* ФИЛЬТР 2 & НАСТРОЙКА: Отображаются ТОЛЬКО если ширина > 0 */}
+            {!(validation.sameWidth && validation.widths[0] === 0) && (
+              <>
+                {/* Фильтр по типу профиля */}
+                <Select
+                  size="xs"
+                  label="Тип профиля AllWall"
+                  value={selectedProfileType}
+                  data={PROFILE_TYPE_OPTIONS}
+                  onChange={(val) => {
+                    const newType = val || 'ALL';
+                    setSelectedProfileType(newType);
+                    selectedJointIds.forEach((id) => {
+                      const custom = currentWall.customJoints[id];
+                      if (custom?.profileArticle) {
+                        const prof = findProfileByArticle(custom.profileArticle);
+                        if (prof && newType !== 'ALL' && prof.functionalRole !== newType) {
+                          setJointProfile(currentWall.id, id, '', custom.profileColor || '#212529');
+                        }
+                      }
+                    });
+                  }}
+                  allowDeselect={false}
                 />
-              </Group>
-            </Paper>
+
+                {/* Выбор модели профиля AllWall для группы */}
+                <Select
+                  size="xs"
+                  label="Модель профиля AllWall (для всех)"
+                  placeholder="Привязать артикул AllWall..."
+                  searchable
+                  clearable
+                  data={getFilteredProfilesStrict(
+                    validation.sameWidth ? validation.widths[0] : 0,
+                    selectedProfileType
+                  ).map((p) => ({
+                    value: p.article,
+                    label: `${p.article} • ${p.name} (${p.visibleWidth} мм)`,
+                  }))}
+                  onChange={(val) => {
+                    if (val) {
+                      setJointProfileForSelected(currentWall.id, val);
+                    } else {
+                      setJointPresetForSelected(currentWall.id, 'NONE');
+                    }
+                  }}
+                />
+
+                {/* Выбор цвета профиля AllWall для группы */}
+                <Select
+                  size="xs"
+                  label="Цвет профиля AllWall (для всех)"
+                  placeholder="Цвет отделки профиля..."
+                  data={[
+                    { value: '#212529', label: '⬛ Чёрный (Black)' },
+                    { value: '#c9a25b', label: '🟨 Золотистый (Golden)' },
+                    { value: '#b76e79', label: '🟧 Розовое золото (Rose gold)' },
+                    { value: '#adb5bd', label: '⬜ Серебристый (Silver)' },
+                  ]}
+                  onChange={(val) => {
+                    if (val) {
+                      setJointColorForSelected(currentWall.id, val);
+                    }
+                  }}
+                />
+              </>
+            )}
           </Stack>
         </ScrollArea>
       </Stack>
@@ -336,21 +372,10 @@ export const RightSidebar: React.FC = () => {
 
     const currentWidth = customConfig !== undefined ? customConfig.width : (selectedJoint?.width ?? 8);
     const isLED = customConfig !== undefined ? customConfig.isLED : (selectedJoint?.isLED ?? false);
+    const profileArticle = customConfig?.profileArticle || selectedJoint?.profileArticle;
+    const profileColor = customConfig?.profileColor || selectedJoint?.profileColor || '#212529';
+    const activeProfileObj = profileArticle ? findProfileByArticle(profileArticle) : undefined;
     const isHoriz = selectedJoint?.orientation === 'HORIZONTAL' || selectedJointId.includes('-h-');
-
-    // Определение активного пресета
-    let activePreset: JointPreset | null = null;
-    if (isLED && currentWidth === 10) {
-      activePreset = 'LED_10';
-    } else if (!isLED && currentWidth === 0) {
-      activePreset = 'NONE';
-    } else if (!isLED && currentWidth === 5) {
-      activePreset = '5';
-    } else if (!isLED && currentWidth === 8) {
-      activePreset = '8';
-    } else if (!isLED && currentWidth === 10) {
-      activePreset = '10';
-    }
 
     return (
       <Stack
@@ -389,80 +414,133 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color="#2C2E33" />
 
-            {/* Быстрые пресеты ширины шва */}
-            <div>
-              <Text size="xs" mb={6} c="dimmed">
-                Быстрый выбор шва:
-              </Text>
-              <Group gap={4} grow mb={4}>
-                <Button
-                  size="compact-xs"
-                  variant={activePreset === 'NONE' ? 'filled' : 'default'}
-                  color="gray"
-                  onClick={() => setJointPreset(currentWall.id, selectedJointId, 'NONE')}
-                >
-                  0 мм
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant={activePreset === '5' ? 'filled' : 'default'}
-                  color="blue"
-                  onClick={() => setJointPreset(currentWall.id, selectedJointId, '5')}
-                >
-                  5 мм
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant={activePreset === '8' ? 'filled' : 'default'}
-                  color="blue"
-                  onClick={() => setJointPreset(currentWall.id, selectedJointId, '8')}
-                >
-                  8 мм
-                </Button>
-                <Button
-                  size="compact-xs"
-                  variant={activePreset === '10' ? 'filled' : 'default'}
-                  color="cyan"
-                  onClick={() => setJointPreset(currentWall.id, selectedJointId, '10')}
-                >
-                  10 мм
-                </Button>
-              </Group>
-
-              {/* Кнопка светодиодной подсветки (LED ставится только при нажатии!) */}
-              <Button
-                size="xs"
-                fullWidth
-                variant={isLED ? 'filled' : 'light'}
-                color="yellow"
-                leftSection={isLED ? <Zap size={14} /> : <Sparkles size={14} />}
-                onClick={() =>
-                  setJointPreset(currentWall.id, selectedJointId, isLED ? '8' : 'LED_10')
-                }
-              >
-                {isLED ? '⚡ Выключить LED-подсветку' : '✨ Светодиодная подсветка (LED 10 мм)'}
-              </Button>
-            </div>
-
-            {/* Произвольный ввод ширины шва (мм) */}
-            <NumberInput
+            {/* ФИЛЬТР 1: Селектор всех размеров шва */}
+            <Select
               size="xs"
-              label="Точная ширина шва (мм)"
-              value={currentWidth}
-              clampBehavior="blur"
-              allowNegative={false}
-              allowDecimal={false}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(val) =>
-                setJointWidth(
-                  currentWall.id,
-                  selectedJointId,
-                  typeof val === 'number' ? val : (val === '' ? 0 : Number(val))
-                )
-              }
+              label="Ширина шва / профиля"
+              placeholder="Выберите ширину..."
+              value={String(currentWidth)}
+              data={ALL_PROFILE_WIDTH_OPTIONS}
+              allowDeselect={false}
+              onChange={(val) => {
+                const w = val ? Number(val) : 0;
+                if (w === 0) {
+                  setJointPreset(currentWall.id, selectedJointId, 'NONE');
+                } else {
+                  setJointWidth(currentWall.id, selectedJointId, w);
+                }
+              }}
             />
+
+            {/* ФИЛЬТР 2: Тип, модель и цвет профиля (скрываются, если выбрано 0 мм) */}
+            {currentWidth !== 0 && (
+              <>
+                {/* Фильтр по типу профиля */}
+                <Select
+                  size="xs"
+                  label="Тип профиля AllWall"
+                  value={selectedProfileType}
+                  data={PROFILE_TYPE_OPTIONS}
+                  onChange={(val) => {
+                    const newType = val || 'ALL';
+                    setSelectedProfileType(newType);
+                    if (profileArticle) {
+                      const prof = findProfileByArticle(profileArticle);
+                      if (prof && newType !== 'ALL' && prof.functionalRole !== newType) {
+                        setJointProfile(currentWall.id, selectedJointId, '', profileColor);
+                      }
+                    }
+                  }}
+                  allowDeselect={false}
+                />
+
+                {/* Выбор модели профиля AllWall */}
+                <Select
+                  size="xs"
+                  label="Модель профиля AllWall"
+                  placeholder="Выберите артикул из каталога..."
+                  searchable
+                  clearable
+                  value={profileArticle || null}
+                  data={getFilteredProfilesStrict(currentWidth, selectedProfileType).map((p) => ({
+                    value: p.article,
+                    label: `${p.article} • ${p.name} (${p.visibleWidth} мм)`,
+                  }))}
+                  onChange={(val) => {
+                    if (val) {
+                      setJointProfile(currentWall.id, selectedJointId, val, profileColor);
+                    } else {
+                      setJointProfile(currentWall.id, selectedJointId, '', profileColor);
+                    }
+                  }}
+                />
+
+                {/* Выбор цвета профиля AllWall */}
+                <div>
+                  <Text size="xs" fw={500} mb={4}>
+                    Цвет профиля AllWall:
+                  </Text>
+                  <Group gap="xs">
+                    {[
+                      { code: 'BLACK', name: 'Чёрный', hex: '#212529' },
+                      { code: 'GOLD', name: 'Золото', hex: '#c9a25b' },
+                      { code: 'ROSE_GOLD', name: 'Розовое золото', hex: '#b76e79' },
+                      { code: 'SILVER', name: 'Серебро', hex: '#adb5bd' },
+                    ].map((c) => {
+                      const isSel = profileColor.toLowerCase() === c.hex.toLowerCase();
+                      return (
+                        <Tooltip key={c.code} label={c.name} withArrow>
+                          <Paper
+                            p={2}
+                            radius="xl"
+                            style={{
+                              cursor: 'pointer',
+                              border: isSel ? '2px solid #339af0' : '2px solid transparent',
+                              backgroundColor: '#25262B',
+                              transform: isSel ? 'scale(1.15)' : 'scale(1)',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onClick={() => setJointColor(currentWall.id, selectedJointId, c.hex)}
+                          >
+                            <ColorSwatch color={c.hex} size={20} />
+                          </Paper>
+                        </Tooltip>
+                      );
+                    })}
+                  </Group>
+                </div>
+
+                {/* Карточка привязанного профиля */}
+                {activeProfileObj && (
+                  <Paper p="xs" radius="sm" style={{ backgroundColor: '#1A1B1E', border: '1px solid #339af0' }}>
+                    <Stack gap={4}>
+                      <Group justify="space-between">
+                        <Badge color="blue" size="xs">
+                          {activeProfileObj.article}
+                        </Badge>
+                        <Badge color="gray" size="xs">
+                          Хлыст {activeProfileObj.stockLength} мм
+                        </Badge>
+                      </Group>
+                      <Text size="xs" fw={600}>
+                        {activeProfileObj.name}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {activeProfileObj.description}
+                      </Text>
+                      <Group gap={4} mt={2}>
+                        <Badge size="xs" variant="outline" color="cyan">
+                          Ширина: {activeProfileObj.visibleWidth} мм
+                        </Badge>
+                        <Badge size="xs" variant="outline" color="teal">
+                          Панели: {activeProfileObj.allowedThicknesses.join('/')} мм
+                        </Badge>
+                      </Group>
+                    </Stack>
+                  </Paper>
+                )}
+              </>
+            )}
 
             {/* Информация о стыке */}
             {selectedJoint && (

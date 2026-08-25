@@ -27,8 +27,10 @@ export interface WallJointLine {
   id: string;                       // Уникальный идентификатор шва
   p1: Point2D;                      // Начальная точка отрезка
   p2: Point2D;                      // Конечная точка отрезка
-  width: number;                    // Толщина шва в мм (0, 5, 8, 10...)
+  width: number;                    // Толщина шва в мм (0, 0.8, 5, 8, 10...)
   isLED: boolean;                   // Включена ли LED-подсветка
+  profileArticle?: string;          // Артикул AllWall (DL-13, MC-06 и т.д.)
+  profileColor?: string;            // HEX цвет профиля
   orientation?: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
   groupId?: string;                 // Идентификатор группы объединенных швов
   isOuterEdge?: boolean;            // Внешний край стены
@@ -102,8 +104,10 @@ export interface CustomPanelConfig {
 export interface JointEdgeConfig {
   id: string;
   orientation: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
-  width: number;                   // ширина шва в мм (0, 5, 8, 10, или любое введенное число)
+  width: number;                   // ширина шва в мм (0, 0.8, 5, 8, 10, или любое введенное число)
   isLED: boolean;                  // true ТОЛЬКО если пользователь явно включил LED
+  profileArticle?: string;         // Артикул AllWall (DL-13, MC-06 и т.д.)
+  profileColor?: string;           // HEX цвет профиля
   groupId?: string;                // идентификатор группы объединенных швов
 }
 

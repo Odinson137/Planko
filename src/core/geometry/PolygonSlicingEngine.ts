@@ -1243,6 +1243,72 @@ export class PolygonSlicingEngine {
   }
 
   /**
+   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними
+   */
+  public static adjustPanelsForJointWidthChange(
+    panels: WallPanelPiece[],
+    joint: WallJointLine,
+    oldWidth: number,
+    newWidth: number,
+    wallWidth: number,
+    wallHeight: number
+  ): WallPanelPiece[] {
+    const delta = newWidth - oldWidth;
+    if (Math.abs(delta) < 1e-4) return panels;
+
+    const p1 = joint.p1;
+    const p2 = joint.p2;
+    if (!p1 || !p2) return panels;
+
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-4) return panels;
+
+    const halfDelta = delta / 2;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    // Максимальное расстояние от линии шва, на котором точка считается принадлежащей стыку
+    const maxThreshold = Math.max(35, Math.max(oldWidth, newWidth) / 2 + 15);
+
+    return panels.map((panel) => {
+      const centroid = this.calculateCentroid(panel.points);
+      const hCentroid = (centroid.x - p1.x) * nx + (centroid.y - p1.y) * ny;
+
+      const nextPoints = panel.points.map((pt) => {
+        // Проекция на отрезок шва
+        const t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / len;
+        // Расстояние со знаком от линии шва
+        const h = (pt.x - p1.x) * nx + (pt.y - p1.y) * ny;
+
+        // Точка лежит вдоль отрезка шва и прилегает к зазору
+        if (t >= -5 && t <= len + 5 && Math.abs(h) <= maxThreshold) {
+          let shift = 0;
+          if (Math.abs(h) > 1e-3) {
+            shift = h > 0 ? halfDelta : -halfDelta;
+          } else {
+            // Если точка лежит прямо на линии (h = 0)
+            shift = hCentroid >= 0 ? halfDelta : -halfDelta;
+          }
+
+          const newX = Math.max(0, Math.min(wallWidth, Math.round((pt.x + shift * nx) * 10) / 10));
+          const newY = Math.max(0, Math.min(wallHeight, Math.round((pt.y + shift * ny) * 10) / 10));
+
+          return { x: newX, y: newY };
+        }
+
+        return pt;
+      });
+
+      return {
+        ...panel,
+        points: nextPoints,
+      };
+    });
+  }
+
+  /**
    * Автоматически нарезает WallPanelPiece на вертикальные ламели заданной ширины
    */
   public static sliceWallPanelIntoStrips(
