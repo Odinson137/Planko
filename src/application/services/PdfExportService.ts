@@ -5,6 +5,7 @@ import { LayoutEngine, LayoutCalculationResult } from '../../core/layout/LayoutE
 import { NestingEngine, NestingPartInput, ProjectNestingResult, NestingSheet, NestingCutout } from '../../core/layout/NestingEngine';
 import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport, PROFILE_CATEGORIES_INFO } from '../../core/layout/ProfileSpecificationEngine';
 import { MATERIAL_NONE_ID } from '../../core/models/Material';
+import { PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
 
 export class PdfExportService {
   /**
@@ -446,8 +447,14 @@ export class PdfExportService {
           labelYCenter = (coveringOpening.y + coveringOpening.height + (p.y + p.height)) / 2;
         }
 
-        const midX = originX + (p.x + p.width / 2) * scale;
-        const midY = originY + (wall.height - labelYCenter) * scale;
+        let midX = originX + (p.x + p.width / 2) * scale;
+        let midY = originY + (wall.height - labelYCenter) * scale;
+
+        if (p.polygonPoints && p.polygonPoints.length >= 3) {
+          const centroid = PolygonSlicingEngine.calculateCentroid(p.polygonPoints);
+          midX = originX + centroid.x * scale;
+          midY = originY + (wall.height - centroid.y) * scale;
+        }
 
         ctx.save();
         ctx.textAlign = 'center';
@@ -504,6 +511,46 @@ export class PdfExportService {
           ctx.fillText(`💬 ${noteText}`, midX, midY + 21);
         }
         ctx.restore();
+      }
+    });
+
+    // 2.2. Размеры и углы диагональных срезов на чертеже стены
+    layout.panels.forEach((p) => {
+      if (p.isVoid || !p.polygonPoints || p.polygonPoints.length < 3) return;
+      const pts = p.polygonPoints;
+      for (let i = 0; i < pts.length; i++) {
+        const pt1 = pts[i];
+        const pt2 = pts[(i + 1) % pts.length];
+        const dx = pt2.x - pt1.x;
+        const dy = pt2.y - pt1.y;
+
+        // Показываем размер для диагональных линий (не строго горизонтальных и не вертикальных)
+        if (Math.abs(dx) > 10 && Math.abs(dy) > 10 && (pt1.x < pt2.x || (pt1.x === pt2.x && pt1.y < pt2.y))) {
+          const cutLen = Math.round(Math.sqrt(dx * dx + dy * dy));
+          const cutAngle = Math.round((Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI);
+          const c1 = toC(pt1.x, pt1.y);
+          const c2 = toC(pt2.x, pt2.y);
+          const midEdgeX = (c1.x + c2.x) / 2;
+          const midEdgeY = (c1.y + c2.y) / 2;
+
+          ctx.save();
+          ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+          const badgeText = `✂️ ${cutLen} мм (∠${cutAngle}°)`;
+          const bw = ctx.measureText(badgeText).width + 12;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.roundRect(midEdgeX - bw / 2, midEdgeY - 10, bw, 20, 4);
+          ctx.fill();
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#0f172a';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(badgeText, midEdgeX, midEdgeY);
+          ctx.restore();
+        }
       }
     });
 
@@ -1230,13 +1277,131 @@ export class PdfExportService {
         const ph = p.height * scale;
 
         const isCurrentWall = p.part.wallId === currentWallId;
+        const rawPts = p.part.polygonPoints;
+        const isPolygon = Boolean(rawPts && rawPts.length >= 3);
 
-        // Если деталь относится к другой стене — подсвечиваем индиго-оттенком
-        ctx.fillStyle = isCurrentWall ? (p.part.color || '#fde68a') : '#e0e7ff';
-        ctx.fillRect(px, py, pw, ph);
-        ctx.strokeStyle = isCurrentWall ? '#b45309' : '#4338ca';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(px, py, pw, ph);
+        const xs = isPolygon ? rawPts!.map((pt) => pt.x) : [];
+        const ys = isPolygon ? rawPts!.map((pt) => pt.y) : [];
+        const minX = isPolygon ? Math.min(...xs) : 0;
+        const maxX = isPolygon ? Math.max(...xs) : 0;
+        const minY = isPolygon ? Math.min(...ys) : 0;
+        const origW = maxX - minX;
+
+        const isDiagonalCut =
+          isPolygon &&
+          rawPts!.some((pt, i) => {
+            const next = rawPts![(i + 1) % rawPts!.length];
+            return Math.abs(pt.x - next.x) > 5 && Math.abs(pt.y - next.y) > 5;
+          });
+
+        let polyCanvasPts: { x: number; y: number }[] = [];
+
+        if (isDiagonalCut) {
+          // 1. Рисуем габаритный прямоугольник заготовки (сырая плита до среза)
+          ctx.save();
+          ctx.fillStyle = 'rgba(241, 245, 249, 0.7)';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.strokeStyle = '#94a3b8';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(px, py, pw, ph);
+          ctx.restore();
+
+          // 2. Преобразуем полигон детали в координаты листа раскроя
+          polyCanvasPts = rawPts!.map((pt) => {
+            const localX = pt.x - minX;
+            const localY = pt.y - minY;
+            const sheetLocalX = p.rotated ? localY : localX;
+            const sheetLocalY = p.rotated ? origW - localX : localY;
+            return {
+              x: sheetOriginX + (p.x + sheetLocalX) * scale,
+              y: sheetOriginY + (sheet.sheetHeight - (p.y + sheetLocalY)) * scale,
+            };
+          });
+
+          // Отрисовываем сам полигон детали
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(polyCanvasPts[0].x, polyCanvasPts[0].y);
+          for (let i = 1; i < polyCanvasPts.length; i++) {
+            ctx.lineTo(polyCanvasPts[i].x, polyCanvasPts[i].y);
+          }
+          ctx.closePath();
+          ctx.fillStyle = isCurrentWall ? (p.part.color || '#fde68a') : '#e0e7ff';
+          ctx.fill();
+          ctx.strokeStyle = isCurrentWall ? '#b45309' : '#4338ca';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+
+          // 3. Подпись «Остаток (Срез)» в зоне среза
+          ctx.save();
+          ctx.fillStyle = '#64748b';
+          ctx.font = 'italic 10px "Segoe UI", Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const polyCentroidX = polyCanvasPts.reduce((s, pt) => s + pt.x, 0) / polyCanvasPts.length;
+          const polyCentroidY = polyCanvasPts.reduce((s, pt) => s + pt.y, 0) / polyCanvasPts.length;
+          const remnantCenterX = px + (polyCentroidX < px + pw / 2 ? pw * 0.75 : pw * 0.25);
+          const remnantCenterY = py + (polyCentroidY < py + ph / 2 ? ph * 0.75 : ph * 0.25);
+          if (pw > 35 && ph > 35) {
+            ctx.fillText('Остаток', remnantCenterX, remnantCenterY - 6);
+            ctx.fillText('(Срез)', remnantCenterX, remnantCenterY + 6);
+          }
+          ctx.restore();
+
+          // 4. Размеры и углы диагонального реза на листе
+          for (let i = 0; i < rawPts!.length; i++) {
+            const pt1 = rawPts![i];
+            const pt2 = rawPts![(i + 1) % rawPts!.length];
+            const dx = pt2.x - pt1.x;
+            const dy = pt2.y - pt1.y;
+
+            if (Math.abs(dx) > 5 && Math.abs(dy) > 5) {
+              const cutLen = Math.round(Math.sqrt(dx * dx + dy * dy));
+              const cutAngle = Math.round((Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI);
+              const cp1 = polyCanvasPts[i];
+              const cp2 = polyCanvasPts[(i + 1) % polyCanvasPts.length];
+              const midCutX = (cp1.x + cp2.x) / 2;
+              const midCutY = (cp1.y + cp2.y) / 2;
+
+              // Линия реза (пунктир)
+              ctx.save();
+              ctx.strokeStyle = '#0f172a';
+              ctx.lineWidth = 1.8;
+              ctx.setLineDash([4, 3]);
+              ctx.beginPath();
+              ctx.moveTo(cp1.x, cp1.y);
+              ctx.lineTo(cp2.x, cp2.y);
+              ctx.stroke();
+
+              // Бейдж с длиной реза и углом
+              ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
+              const cutBadge = `✂️ ${cutLen} мм (∠${cutAngle}°)`;
+              const cbw = ctx.measureText(cutBadge).width + 10;
+              ctx.fillStyle = '#ffffff';
+              ctx.beginPath();
+              ctx.roundRect(midCutX - cbw / 2, midCutY - 9, cbw, 18, 4);
+              ctx.fill();
+              ctx.strokeStyle = '#0f172a';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+
+              ctx.fillStyle = '#0f172a';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(cutBadge, midCutX, midCutY);
+              ctx.restore();
+            }
+          }
+        } else {
+          // Обычная прямоугольная деталь
+          ctx.fillStyle = isCurrentWall ? (p.part.color || '#fde68a') : '#e0e7ff';
+          ctx.fillRect(px, py, pw, ph);
+          ctx.strokeStyle = isCurrentWall ? '#b45309' : '#4338ca';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(px, py, pw, ph);
+        }
 
         // ВЫРЕЗЫ ВНУТРИ ДЕТАЛИ (двери, окна, ниши) с подробными размерными выносками
         let hasBottomDoorCutout = false;
@@ -1383,18 +1548,22 @@ export class PdfExportService {
             ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, 0, 8);
             ctx.restore();
           } else {
-            // Если внизу есть вырез двери, центрируем подпись в верхней сплошной части
-            const textY = hasBottomDoorCutout && doorCutoutTopCanvasY > py + 25
-              ? py + (doorCutoutTopCanvasY - py) / 2
-              : py + ph / 2;
+            const labelCenterX = isDiagonalCut && polyCanvasPts.length >= 3
+              ? polyCanvasPts.reduce((s, pt) => s + pt.x, 0) / polyCanvasPts.length
+              : px + pw / 2;
+            const labelCenterY = isDiagonalCut && polyCanvasPts.length >= 3
+              ? polyCanvasPts.reduce((s, pt) => s + pt.y, 0) / polyCanvasPts.length
+              : (hasBottomDoorCutout && doorCutoutTopCanvasY > py + 25
+                  ? py + (doorCutoutTopCanvasY - py) / 2
+                  : py + ph / 2);
 
             if (hasNote && ph > 42 && pw > 45) {
               ctx.font = 'bold 14px "Segoe UI", Arial, sans-serif';
-              ctx.fillText(label, px + pw / 2, textY - 14);
+              ctx.fillText(label, labelCenterX, labelCenterY - 14);
 
               ctx.font = '11px "Segoe UI", Arial, sans-serif';
               ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
-              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, px + pw / 2, textY);
+              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, labelCenterX, labelCenterY);
 
               ctx.font = 'bold italic 11px "Segoe UI", Arial, sans-serif';
               ctx.fillStyle = '#b45309';
@@ -1403,15 +1572,15 @@ export class PdfExportService {
                 displayNote = displayNote.slice(0, -2);
               }
               if (displayNote !== rawNote) displayNote += '…';
-              ctx.fillText(`💬 ${displayNote}`, px + pw / 2, textY + 14);
+              ctx.fillText(`💬 ${displayNote}`, labelCenterX, labelCenterY + 14);
             } else {
               ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
-              ctx.fillText(label, px + pw / 2, textY - 8);
+              ctx.fillText(label, labelCenterX, labelCenterY - 8);
 
               // Размер детали
               ctx.font = '12px "Segoe UI", Arial, sans-serif';
               ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
-              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, px + pw / 2, textY + 12);
+              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, labelCenterX, labelCenterY + 12);
             }
           }
         }

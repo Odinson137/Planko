@@ -694,7 +694,7 @@ export const PanelSlicingModal: React.FC = () => {
       panelWidth,
       panelHeight,
       drawingStart,
-      24
+      10
     );
 
     setActiveSnap(snap);

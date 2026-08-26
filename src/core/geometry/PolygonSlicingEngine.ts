@@ -985,8 +985,12 @@ export class PolygonSlicingEngine {
     _panelWidth: number = 0,
     _panelHeight: number = 0,
     startPoint: Point2D | null = null,
-    _snapRadius: number = 24
+    snapRadius: number = 10
   ): SnapResult {
+    const cornerSnapRadius = snapRadius;
+    const midSnapRadius = Math.max(6, Math.round(snapRadius * 0.8));
+    const angleToleranceDeg = 1.8;
+
     // 1. Если протягиваем линию разреза от startPoint:
     if (startPoint) {
       const dx = rawPoint.x - startPoint.x;
@@ -1005,13 +1009,13 @@ export class PolygonSlicingEngine {
       let angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
       if (angleDeg < 0) angleDeg += 360;
 
-      // Проверяем угловой замок (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°)
+      // Мягкий угловой замок (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°)
       let isAngleSnapped = false;
       let targetAngle = angleDeg;
       let angleLabel = '';
       const snapAngles = [0, 45, 90, 135, 180, 225, 270, 315, 360];
       for (const sa of snapAngles) {
-        if (Math.abs(angleDeg - sa) <= 6.0 || Math.abs(angleDeg - (sa - 360)) <= 6.0) {
+        if (Math.abs(angleDeg - sa) <= angleToleranceDeg || Math.abs(angleDeg - (sa - 360)) <= angleToleranceDeg) {
           isAngleSnapped = true;
           targetAngle = sa % 360;
           angleLabel = `Угол ${sa % 180}°`;
@@ -1055,10 +1059,10 @@ export class PolygonSlicingEngine {
         let label = isAngleSnapped ? angleLabel : 'Грань';
         let finalPoint: Point2D = { x: foundInter.x, y: foundInter.y };
 
-        // Приоритетная доводка до вершины/угла или середины
+        // Деликатная доводка до вершины/угла или середины
         existingPolygons.forEach((poly) => {
           poly.forEach((v) => {
-            if (Math.hypot(finalPoint.x - v.x, finalPoint.y - v.y) < 22) {
+            if (Math.hypot(finalPoint.x - v.x, finalPoint.y - v.y) < cornerSnapRadius) {
               finalPoint = { ...v };
               snapType = 'CORNER';
               label = 'Угол';
@@ -1069,7 +1073,7 @@ export class PolygonSlicingEngine {
             const p1 = poly[i];
             const p2 = poly[(i + 1) % n];
             const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-            if (Math.hypot(finalPoint.x - mid.x, finalPoint.y - mid.y) < 18) {
+            if (Math.hypot(finalPoint.x - mid.x, finalPoint.y - mid.y) < midSnapRadius) {
               finalPoint = { ...mid };
               snapType = 'MIDPOINT';
               label = 'Середина 50%';
@@ -1104,20 +1108,20 @@ export class PolygonSlicingEngine {
       };
     }
 
-    // 2. Если стартовая точка ещё не выбрана: КУРСОР ВСЕГДА ПРИЛИПАЕТ К ГРАНЯМ / ВЕРШИНАМ
+    // 2. Если стартовая точка ещё не выбрана: привязка к граням / вершинам / серединам
     let bestDist = Infinity;
     let bestPoint = { ...rawPoint };
     let snapType: SnapResult['snapType'] = undefined;
     let label = 'Грань';
     let selectedEdge: { p1: Point2D; p2: Point2D } | null = null;
 
-    // 2.1 Проверяем вершины и углы
+    // 2.1 Проверяем вершины и углы с мягким радиусом
     existingPolygons.forEach((poly) => {
       const n = poly.length;
       for (let i = 0; i < n; i++) {
         const v = poly[i];
         const d = Math.hypot(rawPoint.x - v.x, rawPoint.y - v.y);
-        if (d < 24 && d < bestDist) {
+        if (d < cornerSnapRadius && d < bestDist) {
           bestDist = d;
           bestPoint = { ...v };
           snapType = 'CORNER';
@@ -1136,7 +1140,7 @@ export class PolygonSlicingEngine {
           const p2 = poly[(i + 1) % n];
           const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
           const dm = Math.hypot(rawPoint.x - mid.x, rawPoint.y - mid.y);
-          if (dm < 20 && dm < bestDist) {
+          if (dm < midSnapRadius && dm < bestDist) {
             bestDist = dm;
             bestPoint = { ...mid };
             snapType = 'MIDPOINT';
@@ -1147,7 +1151,7 @@ export class PolygonSlicingEngine {
       });
     }
 
-    // 2.3 ВСЕГДА проецируем на ближайшую грань (не разрешаем висеть в центре)
+    // 2.3 Проецируем на ближайшую грань
     if (snapType === undefined) {
       let closestEdgeDist = Infinity;
       let closestEdgePoint = { ...rawPoint };

@@ -43,7 +43,6 @@ export const CadCanvas: React.FC = () => {
     showTextures,
     activeTool,
     editMode,
-    setEditMode,
   } = useEditorStore();
 
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);

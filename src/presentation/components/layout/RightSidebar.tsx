@@ -199,7 +199,7 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   // РЕЖИМ 1.1: Выбрано НЕСКОЛЬКО швов через Shift (Мульти-выбор & Соединение)
   // =========================================================================
-  if (selectedJointIds.length > 1) {
+  if (editMode === 'JOINTS' && selectedJointIds.length > 1) {
     const validation = validateSelectedJoints(currentWall.id);
 
     return (
@@ -391,7 +391,7 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   // РЕЖИМ 1.2: Выбран ОДИН конкретный стык / край плиты
   // =========================================================================
-  if (selectedJointId) {
+  if (editMode === 'JOINTS' && selectedJointId) {
     const selectedJoint = layoutResult?.joints.find((j) => j.id === selectedJointId);
     const baseId = selectedJointId.split('-part-')[0].split('-merged-')[0].split('-seg-')[0];
     const customConfig = currentWall.customJoints[selectedJointId] || currentWall.customJoints[baseId];
