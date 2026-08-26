@@ -457,24 +457,52 @@ export class PdfExportService {
         const label = p.partLabel && p.partLabel !== 'ПУСТО'
           ? p.partLabel
           : `${wall.name.match(/\d+/)?.[0] || '1'}.${pIdx + 1}`;
-        const dimText = `${Math.round(p.width)}×${Math.round(p.height)}`;
+
+        // Если у детали есть вырез снизу (например, дверь), её видимая высота меньше
+        let visibleHeight = p.height;
+        if (coveringOpening && p.y <= coveringOpening.y + 10) {
+          visibleHeight = Math.max(50, Math.round(p.y + p.height - (coveringOpening.y + coveringOpening.height)));
+        }
+        const dimText = `${Math.round(p.width)}×${Math.round(visibleHeight)}`;
+
+        const hasUserNote = Boolean(
+          p.note &&
+          p.note.trim().length > 0 &&
+          !p.note.toLowerCase().includes('откос') &&
+          !p.note.toLowerCase().startsWith('проем')
+        );
+        const noteText = hasUserNote ? p.note!.trim() : '';
 
         ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
-        const labelW = Math.max(ctx.measureText(label).width, ctx.measureText(dimText).width) + 20;
+        let labelW = Math.max(ctx.measureText(label).width, ctx.measureText(dimText).width);
+        if (hasUserNote) {
+          ctx.font = 'italic 13px "Segoe UI", Arial, sans-serif';
+          labelW = Math.max(labelW, ctx.measureText(noteText).width);
+        }
+        labelW += 24;
+
+        const badgeH = hasUserNote ? 62 : 44;
 
         // Белый бейдж
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.fillRect(midX - labelW / 2, midY - 22, labelW, 44);
-        ctx.strokeStyle = '#94a3b8';
+        ctx.fillRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
+        ctx.strokeStyle = hasUserNote ? '#f59e0b' : '#94a3b8';
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(midX - labelW / 2, midY - 22, labelW, 44);
+        ctx.strokeRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
 
+        ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
         ctx.fillStyle = '#0f172a';
-        ctx.fillText(label, midX, midY - 8);
+        ctx.fillText(label, midX, hasUserNote ? midY - 17 : midY - 8);
 
         ctx.font = '14px "Segoe UI", Arial, sans-serif';
         ctx.fillStyle = '#64748b';
-        ctx.fillText(dimText, midX, midY + 12);
+        ctx.fillText(dimText, midX, hasUserNote ? midY + 3 : midY + 12);
+
+        if (hasUserNote) {
+          ctx.font = 'bold italic 12px "Segoe UI", Arial, sans-serif';
+          ctx.fillStyle = '#b45309';
+          ctx.fillText(`💬 ${noteText}`, midX, midY + 21);
+        }
         ctx.restore();
       }
     });
@@ -709,30 +737,42 @@ export class PdfExportService {
       `${wall.width} мм`
     );
 
-    // 5.2. Верхний ярус 2 (Попанельная детальная цепочка):
-    const topPanelSegments: { start: number; end: number; label: string }[] = [];
-    const sortedPanels = [...layout.panels].filter((p) => !p.isVoid).sort((a, b) => a.x - b.x);
-
-    const colMap = new Map<number, { minX: number; maxX: number; width: number }>();
-    sortedPanels.forEach((p) => {
-      const xKey = Math.round(p.x);
-      const existing = colMap.get(xKey);
-      if (!existing) {
-        colMap.set(xKey, { minX: p.x, maxX: p.x + p.width, width: p.width });
-      } else {
-        existing.maxX = Math.max(existing.maxX, p.x + p.width);
-        existing.width = existing.maxX - existing.minX;
-      }
-    });
-
-    const uniqueCols = Array.from(colMap.values()).sort((a, b) => a.minX - b.minX);
-    uniqueCols.forEach((col) => {
-      topPanelSegments.push({
-        start: col.minX,
-        end: col.maxX,
-        label: `${Math.round(col.width)}`,
+    // 5.2. Верхний ярус 2 (Попанельная детальная цепочка без наложений):
+    const xCuts = new Set<number>([0, wall.width]);
+    layout.panels
+      .filter((p) => !p.isVoid)
+      .forEach((p) => {
+        xCuts.add(Math.round(p.x));
+        xCuts.add(Math.round(p.x + p.width));
       });
-    });
+    wall.openings
+      .filter((op) => op.isCutout !== false)
+      .forEach((op) => {
+        xCuts.add(Math.round(op.x));
+        xCuts.add(Math.round(op.x + op.width));
+      });
+
+    const sortedXCuts = Array.from(xCuts).sort((a, b) => a - b);
+    const cleanedXCuts: number[] = [sortedXCuts[0]];
+    for (let i = 1; i < sortedXCuts.length; i++) {
+      if (sortedXCuts[i] - cleanedXCuts[cleanedXCuts.length - 1] >= 15) {
+        cleanedXCuts.push(sortedXCuts[i]);
+      } else if (i === sortedXCuts.length - 1) {
+        cleanedXCuts[cleanedXCuts.length - 1] = sortedXCuts[i];
+      }
+    }
+
+    const topPanelSegments: { start: number; end: number; label: string }[] = [];
+    for (let i = 0; i < cleanedXCuts.length - 1; i++) {
+      const segW = cleanedXCuts[i + 1] - cleanedXCuts[i];
+      if (segW >= 15) {
+        topPanelSegments.push({
+          start: cleanedXCuts[i],
+          end: cleanedXCuts[i + 1],
+          label: `${Math.round(segW)}`,
+        });
+      }
+    }
 
     if (topPanelSegments.length > 1) {
       const topDetailY = originY - 30;

@@ -153,6 +153,7 @@ export const RightSidebar: React.FC = () => {
     splitColumnVertically,
     updateSubPieceLabel,
     updateSubPieceNote,
+    updateWallPanelNote,
   } = useProjectStore();
 
   const selectedWallId = project.selectedWallId;
@@ -1656,9 +1657,12 @@ export const RightSidebar: React.FC = () => {
                 ? Math.round((PolygonSlicingEngine.calculatePolygonArea(activeSub.points) / 1_000_000) * 1000) / 1000
                 : Math.round(((activeW * activeH) / 1_000_000) * 1000) / 1000;
 
-              const activeNote = activeSub
-                ? activeSub.note
-                : (selectedSegment?.note || selectedCustomPanel?.note || '');
+              const activeNote =
+                activeSub?.note ??
+                actualPanelPiece?.note ??
+                selectedSegment?.note ??
+                selectedCustomPanel?.note ??
+                '';
 
               return (
                 <Stack gap="md">
@@ -1724,17 +1728,22 @@ export const RightSidebar: React.FC = () => {
                       label="Маркировка детали (номер)"
                       value={activePartLabel || ''}
                       onChange={(e) => {
+                        const val = e.currentTarget.value;
+                        const targetPanelId = actualPanelPiece?.id || activeSub?.id;
+                        if (targetPanelId) {
+                          updateWallPanelNote(currentWall.id, targetPanelId, activeNote);
+                        }
                         if (activeSub) {
                           updateSubPieceLabel(
                             currentWall.id,
                             activeColumnIndex,
                             activeSegmentIndex,
                             activeSub.id,
-                            e.currentTarget.value
+                            val
                           );
                         } else {
                           updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                            partLabel: e.currentTarget.value,
+                            partLabel: val,
                           });
                         }
                       }}
@@ -1748,6 +1757,10 @@ export const RightSidebar: React.FC = () => {
                       value={activeNote || ''}
                       onChange={(e) => {
                         const val = e.currentTarget.value;
+                        const targetPanelId = actualPanelPiece?.id || activeSub?.id;
+                        if (targetPanelId) {
+                          updateWallPanelNote(currentWall.id, targetPanelId, val);
+                        }
                         if (activeSub) {
                           updateSubPieceNote(
                             currentWall.id,

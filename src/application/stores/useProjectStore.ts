@@ -140,6 +140,7 @@ interface ProjectState {
   deleteSubPiece: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string) => void;
   updateSubPieceLabel: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, partLabel: string) => void;
   updateSubPieceNote: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, note: string) => void;
+  updateWallPanelNote: (wallId: string, panelId: string, note: string) => void;
   resetPanelConfig: (wallId: string, columnIndex: number) => void;
   applyGridPreset: (wallId: string, preset: GridPresetType) => void;
 
@@ -3465,6 +3466,28 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         nextSegments = segments;
       }
 
+      let nextPanels = wall.panels;
+      if (wall.panels && wall.panels.length > 0) {
+        const targetId = state.selectedPieceIds[0] || state.selectedSubPieceId;
+        nextPanels = wall.panels.map((p, idx) => {
+          if (targetId && (p.id === targetId || p.id.includes(targetId))) {
+            return {
+              ...p,
+              note: config.note !== undefined ? config.note : p.note,
+              partLabel: config.partLabel !== undefined ? config.partLabel : p.partLabel,
+            };
+          }
+          if (idx === columnIndex) {
+            return {
+              ...p,
+              note: config.note !== undefined ? config.note : p.note,
+              partLabel: config.partLabel !== undefined ? config.partLabel : p.partLabel,
+            };
+          }
+          return p;
+        });
+      }
+
       return {
         project: {
           ...state.project,
@@ -3472,6 +3495,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             w.id === wallId
               ? {
                   ...w,
+                  panels: nextPanels,
                   customJoints: nextCustomJoints,
                   customPanels: {
                     ...w.customPanels,
@@ -4362,6 +4386,30 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           ...state.project,
           walls: state.project.walls.map((w) =>
             w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+          ),
+        },
+      };
+    }),
+
+  updateWallPanelNote: (wallId: string, panelId: string, note: string) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      let nextPanels = wall.panels;
+      if (wall.panels && wall.panels.length > 0) {
+        nextPanels = wall.panels.map((p) =>
+          p.id === panelId || (panelId && p.id.includes(panelId))
+            ? { ...p, note }
+            : p
+        );
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, panels: nextPanels } : w
           ),
         },
       };

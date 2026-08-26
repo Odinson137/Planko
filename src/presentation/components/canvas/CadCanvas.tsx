@@ -563,6 +563,16 @@ export const CadCanvas: React.FC = () => {
                               fill={isVoid ? '#5C5F66' : '#2C2E33'}
                               fontFamily="JetBrains Mono"
                             />
+                            {panel.note && panel.note.trim().length > 0 && (
+                              <Text
+                                y={Math.max(26, 32 / Math.max(0.5, zoom))}
+                                text={`💬 ${panel.note}`}
+                                fontSize={Math.max(9, 11 / Math.max(0.5, zoom))}
+                                fill="#D97706"
+                                fontStyle="italic"
+                                fontFamily="JetBrains Mono"
+                              />
+                            )}
                           </Group>
                         )
                       );
@@ -588,6 +598,16 @@ export const CadCanvas: React.FC = () => {
                           fill={isVoid ? '#5C5F66' : '#2C2E33'}
                           fontFamily="JetBrains Mono"
                         />
+                        {panel.note && panel.note.trim().length > 0 && (
+                          <Text
+                            y={Math.max(26, 32 / Math.max(0.5, zoom))}
+                            text={`💬 ${panel.note}`}
+                            fontSize={Math.max(9, 11 / Math.max(0.5, zoom))}
+                            fill="#D97706"
+                            fontStyle="italic"
+                            fontFamily="JetBrains Mono"
+                          />
+                        )}
                       </Group>
                     )
                   )}
