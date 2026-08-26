@@ -2,6 +2,7 @@ import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
 import { Opening, ensureOpeningSlopes } from '../models/Opening';
 import { Point2D, PolygonSlicingEngine } from '../geometry/PolygonSlicingEngine';
+import { comparePanelsLeftToRightTopToBottom, renumberWallPanels } from './WallNumberingEngine';
 
 export interface CalculatedSlopePiece {
   id: string;
@@ -45,6 +46,7 @@ export interface CalculatedPanelPiece {
   patternFlipX?: boolean;      // зеркалирование рисунка
   subPieceId?: string;         // ID под-фрагмента
   areaSqM?: number;            // площадь куска в кв.м
+  note?: string;               // комментарий к детали
 }
 
 export interface CalculatedJointLine {
@@ -107,14 +109,125 @@ function subtractInterval(intervals: Interval1D[], removeStart: number, removeEn
   return result;
 }
 
+/**
+ * Проверяет, закрывает ли полигон pts вертикальный шов jointX, и вычитает участки перекрытия.
+ * Шов считается перекрытым только если полигон сплошной поперек шва (точки слева и справа лежат внутри полигона).
+ */
+function subtractPolygonCoverageFromVerticalSeam(
+  intervals: Interval1D[],
+  jointX: number,
+  pts: Point2D[]
+): Interval1D[] {
+  if (!pts || pts.length < 3 || intervals.length === 0) return intervals;
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  if (minX >= jointX - 1.5 || maxX <= jointX + 1.5) {
+    return intervals; // Полигон целиком слева или справа от шва
+  }
+
+  const yIntersections: number[] = [Math.min(...ys), Math.max(...ys)];
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    if ((p1.x <= jointX && p2.x >= jointX) || (p1.x >= jointX && p2.x <= jointX)) {
+      if (Math.abs(p2.x - p1.x) > 1e-4) {
+        const t = (jointX - p1.x) / (p2.x - p1.x);
+        const y = p1.y + t * (p2.y - p1.y);
+        yIntersections.push(y);
+      } else {
+        yIntersections.push(p1.y, p2.y);
+      }
+    }
+  }
+
+  const sortedY = Array.from(new Set(yIntersections.map((y) => Math.round(y * 10) / 10))).sort((a, b) => a - b);
+  let result = intervals;
+
+  for (let i = 0; i < sortedY.length - 1; i++) {
+    const y1 = sortedY[i];
+    const y2 = sortedY[i + 1];
+    if (y2 - y1 <= 1) continue;
+    const yMid = (y1 + y2) / 2;
+
+    if (
+      PolygonSlicingEngine.isPointInPolygon({ x: jointX - 2, y: yMid }, pts) &&
+      PolygonSlicingEngine.isPointInPolygon({ x: jointX + 2, y: yMid }, pts)
+    ) {
+      result = subtractInterval(result, y1, y2);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Проверяет, закрывает ли полигон pts горизонтальный шов jointY, и вычитает участки перекрытия.
+ */
+function subtractPolygonCoverageFromHorizontalSeam(
+  intervals: Interval1D[],
+  jointY: number,
+  pts: Point2D[]
+): Interval1D[] {
+  if (!pts || pts.length < 3 || intervals.length === 0) return intervals;
+  const ys = pts.map((p) => p.y);
+  const xs = pts.map((p) => p.x);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  if (minY >= jointY - 1.5 || maxY <= jointY + 1.5) {
+    return intervals; // Полигон целиком снизу или сверху от шва
+  }
+
+  const xIntersections: number[] = [Math.min(...xs), Math.max(...xs)];
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    if ((p1.y <= jointY && p2.y >= jointY) || (p1.y >= jointY && p2.y <= jointY)) {
+      if (Math.abs(p2.y - p1.y) > 1e-4) {
+        const t = (jointY - p1.y) / (p2.y - p1.y);
+        const x = p1.x + t * (p2.x - p1.x);
+        xIntersections.push(x);
+      } else {
+        xIntersections.push(p1.x, p2.x);
+      }
+    }
+  }
+
+  const sortedX = Array.from(new Set(xIntersections.map((x) => Math.round(x * 10) / 10))).sort((a, b) => a - b);
+  let result = intervals;
+
+  for (let i = 0; i < sortedX.length - 1; i++) {
+    const x1 = sortedX[i];
+    const x2 = sortedX[i + 1];
+    if (x2 - x1 <= 1) continue;
+    const xMid = (x1 + x2) / 2;
+
+    if (
+      PolygonSlicingEngine.isPointInPolygon({ x: xMid, y: jointY - 2 }, pts) &&
+      PolygonSlicingEngine.isPointInPolygon({ x: xMid, y: jointY + 2 }, pts)
+    ) {
+      result = subtractInterval(result, x1, x2);
+    }
+  }
+
+  return result;
+}
+
 export class LayoutEngine {
   public static calculateWallLayout(
     wall: Wall,
     defaultMaterial: Material,
-    allMaterials: Material[] = DEFAULT_MATERIALS
+    allMaterials: Material[] = DEFAULT_MATERIALS,
+    wallIndexOrNumber: number = 1
   ): LayoutCalculationResult {
     let panels: CalculatedPanelPiece[] = [];
     const rawJoints: CalculatedJointLine[] = [];
+
+    const wallNumber = wallIndexOrNumber >= 1 ? Math.floor(wallIndexOrNumber) : 1;
+    const renumberedWall = renumberWallPanels(wall, wallNumber);
 
     const materialsMap = new Map<string, Material>();
     allMaterials.forEach((m) => materialsMap.set(m.id, m));
@@ -161,11 +274,11 @@ export class LayoutEngine {
       isHorizInner: boolean;
     }[] = [];
 
-    if (wall.panels && wall.panels.length > 0) {
+    if (renumberedWall.panels && renumberedWall.panels.length > 0) {
       // 2. ПРЯМАЯ ПОЛИГОНАЛЬНАЯ МОДЕЛЬ (Pure 2D Polygon Mesh)
-      wall.panels.forEach((p, pIdx) => {
+      renumberedWall.panels.forEach((p, pIdx) => {
         let points = p.points;
-        if (wall.panels!.length === 1) {
+        if (renumberedWall.panels!.length === 1) {
           // Если это единственная цельная панель стены, её габариты всегда совпадают с размерами стены
           points = [
             { x: 0, y: 0 },
@@ -193,7 +306,7 @@ export class LayoutEngine {
         const pieceH = Math.round((maxYPt - minY) * 10) / 10;
         const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(points) / 1_000_000) * 1000) / 1000;
 
-        const defaultLabel = isVoid ? 'ПУСТО' : (p.partLabel || `1.${pIdx + 1}`);
+        const defaultLabel = isVoid ? 'ПУСТО' : (p.partLabel || `${wallNumber}.${pIdx + 1}`);
 
         panels.push({
           id: p.id,
@@ -219,6 +332,7 @@ export class LayoutEngine {
           patternAngleDeg: p.patternAngleDeg || 0,
           patternFlipX: p.patternFlipX || false,
           areaSqM,
+          note: p.note,
         });
       });
 
@@ -248,9 +362,16 @@ export class LayoutEngine {
           const effColor = customConfig?.profileColor || j.profileColor;
           const effGroupId = customConfig?.groupId || j.groupId;
 
+          const defaultName =
+            orientation === 'HORIZONTAL'
+              ? `Горизонтальный стык (${len} мм)`
+              : orientation === 'VERTICAL'
+              ? `Вертикальный стык (${len} мм)`
+              : `Диагональный стык (${len} мм)`;
+
           rawJoints.push({
             id: j.id,
-            name: `Шов ${j.id}`,
+            name: defaultName,
             x: Math.min(p1.x, p2.x),
             y: Math.min(p1.y, p2.y),
             p1,
@@ -444,6 +565,7 @@ export class LayoutEngine {
                 patternAngleDeg: sub.patternAngleDeg !== undefined ? sub.patternAngleDeg : (segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0),
                 patternFlipX: sub.patternFlipX !== undefined ? sub.patternFlipX : (segConfig?.patternFlipX || customConfig?.patternFlipX || false),
                 areaSqM,
+                note: sub.note || segConfig?.note,
               });
             });
 
@@ -567,6 +689,7 @@ export class LayoutEngine {
               patternAngleDeg: patternAngle,
               patternFlipX: patternFlip,
               areaSqM: Math.round(((panelWidth * segmentHeight) / 1_000_000) * 1000) / 1000,
+              note: segConfig?.note,
             });
           }
 
@@ -598,7 +721,10 @@ export class LayoutEngine {
 
         // 3.2 Вычитаем цельные панели, которые перекрывают этот вертикальный шов (например, фрамуга над дверью)
         panels.forEach((p) => {
-          if (p.x < jointX - 2 && p.x + p.width > jointX + 2) {
+          const pts = (p as any).polygonPoints || (p as any).points;
+          if (pts && pts.length >= 3) {
+            intervals = subtractPolygonCoverageFromVerticalSeam(intervals, jointX, pts);
+          } else if (p.x < jointX - 2 && p.x + p.width > jointX + 2) {
             intervals = subtractInterval(intervals, p.y, p.y + p.height);
           }
         });
@@ -639,7 +765,10 @@ export class LayoutEngine {
 
       // Вычитаем цельные панели, которые вертикально перекрывают этот шов
       panels.forEach((p) => {
-        if (p.y < jointY - 2 && p.y + p.height > jointY + 2 && p.x < cand.x + cand.panelWidth && p.x + p.width > cand.x) {
+        const pts = (p as any).polygonPoints || (p as any).points;
+        if (pts && pts.length >= 3) {
+          intervals = subtractPolygonCoverageFromHorizontalSeam(intervals, jointY, pts);
+        } else if (p.y < jointY - 2 && p.y + p.height > jointY + 2 && p.x < cand.x + cand.panelWidth && p.x + p.width > cand.x) {
           intervals = subtractInterval(intervals, Math.max(cand.x, p.x), Math.min(cand.x + cand.panelWidth, p.x + p.width));
         }
       });
@@ -720,6 +849,124 @@ export class LayoutEngine {
       isOuterEdge: true,
       profileArticle: topEdgeConfig?.profileArticle,
       profileColor: topEdgeConfig?.profileColor,
+    });
+
+    // 5.1 Интерактивные стыки по периметру проемов (двери, окна, ниши)
+    wall.openings.forEach((op) => {
+      if (op.isCutout === false) return;
+
+      // Левый вертикальный стык проема
+      const leftJointId = `joint-op-${op.id}-left`;
+      const leftCustom = wall.customJoints?.[leftJointId];
+      const leftWidth = leftCustom !== undefined && leftCustom.width !== undefined ? leftCustom.width : 8;
+      const leftLED = leftCustom !== undefined && leftCustom.isLED !== undefined ? leftCustom.isLED : false;
+
+      // Правый вертикальный стык проема
+      const rightJointId = `joint-op-${op.id}-right`;
+      const rightCustom = wall.customJoints?.[rightJointId];
+      const rightWidth = rightCustom !== undefined && rightCustom.width !== undefined ? rightCustom.width : 8;
+      const rightLED = rightCustom !== undefined && rightCustom.isLED !== undefined ? rightCustom.isLED : false;
+
+      // Верхний горизонтальный стык проема (фрамуга / верх двери)
+      const topJointId = `joint-op-${op.id}-top`;
+      const topCustom = wall.customJoints?.[topJointId];
+      const topWidth = topCustom !== undefined && topCustom.width !== undefined ? topCustom.width : 8;
+      const topLED = topCustom !== undefined && topCustom.isLED !== undefined ? topCustom.isLED : false;
+
+      const hasLeftOverlap = rawJoints.some(
+        (j) => j.orientation === 'VERTICAL' && Math.abs(j.x - op.x) < 2 && Math.max(j.y, op.y) < Math.min(j.y + j.length, op.y + op.height)
+      );
+      if (!hasLeftOverlap) {
+        rawJoints.push({
+          id: leftJointId,
+          name: `Левый стык (${op.name})`,
+          x: op.x,
+          y: op.y,
+          p1: { x: op.x, y: op.y },
+          p2: { x: op.x, y: op.y + op.height },
+          width: leftWidth,
+          length: op.height,
+          orientation: 'VERTICAL',
+          isLED: leftLED,
+          isOuterEdge: false,
+          profileArticle: leftCustom?.profileArticle,
+          profileColor: leftCustom?.profileColor,
+          groupId: leftCustom?.groupId,
+        });
+      }
+
+      const hasRightOverlap = rawJoints.some(
+        (j) => j.orientation === 'VERTICAL' && Math.abs(j.x - (op.x + op.width)) < 2 && Math.max(j.y, op.y) < Math.min(j.y + j.length, op.y + op.height)
+      );
+      if (!hasRightOverlap) {
+        rawJoints.push({
+          id: rightJointId,
+          name: `Правый стык (${op.name})`,
+          x: op.x + op.width,
+          y: op.y,
+          p1: { x: op.x + op.width, y: op.y },
+          p2: { x: op.x + op.width, y: op.y + op.height },
+          width: rightWidth,
+          length: op.height,
+          orientation: 'VERTICAL',
+          isLED: rightLED,
+          isOuterEdge: false,
+          profileArticle: rightCustom?.profileArticle,
+          profileColor: rightCustom?.profileColor,
+          groupId: rightCustom?.groupId,
+        });
+      }
+
+      const hasTopOverlap = rawJoints.some(
+        (j) => j.orientation === 'HORIZONTAL' && Math.abs(j.y - (op.y + op.height)) < 2 && Math.max(j.x, op.x) < Math.min(j.x + j.length, op.x + op.width)
+      );
+      if (!hasTopOverlap) {
+        rawJoints.push({
+          id: topJointId,
+          name: `Верхний стык (${op.name})`,
+          x: op.x,
+          y: op.y + op.height,
+          p1: { x: op.x, y: op.y + op.height },
+          p2: { x: op.x + op.width, y: op.y + op.height },
+          width: topWidth,
+          length: op.width,
+          orientation: 'HORIZONTAL',
+          isLED: topLED,
+          isOuterEdge: false,
+          profileArticle: topCustom?.profileArticle,
+          profileColor: topCustom?.profileColor,
+          groupId: topCustom?.groupId,
+        });
+      }
+
+      if (op.y > 5) {
+        const bottomJointId = `joint-op-${op.id}-bottom`;
+        const bottomCustom = wall.customJoints?.[bottomJointId];
+        const bottomWidth = bottomCustom !== undefined && bottomCustom.width !== undefined ? bottomCustom.width : 8;
+        const bottomLED = bottomCustom !== undefined && bottomCustom.isLED !== undefined ? bottomCustom.isLED : false;
+
+        const hasBottomOverlap = rawJoints.some(
+          (j) => j.orientation === 'HORIZONTAL' && Math.abs(j.y - op.y) < 2 && Math.max(j.x, op.x) < Math.min(j.x + j.length, op.x + op.width)
+        );
+        if (!hasBottomOverlap) {
+          rawJoints.push({
+            id: bottomJointId,
+            name: `Нижний стык (${op.name})`,
+            x: op.x,
+            y: op.y,
+            p1: { x: op.x, y: op.y },
+            p2: { x: op.x + op.width, y: op.y },
+            width: bottomWidth,
+            length: op.width,
+            orientation: 'HORIZONTAL',
+            isLED: bottomLED,
+            isOuterEdge: false,
+            profileArticle: bottomCustom?.profileArticle,
+            profileColor: bottomCustom?.profileColor,
+            groupId: bottomCustom?.groupId,
+          });
+        }
+      }
     });
 
     // 6. Слияние объединенных коллинеарных швов (groupId) в единые непрерывные линии
@@ -810,9 +1057,9 @@ export class LayoutEngine {
 
     finalJoints.push(...unmergedJoints);
 
-    // 2.9. Автоматическое физическое вычитание проемов (двери, окна, ниши) из панелей для раскроя и производства
-    if (!wall.panels || wall.panels.length === 0 || wall.panels.length === 1) {
-      panels = this.subtractOpeningsFromPanels(panels, wall.openings);
+    // 2.9. Автоматическое физическое вычитание проемов (двери, окна, ниши) из панелей для раскроя и производства (только для legacy сетки)
+    if (!wall.panels || wall.panels.length === 0) {
+      panels = this.subtractOpeningsFromPanels(panels, wall.openings, wallNumber);
     }
 
     // Расчет площадей и расхода
@@ -864,6 +1111,7 @@ export class LayoutEngine {
     // =========================================================================
     const slopePieces: CalculatedSlopePiece[] = [];
     let slopeProfileLinearMeters = 0;
+    let slopeSeq = panels.filter((p) => !p.isVoid).length + 1;
 
     cutoutOpenings.forEach((op, opIdx) => {
       const slopes = ensureOpeningSlopes(op);
@@ -902,34 +1150,12 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
-            partLabel: `ОТК-В.${opIdx + 1}`,
+            partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }
       }
 
-      // 2. Нижний откос / Подоконник
-      if (slopes.bottom.enabled) {
-        const d = getSideDepth(slopes.bottom.depth);
-        if (d > 0) {
-          const mat = getSideMat(slopes.bottom.materialId);
-          slopePieces.push({
-            id: `slope-${op.id}-bottom`,
-            openingId: op.id,
-            openingName: op.name || `Проем ${opIdx + 1}`,
-            side: 'BOTTOM',
-            sideLabel: op.type === 'WINDOW' ? 'Подоконник' : 'Нижний откос',
-            width: op.width,
-            depth: d,
-            areaSqM: (op.width * d) / 1_000_000,
-            materialId: mat.id,
-            materialName: mat.name,
-            materialColor: mat.color,
-            partLabel: `ОТК-Н.${opIdx + 1}`,
-          });
-        }
-      }
-
-      // 3. Левый откос
+      // 2. Левый откос
       if (slopes.left.enabled) {
         const d = getSideDepth(slopes.left.depth);
         if (d > 0) {
@@ -946,12 +1172,12 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
-            partLabel: `ОТК-Л.${opIdx + 1}`,
+            partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }
       }
 
-      // 4. Правый откос
+      // 3. Правый откос
       if (slopes.right.enabled) {
         const d = getSideDepth(slopes.right.depth);
         if (d > 0) {
@@ -968,7 +1194,29 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
-            partLabel: `ОТК-П.${opIdx + 1}`,
+            partLabel: `${wallNumber}.${slopeSeq++}`,
+          });
+        }
+      }
+
+      // 4. Нижний откос / Подоконник
+      if (slopes.bottom.enabled) {
+        const d = getSideDepth(slopes.bottom.depth);
+        if (d > 0) {
+          const mat = getSideMat(slopes.bottom.materialId);
+          slopePieces.push({
+            id: `slope-${op.id}-bottom`,
+            openingId: op.id,
+            openingName: op.name || `Проем ${opIdx + 1}`,
+            side: 'BOTTOM',
+            sideLabel: op.type === 'WINDOW' ? 'Подоконник' : 'Нижний откос',
+            width: op.width,
+            depth: d,
+            areaSqM: (op.width * d) / 1_000_000,
+            materialId: mat.id,
+            materialName: mat.name,
+            materialColor: mat.color,
+            partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }
       }
@@ -1048,16 +1296,7 @@ export class LayoutEngine {
         for (const p of allPanelsToCheck) {
           const pts = (p as any).polygonPoints || (p as any).points;
           if (pts && pts.length >= 3) {
-            const xs = pts.map((pt: Point2D) => pt.x);
-            const ys = pts.map((pt: Point2D) => pt.y);
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
-
-            if (minY < jointY - 2 && maxY > jointY + 2) {
-              intervals = subtractInterval(intervals, minX, maxX);
-            }
+            intervals = subtractPolygonCoverageFromHorizontalSeam(intervals, jointY, pts);
           } else if ((p as any).y !== undefined && (p as any).y < jointY - 2 && (p as any).y + (p as any).height > jointY + 2) {
             intervals = subtractInterval(intervals, (p as any).x, (p as any).x + (p as any).width);
           }
@@ -1096,16 +1335,7 @@ export class LayoutEngine {
         for (const p of allPanelsToCheck) {
           const pts = (p as any).polygonPoints || (p as any).points;
           if (pts && pts.length >= 3) {
-            const xs = pts.map((pt: Point2D) => pt.x);
-            const ys = pts.map((pt: Point2D) => pt.y);
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
-
-            if (minX < jointX - 2 && maxX > jointX + 2) {
-              intervals = subtractInterval(intervals, minY, maxY);
-            }
+            intervals = subtractPolygonCoverageFromVerticalSeam(intervals, jointX, pts);
           } else if ((p as any).x !== undefined && (p as any).x < jointX - 2 && (p as any).x + (p as any).width > jointX + 2) {
             intervals = subtractInterval(intervals, (p as any).y, (p as any).y + (p as any).height);
           }
@@ -1181,6 +1411,7 @@ export class LayoutEngine {
       patternAngleDeg: p.patternAngleDeg,
       patternFlipX: p.patternFlipX,
       isVoid: p.isVoid,
+      note: p.note,
     }));
 
     const joints: WallJointLine[] = layout.joints.map((j) => ({
@@ -1202,7 +1433,8 @@ export class LayoutEngine {
    */
   private static subtractOpeningsFromPanels(
     panels: CalculatedPanelPiece[],
-    openings: Opening[]
+    openings: Opening[],
+    wallNumber: number = 1
   ): CalculatedPanelPiece[] {
     const cutoutOpenings = openings.filter((op) => op.isCutout !== false);
     if (cutoutOpenings.length === 0 || panels.length === 0) return panels;
@@ -1210,6 +1442,12 @@ export class LayoutEngine {
     const resultPanels: CalculatedPanelPiece[] = [];
 
     panels.forEach((p) => {
+      // Пустые поверхности (ПУСТОТА / MATERIAL_NONE_ID) не должны разрезаться проемами на части!
+      if (p.isVoid || p.materialId === MATERIAL_NONE_ID) {
+        resultPanels.push(p);
+        return;
+      }
+
       let currentPieces: CalculatedPanelPiece[] = [p];
 
       cutoutOpenings.forEach((op) => {
@@ -1307,11 +1545,12 @@ export class LayoutEngine {
       resultPanels.push(...currentPieces);
     });
 
-    // Последовательная маркировка оставшихся деталей 1.1, 1.2, 1.3...
-    resultPanels.forEach((p, idx) => {
-      if (!p.isVoid) {
-        p.partLabel = `1.${idx + 1}`;
-      }
+    // Последовательная маркировка непустых деталей слева направо и сверху вниз
+    const nonVoid = resultPanels.filter((p) => !p.isVoid && p.materialId !== MATERIAL_NONE_ID);
+    nonVoid.sort(comparePanelsLeftToRightTopToBottom);
+
+    nonVoid.forEach((p, idx) => {
+      p.partLabel = `${wallNumber}.${idx + 1}`;
     });
 
     return resultPanels;

@@ -20,8 +20,6 @@ import {
   Tooltip,
   Switch,
   Alert,
-  Box,
-  Slider,
 } from '@mantine/core';
 import {
   Split,
@@ -153,8 +151,8 @@ export const RightSidebar: React.FC = () => {
     clearCellMaterial,
     splitPanelHorizontally,
     splitColumnVertically,
-    setPiecePatternAngle,
     updateSubPieceLabel,
+    updateSubPieceNote,
   } = useProjectStore();
 
   const selectedWallId = project.selectedWallId;
@@ -167,10 +165,13 @@ export const RightSidebar: React.FC = () => {
     (m) => m.id === (currentWall?.zone.materialId || MATERIAL_NONE_ID)
   ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
 
+  const currentWallIndex = currentWall ? project.walls.findIndex((w) => w.id === currentWall.id) : -1;
+  const currentWallNumber = currentWallIndex >= 0 ? currentWallIndex + 1 : 1;
+
   // Расчет раскладки и расхода в реальном времени
   const layoutResult =
     currentWall && currentMaterial
-      ? LayoutEngine.calculateWallLayout(currentWall, currentMaterial, project.materials)
+      ? LayoutEngine.calculateWallLayout(currentWall, currentMaterial, project.materials, currentWallNumber)
       : null;
 
   if (!currentWall) {
@@ -391,14 +392,25 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   if (selectedJointId) {
     const selectedJoint = layoutResult?.joints.find((j) => j.id === selectedJointId);
-    const customConfig = currentWall.customJoints[selectedJointId];
+    const baseId = selectedJointId.split('-part-')[0].split('-merged-')[0].split('-seg-')[0];
+    const customConfig = currentWall.customJoints[selectedJointId] || currentWall.customJoints[baseId];
 
     const currentWidth = customConfig !== undefined ? customConfig.width : (selectedJoint?.width ?? 8);
     const isLED = customConfig !== undefined ? customConfig.isLED : (selectedJoint?.isLED ?? false);
     const profileArticle = customConfig?.profileArticle || selectedJoint?.profileArticle;
     const profileColor = customConfig?.profileColor || selectedJoint?.profileColor || '#212529';
     const activeProfileObj = profileArticle ? findProfileByArticle(profileArticle) : undefined;
+    const isDiag = selectedJoint?.orientation === 'DIAGONAL' || selectedJointId.includes('-diag-');
     const isHoriz = selectedJoint?.orientation === 'HORIZONTAL' || selectedJointId.includes('-h-');
+
+    const cleanJointName = () => {
+      if (selectedJoint?.name && !selectedJoint.name.includes('joint-') && !selectedJoint.name.includes('Шов joint')) {
+        return selectedJoint.name;
+      }
+      const len = selectedJoint?.length ? ` (${Math.round(selectedJoint.length)} мм)` : '';
+      if (isDiag) return `Диагональный стык${len}`;
+      return isHoriz ? `Стык между рядами${len}` : `Стык между колонками${len}`;
+    };
 
     return (
       <Stack
@@ -417,10 +429,10 @@ export const RightSidebar: React.FC = () => {
             <Group justify="space-between" align="center">
               <div>
                 <Title order={6} c={isLED ? 'yellow.4' : 'blue.4'}>
-                  {isHoriz ? 'ГОРИЗОНТАЛЬНЫЙ СТЫК' : 'ВЕРТИКАЛЬНЫЙ СТЫК'}
+                  {isDiag ? 'ДИАГОНАЛЬНЫЙ СТЫК' : isHoriz ? 'ГОРИЗОНТАЛЬНЫЙ СТЫК' : 'ВЕРТИКАЛЬНЫЙ СТЫК'}
                 </Title>
                 <Text size="xs" c="dimmed">
-                  {selectedJoint?.name || (isHoriz ? 'Стык между рядами' : 'Стык между колонками')}
+                  {cleanJointName()}
                 </Text>
               </div>
               <Group gap={6}>
@@ -1628,12 +1640,12 @@ export const RightSidebar: React.FC = () => {
               const activeMat = project.materials.find((m) => m.id === activeMaterialId);
               const isCurrentVoid = activeMaterialId === MATERIAL_NONE_ID || !activeMat || Boolean(activeMat.isVoid);
               const baseNum = (selectedCustomPanel?.segments && selectedCustomPanel.segments.length > 1)
-                ? `1.${activeColumnIndex + 1}.${activeSegmentIndex + 1}`
-                : `1.${activeColumnIndex + 1}`;
+                ? `${currentWallNumber}.${activeColumnIndex + 1}.${activeSegmentIndex + 1}`
+                : `${currentWallNumber}.${activeColumnIndex + 1}`;
 
               const activePartLabel = activeSub
                 ? activeSub.partLabel
-                : (selectedSegment?.partLabel || baseNum);
+                : (actualPanelPiece?.partLabel || selectedSegment?.partLabel || baseNum);
 
               // Bounding box / Dimensions
               const subXs = activeSub ? activeSub.points.map((p) => p.x) : [];
@@ -1643,6 +1655,10 @@ export const RightSidebar: React.FC = () => {
               const activeAreaSqM = activeSub
                 ? Math.round((PolygonSlicingEngine.calculatePolygonArea(activeSub.points) / 1_000_000) * 1000) / 1000
                 : Math.round(((activeW * activeH) / 1_000_000) * 1000) / 1000;
+
+              const activeNote = activeSub
+                ? activeSub.note
+                : (selectedSegment?.note || selectedCustomPanel?.note || '');
 
               return (
                 <Stack gap="md">
@@ -1701,17 +1717,8 @@ export const RightSidebar: React.FC = () => {
 
                   <Divider color="#2C2E33" />
 
-                  {/* 1. Габариты и маркировка детали */}
+                  {/* 1. Маркировка и комментарий детали */}
                   <Stack gap="xs">
-                    <Group justify="space-between" align="center">
-                      <Text size="xs" fw={600} c="dimmed">
-                        Габариты и площадь:
-                      </Text>
-                      <Badge size="xs" variant="outline" color="blue">
-                        {activeW} × {activeH} мм ({activeAreaSqM} м²)
-                      </Badge>
-                    </Group>
-
                     <TextInput
                       size="xs"
                       label="Маркировка детали (номер)"
@@ -1728,6 +1735,30 @@ export const RightSidebar: React.FC = () => {
                         } else {
                           updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
                             partLabel: e.currentTarget.value,
+                          });
+                        }
+                      }}
+                      styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
+                    />
+
+                    <TextInput
+                      size="xs"
+                      label="Комментарий (для карты раскроя)"
+                      placeholder="например: Для барной стойки, Откос..."
+                      value={activeNote || ''}
+                      onChange={(e) => {
+                        const val = e.currentTarget.value;
+                        if (activeSub) {
+                          updateSubPieceNote(
+                            currentWall.id,
+                            activeColumnIndex,
+                            activeSegmentIndex,
+                            activeSub.id,
+                            val
+                          );
+                        } else {
+                          updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                            note: val,
                           });
                         }
                       }}
@@ -2037,129 +2068,13 @@ export const RightSidebar: React.FC = () => {
 
 
 
-            {/* НАПРАВЛЕНИЕ РИСУНКА И ВОЛОКОН */}
-            {(() => {
-              const activeSubPieces =
-                selectedSegment?.subPieces ||
-                selectedCustomPanel?.subPieces ||
-                [];
-              const targetSub = activeSubPieces.find((sp) => sp.id === selectedSubPieceId);
-
-              const currentPatternAngle =
-                targetSub?.patternAngleDeg !== undefined
-                  ? targetSub.patternAngleDeg
-                  : (selectedSegment?.patternAngleDeg !== undefined
-                    ? selectedSegment.patternAngleDeg
-                    : selectedCustomPanel?.patternAngleDeg || 0);
-
-              return (
-                <Stack gap="xs">
-                  <Group justify="space-between" align="center">
-                    <Text size="xs" fw={700} c="dimmed">
-                      НАПРАВЛЕНИЕ РИСУНКА (УГОЛ ВОЛОКОН)
-                    </Text>
-                    <Badge size="xs" color="indigo" variant="light">
-                      {currentPatternAngle}°
-                    </Badge>
-                  </Group>
-
-                  {/* Быстрые пресеты углов */}
-                  <Group grow gap={4}>
-                    {[
-                      { label: '0°', val: 0 },
-                      { label: '45° ↗', val: 45 },
-                      { label: '90° ➔', val: 90 },
-                      { label: '-45° ↘', val: 135 },
-                    ].map((p) => {
-                      const isActive =
-                        currentPatternAngle === p.val ||
-                        (p.val === 135 && (currentPatternAngle === -45 || currentPatternAngle === 135));
-                      return (
-                        <Button
-                          key={p.label}
-                          size="xs"
-                          variant={isActive ? 'filled' : 'light'}
-                          color={isActive ? 'blue' : 'gray'}
-                          p={4}
-                          onClick={() =>
-                            setPiecePatternAngle(
-                              currentWall.id,
-                              activeColumnIndex,
-                              activeSegmentIndex,
-                              selectedSubPieceId,
-                              p.val,
-                              false
-                            )
-                          }
-                        >
-                          {p.label}
-                        </Button>
-                      );
-                    })}
-                  </Group>
-
-                  {/* Ручной ввод любого произвольного угла + интерактивный слайдер */}
-                  <Group gap="xs" align="center" mt={2}>
-                    <Box style={{ flex: 1 }}>
-                      <Slider
-                        size="xs"
-                        min={-180}
-                        max={180}
-                        step={1}
-                        value={currentPatternAngle > 180 ? currentPatternAngle - 360 : currentPatternAngle}
-                        onChange={(val) =>
-                          setPiecePatternAngle(
-                            currentWall.id,
-                            activeColumnIndex,
-                            activeSegmentIndex,
-                            selectedSubPieceId,
-                            val,
-                            false
-                          )
-                        }
-                        marks={[
-                          { value: -90, label: '-90°' },
-                          { value: 0, label: '0°' },
-                          { value: 90, label: '90°' },
-                        ]}
-                        mb="xs"
-                      />
-                    </Box>
-                    <NumberInput
-                      size="xs"
-                      suffix="°"
-                      min={-360}
-                      max={360}
-                      step={1}
-                      value={currentPatternAngle}
-                      onChange={(val) => {
-                        const num = typeof val === 'number' ? val : (val === '' ? 0 : Number(val));
-                        setPiecePatternAngle(
-                          currentWall.id,
-                          activeColumnIndex,
-                          activeSegmentIndex,
-                          selectedSubPieceId,
-                          num,
-                          false
-                        );
-                      }}
-                      style={{ width: '85px' }}
-                      styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', textAlign: 'center' } }}
-                    />
-                  </Group>
-                </Stack>
-              );
-            })()}
-
-            <Divider color="#2C2E33" />
-
-            {/* ИНСТРУМЕНТЫ РАЗРЕЗА И ДЕЛЕНИЯ ПАНЕЛИ */}
+            {/* ИНСТРУМЕНТЫ РАСКРОЯ И ДЕЛЕНИЯ ПАНЕЛИ */}
             <Stack gap="xs">
               <Text size="xs" fw={700} c="dimmed">
-                РАЗРЕЗ И ДЕЛЕНИЕ ДЕТАЛИ
+                РЕДАКТОР РАСКРОЯ
               </Text>
 
-              {/* Акцентная кнопка Редактора раскроя (Нож) */}
+              {/* Акцентная кнопка Редактора раскроя */}
               <Button
                 size="sm"
                 variant="filled"
@@ -2175,7 +2090,7 @@ export const RightSidebar: React.FC = () => {
                 }
                 style={{ fontWeight: 600 }}
               >
-                Редактор раскроя (CAD-Нож)
+                Редактор раскроя
               </Button>
 
               {/* Быстрые кнопки разрезов вертикальным списком */}
@@ -2210,20 +2125,6 @@ export const RightSidebar: React.FC = () => {
                 }
               >
                 Разрез по вертикали (Пополам)
-              </Button>
-
-              <Divider color="#2C2E33" my={4} />
-
-              <Button
-                size="xs"
-                variant="subtle"
-                color="red"
-                leftSection={<Trash2 size={14} />}
-                onClick={() =>
-                  clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex)
-                }
-              >
-                Удалить деталь (Сделать ПУСТО)
               </Button>
             </Stack>
           </Stack>

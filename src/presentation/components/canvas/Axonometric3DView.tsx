@@ -59,9 +59,12 @@ export const Axonometric3DView: React.FC = () => {
     (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
   ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
 
+  const selectedWallIndex = selectedWall ? project.walls.findIndex((w) => w.id === selectedWall.id) : -1;
+  const selectedWallNumber = selectedWallIndex >= 0 ? selectedWallIndex + 1 : 1;
+
   const layout =
     selectedWall && selectedMaterial
-      ? LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials)
+      ? LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials, selectedWallNumber)
       : null;
 
   // Математическая 3D-проекция точки (X, Y, Z) в экранные 2D (x, y)

@@ -257,6 +257,24 @@ export class NestingEngine {
             });
           }
 
+          // Добавляем деловой остаток от выреза проемов (двери, окна, ниши) в список свободных зон
+          if (item.cutouts && item.cutouts.length > 0) {
+            item.cutouts.forEach((cut) => {
+              const cutX = px + (bestRotated ? cut.y : cut.x);
+              const cutY = py + (bestRotated ? cut.x : cut.y);
+              const cutW = bestRotated ? cut.height : cut.width;
+              const cutH = bestRotated ? cut.width : cut.height;
+              if (cutW > 50 && cutH > 50) {
+                freeRects.push({
+                  x: cutX,
+                  y: cutY,
+                  w: cutW,
+                  h: cutH,
+                });
+              }
+            });
+          }
+
           // Сливаем / очищаем дубликаты
           NestingEngine.cleanFreeRects(freeRects);
         } else {

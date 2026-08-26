@@ -1,5 +1,7 @@
 import type { WallPanelPiece, WallJointLine } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
+import type { Opening } from '../models/Opening';
+import { MATERIAL_NONE_ID } from '../models/Material';
 
 export interface Point2D {
   x: number;
@@ -42,6 +44,7 @@ export interface PolygonSubPiece {
   patternAngleDeg?: number;
   patternFlipX?: boolean;
   isVoid?: boolean;
+  note?: string;
   areaSqM?: number;
 }
 
@@ -1243,7 +1246,9 @@ export class PolygonSlicingEngine {
   }
 
   /**
-   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними
+   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними.
+   * Если одна из сторон шва прилегает к двери / проему, сторона двери остается неподвижной (shift = 0),
+   * а вся дельта ширины шва берется со стороны соседнего элемента стены.
    */
   public static adjustPanelsForJointWidthChange(
     panels: WallPanelPiece[],
@@ -1251,7 +1256,8 @@ export class PolygonSlicingEngine {
     oldWidth: number,
     newWidth: number,
     wallWidth: number,
-    wallHeight: number
+    wallHeight: number,
+    openings: Opening[] = []
   ): WallPanelPiece[] {
     const delta = newWidth - oldWidth;
     if (Math.abs(delta) < 1e-4) return panels;
@@ -1269,6 +1275,26 @@ export class PolygonSlicingEngine {
     const nx = -dy / len;
     const ny = dx / len;
 
+    // Проверяем, прилегает ли какая-либо сторона шва к проему (дверь, окно, ниша)
+    const midPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    const checkDist = Math.max(10, Math.max(oldWidth, newWidth) / 2 + 8);
+    const ptPosSide = { x: midPt.x + nx * checkDist, y: midPt.y + ny * checkDist };
+    const ptNegSide = { x: midPt.x - nx * checkDist, y: midPt.y - ny * checkDist };
+
+    const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
+
+    const isInsideOpening = (pt: Point2D) =>
+      cutoutOpenings.some(
+        (op) =>
+          pt.x >= op.x - 2 &&
+          pt.x <= op.x + op.width + 2 &&
+          pt.y >= op.y - 2 &&
+          pt.y <= op.y + op.height + 2
+      );
+
+    const posIsOpening = isInsideOpening(ptPosSide);
+    const negIsOpening = isInsideOpening(ptNegSide);
+
     // Максимальное расстояние от линии шва, на котором точка считается принадлежащей стыку
     const maxThreshold = Math.max(35, Math.max(oldWidth, newWidth) / 2 + 15);
 
@@ -1284,12 +1310,18 @@ export class PolygonSlicingEngine {
 
         // Точка лежит вдоль отрезка шва и прилегает к зазору
         if (t >= -5 && t <= len + 5 && Math.abs(h) <= maxThreshold) {
+          const isPosSide = Math.abs(h) > 1e-3 ? h > 0 : hCentroid >= 0;
+
           let shift = 0;
-          if (Math.abs(h) > 1e-3) {
-            shift = h > 0 ? halfDelta : -halfDelta;
+          if (posIsOpening && !negIsOpening) {
+            // Сторона +n — это дверь/проем. Дверь НЕ сдвигается (shift = 0), вся ширина зазора берется со стороны соседней панели (-n)
+            shift = isPosSide ? 0 : -delta;
+          } else if (negIsOpening && !posIsOpening) {
+            // Сторона -n — это дверь/проем. Дверь НЕ сдвигается (shift = 0), вся ширина зазора берется со стороны соседней панели (+n)
+            shift = isPosSide ? delta : 0;
           } else {
-            // Если точка лежит прямо на линии (h = 0)
-            shift = hCentroid >= 0 ? halfDelta : -halfDelta;
+            // Обычный шов между панелями — симметричный сдвиг пополам
+            shift = isPosSide ? halfDelta : -halfDelta;
           }
 
           const newX = Math.max(0, Math.min(wallWidth, Math.round((pt.x + shift * nx) * 10) / 10));
@@ -1562,7 +1594,33 @@ export class PolygonSlicingEngine {
   ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
     const resultPanels: WallPanelPiece[] = [];
 
+    const opLeft = opening.x;
+    const opRight = opening.x + opening.width;
+    const opBottom = opening.y;
+    const opTop = opening.y + opening.height;
+
     for (const panel of panels) {
+      // 1. Пустые поверхности (ПУСТОТА / MATERIAL_NONE_ID) не должны разрезаться на куски
+      if (panel.isVoid || panel.materialId === MATERIAL_NONE_ID) {
+        resultPanels.push(panel);
+        continue;
+      }
+
+      // 2. Проверяем пересечение с проемом по bounding box
+      const xs = panel.points.map((p) => p.x);
+      const ys = panel.points.map((p) => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+
+      if (maxX <= opLeft + 0.1 || minX >= opRight - 0.1 || maxY <= opBottom + 0.1 || minY >= opTop - 0.1) {
+        // Панель не пересекается с проемом - оставляем её в исходном виде
+        resultPanels.push(panel);
+        continue;
+      }
+
+      // 3. Вырезаем проем только из той панели, куда он вставляется
       const remainingPolys = this.subtractRectangleFromPolygon(panel.points, opening);
       if (remainingPolys.length === 0) {
         continue;
@@ -1570,7 +1628,9 @@ export class PolygonSlicingEngine {
       remainingPolys.forEach((poly, kIdx) => {
         resultPanels.push({
           ...panel,
-          id: `panel-${Date.now()}-${resultPanels.length + 1}-${kIdx + 1}-${Math.random().toString(36).substring(2, 5)}`,
+          id: remainingPolys.length === 1 && kIdx === 0
+            ? panel.id
+            : `panel-${Date.now()}-${resultPanels.length + 1}-${kIdx + 1}-${Math.random().toString(36).substring(2, 5)}`,
           points: poly,
           partLabel: remainingPolys.length > 1 ? `${panel.partLabel}.${kIdx + 1}` : panel.partLabel,
         });

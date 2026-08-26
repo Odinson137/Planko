@@ -21,6 +21,7 @@ export interface WallPanelPiece {
   patternFlipX?: boolean;           // Зеркалирование текстуры по горизонтали
   isVoid?: boolean;                 // true для пустоты
   radiusConfig?: RadiusConfig;      // Радиус изгиба (если попадает на угол)
+  note?: string;                    // Комментарий/назначение детали (например, 'Для барной стойки')
 }
 
 export interface WallJointLine {
@@ -46,6 +47,7 @@ export interface PanelSegmentConfig {
   customTextureCategory?: string; // категория текстуры (FABRIC, WOOD, STONE, etc.)
   customReliefType?: SlatProfileShape; // форма рельефа реек
   partLabel?: string;          // метка детали (например '1.1', '1.2' или 'ПУСТО')
+  note?: string;               // комментарий/назначение детали
   patternAngleDeg?: number;    // угол поворота рисунка/волокон (0, 45, 90, etc.)
   patternFlipX?: boolean;      // зеркалирование текстуры по горизонтали
   subPieces?: PolygonSubPiece[]; // массив полигональных частей, если панель была фигурно разрезана
@@ -96,6 +98,7 @@ export interface CustomPanelConfig {
   customReliefType?: SlatProfileShape;
   patternAngleDeg?: number;
   patternFlipX?: boolean;
+  note?: string;
   subPieces?: PolygonSubPiece[];
   segments?: PanelSegmentConfig[]; // вертикальные ячейки в этой колонке
   radiusConfig?: RadiusConfig;     // обратная совместимость

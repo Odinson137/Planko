@@ -139,9 +139,10 @@ export class ProfileSpecificationEngine {
   public static calculateWallProfiles(
     wall: Wall,
     defaultMaterial: Material,
-    allMaterials: Material[] = DEFAULT_MATERIALS
+    allMaterials: Material[] = DEFAULT_MATERIALS,
+    wallIndexOrNumber: number = 1
   ): WallProfilesReport {
-    const layout: LayoutCalculationResult = LayoutEngine.calculateWallLayout(wall, defaultMaterial, allMaterials);
+    const layout: LayoutCalculationResult = LayoutEngine.calculateWallLayout(wall, defaultMaterial, allMaterials, wallIndexOrNumber);
     const activeJoints = layout.joints.filter((j) => j.width > 0 || j.isLED);
 
     const map = new Map<StandardProfileCategory, { lengths: number[]; count: number }>();
@@ -234,9 +235,9 @@ export class ProfileSpecificationEngine {
     const wallReports: WallProfilesReport[] = [];
     const aggregated = new Map<StandardProfileCategory, { lengths: number[]; count: number }>();
 
-    walls.forEach((wall) => {
+    walls.forEach((wall, idx) => {
       const defMat = materials.find((m) => m.id === wall.zone.materialId) || materials[0];
-      const report = this.calculateWallProfiles(wall, defMat, materials);
+      const report = this.calculateWallProfiles(wall, defMat, materials, idx + 1);
       wallReports.push(report);
 
       report.items.forEach((item) => {

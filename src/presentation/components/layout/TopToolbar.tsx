@@ -60,6 +60,9 @@ export const TopToolbar: React.FC = () => {
     saveCurrentProject,
     addOpening,
     addWallBend,
+    selectJoint,
+    selectPanel,
+    selectOpening,
   } = useProjectStore();
 
   const [catalogOpened, setCatalogOpened] = useState(false);
@@ -243,7 +246,15 @@ export const TopToolbar: React.FC = () => {
               <SegmentedControl
                 size="xs"
                 value={editMode}
-                onChange={(val: any) => setEditMode(val)}
+                onChange={(val: any) => {
+                  setEditMode(val);
+                  if (val === 'PANELS') {
+                    selectJoint(null);
+                  } else if (val === 'JOINTS') {
+                    selectPanel(null, null, null);
+                    selectOpening(null);
+                  }
+                }}
                 data={[
                   { label: '📄 Панели', value: 'PANELS' },
                   { label: 'Стыки', value: 'JOINTS' },

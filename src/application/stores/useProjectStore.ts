@@ -7,6 +7,7 @@ import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
+import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
@@ -138,6 +139,7 @@ interface ProjectState {
   setSubPieceMaterial: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, materialId: string, decorCode?: string, decorName?: string, color?: string) => void;
   deleteSubPiece: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string) => void;
   updateSubPieceLabel: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, partLabel: string) => void;
+  updateSubPieceNote: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, note: string) => void;
   resetPanelConfig: (wallId: string, columnIndex: number) => void;
   applyGridPreset: (wallId: string, preset: GridPresetType) => void;
 
@@ -379,12 +381,26 @@ function splitOversizedSegment(
   return { segments: resultSegments, customJoints: resultJoints };
 }
 
-export const useProjectStore = create<ProjectState>((set, get) => ({
-  project: createDefaultProject(),
-  selectedColumnIndex: null,
-  selectedSegmentIndex: null,
-  selectedCellKeys: [],
-  selectedPieceIds: [],
+export const useProjectStore = create<ProjectState>((setRaw, get) => {
+  const set: typeof setRaw = (partial, replace) => {
+    setRaw((state) => {
+      const nextState = typeof partial === 'function' ? (partial as any)(state) : partial;
+      if (nextState && nextState.project && nextState.project.walls) {
+        return {
+          ...nextState,
+          project: renumberProjectWalls(nextState.project),
+        };
+      }
+      return nextState;
+    }, replace);
+  };
+
+  return {
+    project: renumberProjectWalls(createDefaultProject()),
+    selectedColumnIndex: null,
+    selectedSegmentIndex: null,
+    selectedCellKeys: [],
+    selectedPieceIds: [],
   selectedJointId: null,
   selectedJointIds: [],
   selectedWallBendId: null,
@@ -916,7 +932,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               oldW,
               width,
               wall.width,
-              wall.height
+              wall.height,
+              wall.openings
             );
           }
         });
@@ -983,7 +1000,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               oldW,
               width,
               wall.width,
-              wall.height
+              wall.height,
+              wall.openings
             );
           }
         });
@@ -1093,7 +1111,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               oldW,
               clampedW,
               wall.width,
-              wall.height
+              wall.height,
+              wall.openings
             );
           }
         });
@@ -2205,7 +2224,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               oldW,
               clamped,
               w.width,
-              w.height
+              w.height,
+              w.openings
             );
           }
 
@@ -2365,7 +2385,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               oldW,
               width,
               w.width,
-              w.height
+              w.height,
+              w.openings
             );
           }
 
@@ -2442,7 +2463,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               oldW,
               width,
               w.width,
-              w.height
+              w.height,
+              w.openings
             );
           }
 
@@ -4281,6 +4303,70 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     }),
 
+  updateSubPieceNote: (
+    wallId: string,
+    columnIndex: number,
+    segmentIndex: number | null = 0,
+    subPieceId: string,
+    note: string
+  ) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      if (wall.panels && wall.panels.length > 0) {
+        const targetId = subPieceId || state.selectedPieceIds[0] || state.selectedSubPieceId;
+        const nextPanels = wall.panels.map((p) =>
+          p.id === targetId || (targetId && p.id.includes(targetId))
+            ? { ...p, note }
+            : p
+        );
+        return {
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId ? { ...w, panels: nextPanels } : w
+            ),
+          },
+        };
+      }
+
+      const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
+      const currentSegments = currentCustom.segments || [];
+      const sIdx = segmentIndex ?? 0;
+
+      const updateSubs = (subs: PolygonSubPiece[] | undefined) =>
+        subs?.map((sub) =>
+          sub.id === subPieceId ? { ...sub, note } : sub
+        );
+
+      const nextCustomPanels = { ...wall.customPanels };
+      if (currentSegments.length > 0 && currentSegments[sIdx]) {
+        const nextSegs = [...currentSegments];
+        nextSegs[sIdx] = {
+          ...nextSegs[sIdx],
+          note,
+          subPieces: updateSubs(nextSegs[sIdx].subPieces),
+        };
+        nextCustomPanels[columnIndex] = { ...currentCustom, segments: nextSegs };
+      } else {
+        nextCustomPanels[columnIndex] = {
+          ...currentCustom,
+          note,
+          subPieces: updateSubs(currentCustom.subPieces),
+        };
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
+          ),
+        },
+      };
+    }),
+
   applyPanelSlicingResult: (
     wallId: string,
     columnIndex: number,
@@ -5408,4 +5494,5 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     get().setProject(imported);
     return imported;
   },
-}));
+};
+});

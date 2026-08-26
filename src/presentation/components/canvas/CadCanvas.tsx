@@ -51,11 +51,14 @@ export const CadCanvas: React.FC = () => {
     (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
   ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
 
+  const selectedWallIndex = selectedWall ? project.walls.findIndex((w) => w.id === selectedWall.id) : -1;
+  const selectedWallNumber = selectedWallIndex >= 0 ? selectedWallIndex + 1 : 1;
+
   // Мемоизированный расчет 2D раскладки (пересчитывается ТОЛЬКО при изменении параметров стены, а не при зуме/пане)
   const layout = useMemo(() => {
     if (!selectedWall || !selectedMaterial) return null;
-    return LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials);
-  }, [selectedWall, selectedMaterial, project.materials]);
+    return LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials, selectedWallNumber);
+  }, [selectedWall, selectedMaterial, project.materials, selectedWallNumber]);
 
   // Центрирование стены при первой загрузке или сбросе
   const centerWall = useCallback(
@@ -904,31 +907,22 @@ export const CadCanvas: React.FC = () => {
                 const selectedGroupId = selectedJointConfig?.groupId;
 
                 const isJointSelected =
-                  isJointsMode &&
-                  (selectedJointIds.includes(joint.id) ||
+                  selectedJointIds.includes(joint.id) ||
                   selectedJointId === joint.id ||
-                  (Boolean(selectedGroupId) && joint.groupId === selectedGroupId));
+                  (Boolean(selectedGroupId) && joint.groupId === selectedGroupId);
 
                 const isLED = joint.isLED;
-                const visualWidth = isJointsMode
+                const visualWidth = isJointsMode || isJointSelected
                   ? Math.max(joint.width, 3.5 / zoom)
                   : Math.max(joint.width, 1.5 / zoom);
 
-                const fillColor = isJointsMode
-                  ? (isJointSelected
-                      ? '#339AF0'
-                      : isLED
-                      ? '#FFD43B'
-                      : joint.width > 0
-                      ? '#4DABF7'
-                      : '#74C0FC')
-                  : (isJointSelected
-                      ? '#339AF0'
-                      : isLED
-                      ? '#FFD43B'
-                      : joint.width > 0
-                      ? '#343A40'
-                      : 'rgba(255, 255, 255, 0.08)');
+                const fillColor = isJointSelected
+                  ? '#339AF0'
+                  : isLED
+                  ? '#FFD43B'
+                  : isJointsMode
+                  ? (joint.width > 0 ? '#4DABF7' : '#74C0FC')
+                  : (joint.width > 0 ? '#343A40' : 'rgba(255, 255, 255, 0.15)');
 
                 const hitPadding = Math.max(26 / zoom, 20);
 
@@ -1059,13 +1053,15 @@ export const CadCanvas: React.FC = () => {
             {selectedWall.bends?.map((bend) => {
               const arcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
               const isBendSelected = selectedWallBendId === bend.id;
+              const isPanelsMode = editMode === 'PANELS';
 
               return (
                 <Group
                   key={bend.id}
                   x={bend.x}
                   y={0}
-                  draggable
+                  draggable={isPanelsMode}
+                  listening={isPanelsMode}
                   dragBoundFunc={(pos) => {
                     const stageX = pos.x;
                     const minX = panX;

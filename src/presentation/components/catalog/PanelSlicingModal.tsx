@@ -80,6 +80,8 @@ export const PanelSlicingModal: React.FC = () => {
   const [manualEdgeOffset, setManualEdgeOffset] = useState<number | ''>('');
 
   const currentWall = project.walls.find((w) => w.id === slicingTarget?.wallId);
+  const wallIndex = currentWall ? project.walls.findIndex((w) => w.id === currentWall.id) : -1;
+  const wallNumber = wallIndex >= 0 ? wallIndex + 1 : 1;
   const colIdx = slicingTarget?.columnIndex ?? 0;
   const segIdx = slicingTarget?.segmentIndex ?? 0;
 
@@ -181,7 +183,7 @@ export const PanelSlicingModal: React.FC = () => {
           color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : (customSeg?.customColor || customCol?.customColor || panelMaterial.color),
           decorCode: isPanelVoid ? '' : (customSeg?.customDecorCode || customCol?.customDecorCode || panelMaterial.decorCode),
           decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
-          partLabel: isPanelVoid ? 'ПУСТО' : `1.${colIdx + 1}.${segIdx + 1}`,
+          partLabel: isPanelVoid ? 'ПУСТО' : `${wallNumber}.${colIdx + 1}.${segIdx + 1}`,
           patternAngleDeg: customSeg?.patternAngleDeg || customCol?.patternAngleDeg || 0,
           patternFlipX: customSeg?.patternFlipX || customCol?.patternFlipX || false,
           areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
@@ -194,7 +196,7 @@ export const PanelSlicingModal: React.FC = () => {
     setDrawingStart(null);
     setCurrentMouse(null);
     setActiveSnap(null);
-  }, [isSlicingModalOpen, panelWidth, panelHeight, panelMaterial, customSeg, customCol, colIdx, segIdx, isPanelVoid, targetPanel]);
+  }, [isSlicingModalOpen, panelWidth, panelHeight, panelMaterial, customSeg, customCol, colIdx, segIdx, isPanelVoid, targetPanel, wallNumber]);
 
   // Рассечение полигонов линией ножа
   const applyCutLineToPieces = useCallback(
@@ -225,7 +227,7 @@ export const PanelSlicingModal: React.FC = () => {
       });
 
       if (didSplitAny) {
-        const baseLabel = targetPanel ? targetPanel.partLabel : `1.${colIdx + 1}.${segIdx + 1}`;
+        const baseLabel = targetPanel ? targetPanel.partLabel : `${wallNumber}.${colIdx + 1}.${segIdx + 1}`;
         const indexedPieces = nextPieces.map((p, idx) => ({
           ...p,
           partLabel: p.isVoid || p.materialId === MATERIAL_NONE_ID
@@ -235,7 +237,7 @@ export const PanelSlicingModal: React.FC = () => {
         setPieces(indexedPieces);
       }
     },
-    [pieces, colIdx, segIdx, targetPanel]
+    [pieces, colIdx, segIdx, targetPanel, wallNumber]
   );
 
   // Сброс всех разрезов
@@ -281,7 +283,7 @@ export const PanelSlicingModal: React.FC = () => {
         color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : panelMaterial.color,
         decorCode: isPanelVoid ? '' : panelMaterial.decorCode,
         decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
-        partLabel: isPanelVoid ? 'ПУСТО' : `1.${colIdx + 1}.${segIdx + 1}`,
+        partLabel: isPanelVoid ? 'ПУСТО' : `${wallNumber}.${colIdx + 1}.${segIdx + 1}`,
         patternAngleDeg: 0,
         areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
       };
