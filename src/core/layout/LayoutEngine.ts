@@ -1057,10 +1057,8 @@ export class LayoutEngine {
 
     finalJoints.push(...unmergedJoints);
 
-    // 2.9. Автоматическое физическое вычитание проемов (двери, окна, ниши) из панелей для раскроя и производства (только для legacy сетки)
-    if (!wall.panels || wall.panels.length === 0) {
-      panels = this.subtractOpeningsFromPanels(panels, wall.openings, wallNumber);
-    }
+    // 2.9. Автоматическое физическое вычитание проемов (двери, окна, ниши) из панелей для раскроя и производства
+    panels = this.subtractOpeningsFromPanels(panels, wall.openings, wallNumber);
 
     // Расчет площадей и расхода
     const wallAreaSqM = (wall.width * wall.height) / 1_000_000;
@@ -1429,7 +1427,7 @@ export class LayoutEngine {
   }
 
   /**
-   * Физическое вычитание сквозных проемов (двери, окна, ниши) из прямоугольных панелей для раскроя и производства
+   * Физическое вычитание сквозных проемов (двери, окна, ниши) из панелей (как прямоугольных, так и полигональных) для раскроя и производства
    */
   private static subtractOpeningsFromPanels(
     panels: CalculatedPanelPiece[],
@@ -1448,101 +1446,82 @@ export class LayoutEngine {
         return;
       }
 
-      let currentPieces: CalculatedPanelPiece[] = [p];
+      const initialPoly: Point2D[] =
+        p.polygonPoints && p.polygonPoints.length >= 3
+          ? p.polygonPoints
+          : [
+              { x: p.x, y: p.y },
+              { x: p.x + p.width, y: p.y },
+              { x: p.x + p.width, y: p.y + p.height },
+              { x: p.x, y: p.y + p.height },
+            ];
+
+      let currentPolys: Point2D[][] = [initialPoly];
 
       cutoutOpenings.forEach((op) => {
-        const nextPieces: CalculatedPanelPiece[] = [];
+        const nextPolys: Point2D[][] = [];
 
-        currentPieces.forEach((piece) => {
-          const interX1 = Math.max(piece.x, op.x);
-          const interX2 = Math.min(piece.x + piece.width, op.x + op.width);
-          const interY1 = Math.max(piece.y, op.y);
-          const interY2 = Math.min(piece.y + piece.height, op.y + op.height);
+        currentPolys.forEach((poly) => {
+          const polyXs = poly.map((pt) => pt.x);
+          const polyYs = poly.map((pt) => pt.y);
+          const minX = Math.min(...polyXs);
+          const maxX = Math.max(...polyXs);
+          const minY = Math.min(...polyYs);
+          const maxY = Math.max(...polyYs);
 
-          // Если проем пересекает деталь
-          if (interX2 > interX1 + 0.5 && interY2 > interY1 + 0.5) {
-            // 1. Верхняя деталь (над проемом / фрамуга)
-            if (piece.y + piece.height > interY2 + 0.5) {
-              const topH = Math.round((piece.y + piece.height - interY2) * 10) / 10;
-              if (topH >= 5) {
-                nextPieces.push({
-                  ...piece,
-                  id: `${piece.id}-top`,
-                  x: piece.x,
-                  y: interY2,
-                  width: piece.width,
-                  height: topH,
-                  isCut: true,
-                  polygonPoints: undefined,
-                  areaSqM: Math.round(((piece.width * topH) / 1_000_000) * 1000) / 1000,
-                });
-              }
-            }
-
-            // 2. Нижняя деталь (под проемом / подоконник)
-            if (interY1 > piece.y + 0.5) {
-              const botH = Math.round((interY1 - piece.y) * 10) / 10;
-              if (botH >= 5) {
-                nextPieces.push({
-                  ...piece,
-                  id: `${piece.id}-bot`,
-                  x: piece.x,
-                  y: piece.y,
-                  width: piece.width,
-                  height: botH,
-                  isCut: true,
-                  polygonPoints: undefined,
-                  areaSqM: Math.round(((piece.width * botH) / 1_000_000) * 1000) / 1000,
-                });
-              }
-            }
-
-            // 3. Левая деталь (слева от проема в пределах высоты проема)
-            if (interX1 > piece.x + 0.5) {
-              const leftW = Math.round((interX1 - piece.x) * 10) / 10;
-              const midH = Math.round((interY2 - interY1) * 10) / 10;
-              if (leftW >= 5 && midH >= 5) {
-                nextPieces.push({
-                  ...piece,
-                  id: `${piece.id}-left`,
-                  x: piece.x,
-                  y: interY1,
-                  width: leftW,
-                  height: midH,
-                  isCut: true,
-                  polygonPoints: undefined,
-                  areaSqM: Math.round(((leftW * midH) / 1_000_000) * 1000) / 1000,
-                });
-              }
-            }
-
-            // 4. Правая деталь (справа от проема в пределах высоты проема)
-            if (piece.x + piece.width > interX2 + 0.5) {
-              const rightW = Math.round((piece.x + piece.width - interX2) * 10) / 10;
-              const midH = Math.round((interY2 - interY1) * 10) / 10;
-              if (rightW >= 5 && midH >= 5) {
-                nextPieces.push({
-                  ...piece,
-                  id: `${piece.id}-right`,
-                  x: interX2,
-                  y: interY1,
-                  width: rightW,
-                  height: midH,
-                  isCut: true,
-                  polygonPoints: undefined,
-                  areaSqM: Math.round(((rightW * midH) / 1_000_000) * 1000) / 1000,
-                });
-              }
-            }
-          } else {
-            nextPieces.push(piece);
+          // Если проем не пересекается с bounding box полигона
+          if (
+            maxX <= op.x + 0.1 ||
+            minX >= op.x + op.width - 0.1 ||
+            maxY <= op.y + 0.1 ||
+            minY >= op.y + op.height - 0.1
+          ) {
+            nextPolys.push(poly);
+            return;
           }
+
+          const remaining = PolygonSlicingEngine.subtractRectangleFromPolygon(poly, op);
+          nextPolys.push(...remaining);
         });
 
-        currentPieces = nextPieces;
+        currentPolys = nextPolys;
       });
 
-      resultPanels.push(...currentPieces);
+      if (currentPolys.length === 0) {
+        return;
+      }
+
+      currentPolys.forEach((poly, subIdx) => {
+        const xs = poly.map((pt) => pt.x);
+        const ys = poly.map((pt) => pt.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const w = Math.round((maxX - minX) * 10) / 10;
+        const h = Math.round((maxY - minY) * 10) / 10;
+        const area = Math.round((PolygonSlicingEngine.calculatePolygonArea(poly) / 1_000_000) * 1000) / 1000;
+
+        if (w < 2 || h < 2 || area < 0.001) return;
+
+        const subId = currentPolys.length === 1 ? p.id : `${p.id}-part-${subIdx + 1}`;
+        const subPieceId = p.subPieceId
+          ? (currentPolys.length === 1 ? p.subPieceId : `${p.subPieceId}-part-${subIdx + 1}`)
+          : subId;
+
+        resultPanels.push({
+          ...p,
+          id: subId,
+          subPieceId,
+          x: minX,
+          y: minY,
+          width: w,
+          height: h,
+          isCut: true,
+          polygonPoints: poly,
+          areaSqM: area,
+        });
+      });
     });
 
     // Последовательная маркировка непустых деталей слева направо и сверху вниз

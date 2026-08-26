@@ -4777,7 +4777,112 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         }
       }
 
-      // 1.3 Диагональные / произвольные раскрои
+      // 1.3 Диагональные / произвольные раскрои -> переводим стену в полигональную модель (wall.panels)
+      const defaultMat =
+        state.project.materials.find((m) => m.id === wall.zone.materialId) ||
+        state.project.materials[0];
+      const layout = LayoutEngine.calculateWallLayout(wall, defaultMat, state.project.materials);
+
+      const targetLayoutPiece =
+        layout.panels.find(
+          (p) =>
+            p.id === panelId ||
+            p.subPieceId === panelId ||
+            p.id === state.slicingTarget?.panelId ||
+            p.id === state.selectedSubPieceId ||
+            state.selectedPieceIds.includes(p.id)
+        ) ||
+        layout.panels.find(
+          (p) => p.originalColumnIndex === columnIndex && (segmentIndex === null || p.originalSegmentIndex === segmentIndex)
+        ) ||
+        layout.panels[0];
+
+      if (targetLayoutPiece) {
+        const targetPts = targetLayoutPiece.polygonPoints || [
+          { x: targetLayoutPiece.x, y: targetLayoutPiece.y },
+          { x: targetLayoutPiece.x + targetLayoutPiece.width, y: targetLayoutPiece.y },
+          { x: targetLayoutPiece.x + targetLayoutPiece.width, y: targetLayoutPiece.y + targetLayoutPiece.height },
+          { x: targetLayoutPiece.x, y: targetLayoutPiece.y + targetLayoutPiece.height },
+        ];
+        const xs = targetPts.map((p) => p.x);
+        const ys = targetPts.map((p) => p.y);
+        const minX = Math.min(...xs);
+        const minY = Math.min(...ys);
+
+        const newPanels: WallPanelPiece[] = subPieces.map((sp, idx) => ({
+          id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+          points: sp.points.map((pt) => ({ x: Math.round(pt.x + minX), y: Math.round(pt.y + minY) })),
+          materialId: sp.materialId || targetLayoutPiece.materialId,
+          color: sp.color || targetLayoutPiece.materialColor,
+          decorCode: sp.decorCode || targetLayoutPiece.decorCode,
+          decorName: sp.decorName || targetLayoutPiece.decorName,
+          isVoid: sp.isVoid || false,
+          thickness: sp.thickness || targetLayoutPiece.thickness,
+          reliefType: (sp.reliefType || targetLayoutPiece.reliefType) as any,
+          textureCategory: (sp.textureCategory || targetLayoutPiece.textureCategory) as any,
+          patternAngleDeg: sp.patternAngleDeg || targetLayoutPiece.patternAngleDeg,
+          patternFlipX: sp.patternFlipX || targetLayoutPiece.patternFlipX,
+          partLabel: subPieces.length > 1 ? `${targetLayoutPiece.partLabel}.${idx + 1}` : targetLayoutPiece.partLabel,
+        }));
+
+        const remainingPanels: WallPanelPiece[] = layout.panels
+          .filter((p) => p.id !== targetLayoutPiece.id)
+          .map((p) => ({
+            id: p.id,
+            points: p.polygonPoints || [
+              { x: p.x, y: p.y },
+              { x: p.x + p.width, y: p.y },
+              { x: p.x + p.width, y: p.y + p.height },
+              { x: p.x, y: p.y + p.height },
+            ],
+            materialId: p.materialId,
+            color: p.materialColor,
+            decorCode: p.decorCode,
+            decorName: p.decorName,
+            isVoid: p.isVoid,
+            thickness: p.thickness,
+            reliefType: p.reliefType as any,
+            textureCategory: p.textureCategory as any,
+            patternAngleDeg: p.patternAngleDeg,
+            patternFlipX: p.patternFlipX,
+            partLabel: p.partLabel,
+          }));
+
+        const initialJoints: WallJointLine[] = (
+          (wall.joints && wall.joints.length > 0 ? wall.joints : layout.joints) || []
+        ).map((j: any) => ({
+          id: j.id,
+          p1: j.p1 || { x: j.x, y: j.y },
+          p2:
+            j.p2 ||
+            (j.orientation === 'HORIZONTAL'
+              ? { x: j.x + (j.length || 0), y: j.y }
+              : { x: j.x, y: j.y + (j.length || 0) }),
+          width: j.width,
+          orientation: j.orientation,
+          isLED: j.isLED,
+        }));
+
+        return {
+          isSlicingModalOpen: false,
+          slicingTarget: null,
+          selectedPieceIds: [newPanels[0].id],
+          selectedSubPieceId: newPanels[0].id,
+          project: {
+            ...state.project,
+            walls: state.project.walls.map((w) =>
+              w.id === wallId
+                ? {
+                    ...w,
+                    panels: [...remainingPanels, ...newPanels],
+                    joints: initialJoints,
+                  }
+                : w
+            ),
+          },
+        };
+      }
+
       const nextCustomPanels = { ...wall.customPanels };
 
       if (currentSegments.length > 0) {

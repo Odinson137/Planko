@@ -57,6 +57,9 @@ export interface NestingSheet {
   sheetLabel: string;          // 'Лист 1', 'Лист 2'
   materialId: string;
   materialName: string;
+  decorCode?: string;
+  color?: string;
+  thickness?: number;
   sheetWidth: number;          // 1220 мм
   sheetHeight: number;         // 2800 мм
   placedParts: PlacedNestingPart[];
@@ -332,11 +335,15 @@ export class NestingEngine {
         const efficiencyPct = Math.min(100, Math.round((usedAreaSqM / totalAreaSqM) * 100));
 
         const dummyIdx = sheets.length + 1;
+        const firstPart = placedOnSheet[0]?.part;
         sheets.push({
           sheetIndex: dummyIdx,
           sheetLabel: `Лист ${dummyIdx}`,
           materialId,
-          materialName,
+          materialName: firstPart?.materialName || materialName,
+          decorCode: firstPart?.decorCode,
+          color: firstPart?.color,
+          thickness: firstPart?.thickness,
           sheetWidth: sheetW,
           sheetHeight: sheetH,
           placedParts: placedOnSheet,
@@ -358,7 +365,10 @@ export class NestingEngine {
           sheetIndex: dummyIdx,
           sheetLabel: `Лист ${dummyIdx}`,
           materialId,
-          materialName,
+          materialName: oversized.materialName || materialName,
+          decorCode: oversized.decorCode,
+          color: oversized.color,
+          thickness: oversized.thickness,
           sheetWidth: Math.max(sheetW, oversized.width),
           sheetHeight: Math.max(sheetH, oversized.height),
           placedParts: [{

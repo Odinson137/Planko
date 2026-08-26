@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal,
   Button,
@@ -23,6 +23,7 @@ import {
   PolygonSubPiece,
   SnapResult,
 } from '../../../core/geometry/PolygonSlicingEngine';
+import { LayoutEngine, CalculatedPanelPiece } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 
 export const PanelSlicingModal: React.FC = () => {
@@ -85,37 +86,76 @@ export const PanelSlicingModal: React.FC = () => {
   const colIdx = slicingTarget?.columnIndex ?? 0;
   const segIdx = slicingTarget?.segmentIndex ?? 0;
 
+  const defaultMaterial =
+    project.materials.find((m) => m.id === currentWall?.zone.materialId) ||
+    project.materials.find((m) => m.id === MATERIAL_NONE_ID) ||
+    project.materials[0];
+
+  const currentLayout = useMemo(() => {
+    if (!currentWall || !defaultMaterial) return null;
+    return LayoutEngine.calculateWallLayout(currentWall, defaultMaterial, project.materials, wallNumber);
+  }, [currentWall, defaultMaterial, project.materials, wallNumber]);
+
   const selectedPieceIds = useProjectStore((s) => s.selectedPieceIds);
 
-  // Находим целевую полигональную деталь из wall.panels (если есть)
-  const targetPanel = currentWall?.panels?.find(
+  // Находим целевую деталь из текущего Layout стены или wall.panels
+  const targetLayoutPanel =
+    currentLayout?.panels.find(
+      (p: CalculatedPanelPiece) =>
+        p.id === slicingTarget?.panelId ||
+        p.subPieceId === slicingTarget?.panelId ||
+        p.id === selectedSubPieceId ||
+        (slicingTarget?.panelId && p.id.startsWith(slicingTarget.panelId)) ||
+        selectedPieceIds.includes(p.id)
+    ) ||
+    currentLayout?.panels.find(
+      (p: CalculatedPanelPiece) => p.originalColumnIndex === colIdx && (segIdx === null || p.originalSegmentIndex === segIdx)
+    ) ||
+    (currentLayout?.panels && currentLayout.panels[colIdx]);
+
+  const targetWallPanel = currentWall?.panels?.find(
     (p) =>
       p.id === slicingTarget?.panelId ||
       p.id === selectedSubPieceId ||
       selectedPieceIds.includes(p.id)
   ) || (currentWall?.panels && currentWall.panels[colIdx]);
 
+  const targetPanel = targetLayoutPanel || targetWallPanel;
+
   const customCol = currentWall?.customPanels?.[colIdx];
   const customSeg = customCol?.segments?.[segIdx];
 
-  const defaultMaterial =
-    project.materials.find((m) => m.id === currentWall?.zone.materialId) ||
-    project.materials.find((m) => m.id === MATERIAL_NONE_ID) ||
-    project.materials[0];
+  const targetPoints: Point2D[] =
+    targetLayoutPanel?.polygonPoints && targetLayoutPanel.polygonPoints.length >= 3
+      ? targetLayoutPanel.polygonPoints
+      : targetWallPanel?.points && targetWallPanel.points.length >= 3
+      ? targetWallPanel.points
+      : targetLayoutPanel
+      ? [
+          { x: targetLayoutPanel.x, y: targetLayoutPanel.y },
+          { x: targetLayoutPanel.x + targetLayoutPanel.width, y: targetLayoutPanel.y },
+          { x: targetLayoutPanel.x + targetLayoutPanel.width, y: targetLayoutPanel.y + targetLayoutPanel.height },
+          { x: targetLayoutPanel.x, y: targetLayoutPanel.y + targetLayoutPanel.height },
+        ]
+      : [];
 
   let panelMaterial = defaultMaterial;
   let isPanelVoid = false;
   let panelWidth = 1220;
   let panelHeight = 2800;
+  let panelMinX = 0;
+  let panelMinY = 0;
 
-  if (targetPanel) {
-    const xs = targetPanel.points.map((p) => p.x);
-    const ys = targetPanel.points.map((p) => p.y);
-    panelWidth = Math.round(Math.max(...xs) - Math.min(...xs));
-    panelHeight = Math.round(Math.max(...ys) - Math.min(...ys));
+  if (targetPoints.length >= 3) {
+    const xs = targetPoints.map((p) => p.x);
+    const ys = targetPoints.map((p) => p.y);
+    panelMinX = Math.min(...xs);
+    panelMinY = Math.min(...ys);
+    panelWidth = Math.round(Math.max(...xs) - panelMinX);
+    panelHeight = Math.round(Math.max(...ys) - panelMinY);
     panelMaterial =
-      project.materials.find((m) => m.id === targetPanel.materialId) || defaultMaterial;
-    isPanelVoid = targetPanel.isVoid || panelMaterial.isVoid || panelMaterial.id === MATERIAL_NONE_ID;
+      project.materials.find((m) => m.id === targetPanel?.materialId) || defaultMaterial;
+    isPanelVoid = targetPanel?.isVoid || panelMaterial.isVoid || panelMaterial.id === MATERIAL_NONE_ID;
   } else {
     panelMaterial =
       (customSeg?.customMaterialId &&
@@ -136,28 +176,23 @@ export const PanelSlicingModal: React.FC = () => {
   useEffect(() => {
     if (!isSlicingModalOpen) return;
 
-    if (targetPanel) {
-      const xs = targetPanel.points.map((p) => p.x);
-      const ys = targetPanel.points.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-
-      const initialPoly: Point2D[] = targetPanel.points.map((pt) => ({
-        x: Math.round(pt.x - minX),
-        y: Math.round(pt.y - minY),
+    if (targetPoints.length >= 3) {
+      const initialPoly: Point2D[] = targetPoints.map((pt) => ({
+        x: Math.round(pt.x - panelMinX),
+        y: Math.round(pt.y - panelMinY),
       }));
 
       const initialPiece: PolygonSubPiece = {
         id: `piece-${Date.now()}-1`,
         points: initialPoly,
-        materialId: isPanelVoid ? MATERIAL_NONE_ID : panelMaterial.id,
+        materialId: isPanelVoid ? MATERIAL_NONE_ID : (targetPanel?.materialId || panelMaterial.id),
         isVoid: isPanelVoid,
-        color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : (targetPanel.color || panelMaterial.color),
-        decorCode: isPanelVoid ? '' : (targetPanel.decorCode || panelMaterial.decorCode),
-        decorName: isPanelVoid ? 'Без материала' : (targetPanel.decorName || panelMaterial.decorName),
-        partLabel: isPanelVoid ? 'ПУСТО' : targetPanel.partLabel,
-        patternAngleDeg: targetPanel.patternAngleDeg || 0,
-        patternFlipX: targetPanel.patternFlipX || false,
+        color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : ((targetPanel as any)?.materialColor || (targetPanel as any)?.color || panelMaterial.color),
+        decorCode: isPanelVoid ? '' : (targetPanel?.decorCode || panelMaterial.decorCode),
+        decorName: isPanelVoid ? 'Без материала' : (targetPanel?.decorName || panelMaterial.decorName),
+        partLabel: isPanelVoid ? 'ПУСТО' : (targetPanel?.partLabel || `${wallNumber}.${colIdx + 1}.${segIdx + 1}`),
+        patternAngleDeg: targetPanel?.patternAngleDeg || 0,
+        patternFlipX: targetPanel?.patternFlipX || false,
         areaSqM: Math.round((PolygonSlicingEngine.calculatePolygonArea(initialPoly) / 1_000_000) * 1000) / 1000,
       };
 
@@ -196,7 +231,7 @@ export const PanelSlicingModal: React.FC = () => {
     setDrawingStart(null);
     setCurrentMouse(null);
     setActiveSnap(null);
-  }, [isSlicingModalOpen, panelWidth, panelHeight, panelMaterial, customSeg, customCol, colIdx, segIdx, isPanelVoid, targetPanel, wallNumber]);
+  }, [isSlicingModalOpen, panelWidth, panelHeight, panelMaterial, customSeg, customCol, colIdx, segIdx, isPanelVoid, targetPanel, wallNumber, panelMinX, panelMinY]);
 
   // Рассечение полигонов линией ножа
   const applyCutLineToPieces = useCallback(
@@ -242,26 +277,21 @@ export const PanelSlicingModal: React.FC = () => {
 
   // Сброс всех разрезов
   const handleReset = () => {
-    if (targetPanel) {
-      const xs = targetPanel.points.map((p) => p.x);
-      const ys = targetPanel.points.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-
-      const initialPoly: Point2D[] = targetPanel.points.map((pt) => ({
-        x: Math.round(pt.x - minX),
-        y: Math.round(pt.y - minY),
+    if (targetPoints.length >= 3) {
+      const initialPoly: Point2D[] = targetPoints.map((pt) => ({
+        x: Math.round(pt.x - panelMinX),
+        y: Math.round(pt.y - panelMinY),
       }));
 
       const initialPiece: PolygonSubPiece = {
         id: `piece-${Date.now()}-1`,
         points: initialPoly,
-        materialId: isPanelVoid ? MATERIAL_NONE_ID : panelMaterial.id,
+        materialId: isPanelVoid ? MATERIAL_NONE_ID : (targetPanel?.materialId || panelMaterial.id),
         isVoid: isPanelVoid,
-        color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : (targetPanel.color || panelMaterial.color),
-        decorCode: isPanelVoid ? '' : (targetPanel.decorCode || panelMaterial.decorCode),
-        decorName: isPanelVoid ? 'Без материала' : (targetPanel.decorName || panelMaterial.decorName),
-        partLabel: isPanelVoid ? 'ПУСТО' : targetPanel.partLabel,
+        color: isPanelVoid ? 'rgba(30, 31, 35, 0.45)' : ((targetPanel as any)?.materialColor || (targetPanel as any)?.color || panelMaterial.color),
+        decorCode: isPanelVoid ? '' : (targetPanel?.decorCode || panelMaterial.decorCode),
+        decorName: isPanelVoid ? 'Без материала' : (targetPanel?.decorName || panelMaterial.decorName),
+        partLabel: isPanelVoid ? 'ПУСТО' : (targetPanel?.partLabel || `${wallNumber}.${colIdx + 1}.${segIdx + 1}`),
         patternAngleDeg: 0,
         areaSqM: Math.round((PolygonSlicingEngine.calculatePolygonArea(initialPoly) / 1_000_000) * 1000) / 1000,
       };

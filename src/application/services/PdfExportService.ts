@@ -1223,16 +1223,39 @@ export class PdfExportService {
       const cellY = boxY + row * cellH;
 
       ctx.save();
-      // Заголовок листа
+      // Получаем информацию о материале, декоре и параметрах листа
+      const firstPart = sheet.placedParts[0]?.part;
+      const decorCode = sheet.decorCode || firstPart?.decorCode || '';
+      const matName = sheet.materialName || firstPart?.materialName || 'Панель AllWall';
+      const thickness = sheet.thickness || firstPart?.thickness || 5;
+
+      // 1. Заголовок листа: Лист N • [Арт. XXXX] Название материала
+      const decorBadge = decorCode ? `[${decorCode}] ` : '';
+      const titleText = `${sheet.sheetLabel}: ${decorBadge}${matName}`;
+
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+      ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(sheet.sheetLabel, cellX + cellW / 2, cellY + 28);
 
-      ctx.font = '16px "Segoe UI", Arial, sans-serif';
-      ctx.fillStyle = '#64748b';
-      ctx.fillText(`1220 × 2800 • Исп: ${sheet.efficiencyPct}%`, cellX + cellW / 2, cellY + 52);
+      const maxTitleW = cellW - 16;
+      let displayTitle = titleText;
+      while (displayTitle.length > 8 && ctx.measureText(displayTitle).width > maxTitleW) {
+        displayTitle = displayTitle.slice(0, -2);
+      }
+      if (displayTitle !== titleText) displayTitle += '…';
+      ctx.fillText(displayTitle, cellX + cellW / 2, cellY + 26);
+
+      // 2. Подзаголовок: Габариты листа (1220×2800×5 мм) + Код AllWall + Исп. %
+      ctx.font = '13px "Segoe UI", Arial, sans-serif';
+      ctx.fillStyle = '#475569';
+      const subText = `${sheet.sheetWidth} × ${sheet.sheetHeight} × ${thickness} мм${decorCode ? ` • Арт: ${decorCode}` : ''} • Исп: ${sheet.efficiencyPct}%`;
+      let displaySub = subText;
+      while (displaySub.length > 10 && ctx.measureText(displaySub).width > maxTitleW) {
+        displaySub = displaySub.slice(0, -2);
+      }
+      if (displaySub !== subText) displaySub += '…';
+      ctx.fillText(displaySub, cellX + cellW / 2, cellY + 48);
 
       // Масштабирование листа в ячейку
       const pad = 16;
