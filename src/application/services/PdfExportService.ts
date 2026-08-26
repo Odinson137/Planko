@@ -1361,6 +1361,14 @@ export class PdfExportService {
             ? (p.part.partLabel || '1.1') + (isSlope ? ' (Откос)' : '')
             : `${p.part.partLabel}${isSlope ? ' Откос' : ''} (${p.part.wallName})`;
 
+          const hasNote = Boolean(
+            p.part.note &&
+            p.part.note.trim().length > 0 &&
+            !p.part.note.toLowerCase().includes('откос') &&
+            !p.part.note.toLowerCase().startsWith('проем')
+          );
+          const rawNote = hasNote ? p.part.note!.trim() : '';
+
           // Если деталь узкая и вытянутая (например, планки откосов), пишем текст вертикально чтобы не было наложения
           if (pw < 55 && ph > 60) {
             ctx.save();
@@ -1380,13 +1388,31 @@ export class PdfExportService {
               ? py + (doorCutoutTopCanvasY - py) / 2
               : py + ph / 2;
 
-            ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
-            ctx.fillText(label, px + pw / 2, textY - 8);
+            if (hasNote && ph > 42 && pw > 45) {
+              ctx.font = 'bold 14px "Segoe UI", Arial, sans-serif';
+              ctx.fillText(label, px + pw / 2, textY - 14);
 
-            // Размер детали
-            ctx.font = '12px "Segoe UI", Arial, sans-serif';
-            ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
-            ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, px + pw / 2, textY + 12);
+              ctx.font = '11px "Segoe UI", Arial, sans-serif';
+              ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
+              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, px + pw / 2, textY);
+
+              ctx.font = 'bold italic 11px "Segoe UI", Arial, sans-serif';
+              ctx.fillStyle = '#b45309';
+              let displayNote = rawNote;
+              while (displayNote.length > 3 && ctx.measureText(`💬 ${displayNote}`).width > pw - 8) {
+                displayNote = displayNote.slice(0, -2);
+              }
+              if (displayNote !== rawNote) displayNote += '…';
+              ctx.fillText(`💬 ${displayNote}`, px + pw / 2, textY + 14);
+            } else {
+              ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
+              ctx.fillText(label, px + pw / 2, textY - 8);
+
+              // Размер детали
+              ctx.font = '12px "Segoe UI", Arial, sans-serif';
+              ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
+              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, px + pw / 2, textY + 12);
+            }
           }
         }
       });
@@ -1430,28 +1456,30 @@ export class PdfExportService {
         }
       });
 
-      // Пометка под листом, если он используется на других стенах
+      // СТРУКТУРИРОВАННЫЙ ПОДВАЛ ЛИСТА: ПРИМЕЧАНИЯ И ОСТАТКИ (БЕЗ ПЕРЕСЕЧЕНИЙ И НАЛОЖЕНИЙ)
+      let footerY = sheetOriginY + sheet.sheetHeight * scale + 34;
+
       if (otherWallNames.length > 0) {
-        const noteY = sheetOriginY + sheet.sheetHeight * scale + 22;
         const noteText = `📌 Остаток: ${otherWallNames.join(', ')}`;
-        ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
-        const noteW = ctx.measureText(noteText).width;
+        ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+        const noteW = Math.min(cellW - 20, ctx.measureText(noteText).width + 16);
 
         ctx.fillStyle = '#fef3c7';
         ctx.beginPath();
-        ctx.roundRect(cellX + cellW / 2 - noteW / 2 - 10, noteY - 12, noteW + 20, 24, 6);
+        ctx.roundRect(cellX + cellW / 2 - noteW / 2, footerY - 10, noteW, 20, 5);
         ctx.fill();
         ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1;
         ctx.stroke();
 
         ctx.fillStyle = '#92400e';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(noteText, cellX + cellW / 2, noteY);
+        ctx.fillText(noteText, cellX + cellW / 2, footerY);
+
+        footerY += 24;
       }
 
-      // ВЫНОСКИ ПОЛЬЗОВАТЕЛЬСКИХ КОММЕНТАРИЕВ ДЕТАЛЕЙ ПОД ЛИСТОМ С УКАЗАТЕЛЯМИ НА ПАНЕЛИ
       const commentedParts = sheet.placedParts.filter(
         (p) =>
           p.part.note &&
@@ -1461,84 +1489,40 @@ export class PdfExportService {
       );
 
       if (commentedParts.length > 0) {
-        // Группируем детали по одинаковым комментариям (например, "Для барной стойки")
-        const notesMap = new Map<string, typeof commentedParts>();
         commentedParts.forEach((p) => {
-          const text = p.part.note!.trim();
-          if (!notesMap.has(text)) {
-            notesMap.set(text, []);
+          const badge = p.part.partLabel || '1.1';
+          const noteText = p.part.note!.trim();
+          const pillText = `💬 [${badge}] ${noteText}`;
+
+          ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+          const maxTextW = cellW - 32;
+          let displayText = pillText;
+          while (displayText.length > 6 && ctx.measureText(displayText).width > maxTextW) {
+            displayText = displayText.slice(0, -2);
           }
-          notesMap.get(text)!.push(p);
-        });
+          if (displayText !== pillText) displayText += '…';
 
-        let commentBoxOffsetY = otherWallNames.length > 0 ? 44 : 26;
+          const textW = Math.min(maxTextW, ctx.measureText(displayText).width);
+          const pillW = textW + 16;
+          const pillX = cellX + (cellW - pillW) / 2;
+          const pillH = 22;
 
-        notesMap.forEach((partsWithNote, noteText) => {
-          // Вычисляем среднюю координату X для плашки комментария
-          const avgTargetX =
-            partsWithNote.reduce((sum, p) => {
-              const px = sheetOriginX + p.x * scale;
-              const pw = p.width * scale;
-              return sum + (px + pw / 2);
-            }, 0) / partsWithNote.length;
-
-          ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
-          const textMetrics = ctx.measureText(noteText);
-          const boxW = Math.max(90, textMetrics.width + 24);
-          const boxH = 26;
-          const boxX = Math.max(
-            cellX + 10,
-            Math.min(cellX + cellW - boxW - 10, avgTargetX - boxW / 2)
-          );
-          const boxY = sheetOriginY + sheet.sheetHeight * scale + commentBoxOffsetY;
-
-          // Рисуем линии-указатели со стрелками от плашки к каждой детали
-          partsWithNote.forEach((p) => {
-            const px = sheetOriginX + p.x * scale;
-            const py = sheetOriginY + (sheet.sheetHeight - (p.y + p.height)) * scale;
-            const pw = p.width * scale;
-            const ph = p.height * scale;
-            const targetX = px + pw / 2;
-            const targetY = py + ph; // нижний край детали
-
-            ctx.save();
-            ctx.strokeStyle = '#0f172a';
-            ctx.fillStyle = '#0f172a';
-            ctx.lineWidth = 1.4;
-
-            ctx.beginPath();
-            ctx.moveTo(boxX + boxW / 2, boxY);
-            // Излом линии (ломаная выноска)
-            const midY = (boxY + targetY) / 2;
-            ctx.lineTo(targetX, midY);
-            ctx.lineTo(targetX, targetY);
-            ctx.stroke();
-
-            // Стрелочка/засечка на детали
-            ctx.beginPath();
-            ctx.moveTo(targetX - 4, targetY + 6);
-            ctx.lineTo(targetX, targetY);
-            ctx.lineTo(targetX + 4, targetY + 6);
-            ctx.stroke();
-            ctx.restore();
-          });
-
-          // Рисуем саму плашку комментария внизу
           ctx.save();
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(boxX, boxY, boxW, boxH);
-          ctx.strokeStyle = '#0f172a';
-          ctx.lineWidth = 1.6;
-          ctx.strokeRect(boxX, boxY, boxW, boxH);
+          ctx.beginPath();
+          ctx.roundRect(pillX, footerY, pillW, pillH, 5);
+          ctx.fill();
+          ctx.strokeStyle = '#b45309';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
 
-          ctx.fillStyle = '#0f172a';
-          ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
+          ctx.fillStyle = '#92400e';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(noteText, boxX + boxW / 2, boxY + boxH / 2);
+          ctx.fillText(displayText, pillX + pillW / 2, footerY + pillH / 2);
           ctx.restore();
 
-          commentBoxOffsetY += boxH + 8;
+          footerY += pillH + 6;
         });
       }
 

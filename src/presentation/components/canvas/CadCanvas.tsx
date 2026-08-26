@@ -955,10 +955,9 @@ export const CadCanvas: React.FC = () => {
                   return (
                     <Group
                       key={joint.id}
-                      listening={showProfiles}
+                      listening={showProfiles && isJointsMode}
                       onClick={(e) => {
                         e.cancelBubble = true;
-                        setEditMode('JOINTS');
                         selectJoint(joint.id, !!e.evt.shiftKey);
                       }}
                     >
@@ -1016,10 +1015,9 @@ export const CadCanvas: React.FC = () => {
                 return (
                   <Group
                     key={joint.id}
-                    listening={showProfiles}
+                    listening={showProfiles && isJointsMode}
                     onClick={(e) => {
                       e.cancelBubble = true;
-                      setEditMode('JOINTS');
                       selectJoint(joint.id, !!e.evt.shiftKey);
                     }}
                   >
