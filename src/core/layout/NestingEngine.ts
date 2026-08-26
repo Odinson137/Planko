@@ -128,25 +128,62 @@ export class NestingEngine {
       (p) => p.width > 5 && p.height > 5 && p.materialId !== 'mat-none' && !p.partLabel.includes('ПУСТО')
     );
 
-    // 2. Группировка по материалу с сохранением порядка стен
+    // 2. Группировка по физическому материалу (декор / артикул / толщина)
+    // Детали с одинаковым декором / названием / толщиной должны раскраиваться на одних и тех же листах
+    const getMaterialGroupKey = (p: NestingPartInput): string => {
+      if (p.decorCode && p.decorCode.trim()) {
+        return `DECOR_${p.decorCode.trim()}_${p.thickness || 5}`;
+      }
+      if (p.materialName && p.materialName.trim() && p.materialName !== 'Панель AllWall') {
+        return `NAME_${p.materialName.trim()}_${p.thickness || 5}`;
+      }
+      if (p.color && p.color.trim()) {
+        return `COLOR_${p.color.trim()}_${p.thickness || 5}`;
+      }
+      if (p.materialId && p.materialId !== 'mat-none') {
+        return `MAT_${p.materialId}_${p.thickness || 5}`;
+      }
+      return `DEFAULT_SHEET_${p.thickness || 5}`;
+    };
+
     const groupsByMaterial = new Map<string, NestingPartInput[]>();
     validParts.forEach((p) => {
-      const list = groupsByMaterial.get(p.materialId) || [];
+      const key = getMaterialGroupKey(p);
+      const list = groupsByMaterial.get(key) || [];
       list.push(p);
-      groupsByMaterial.set(p.materialId, list);
+      groupsByMaterial.set(key, list);
     });
 
     const materialResults: MaterialNestingResult[] = [];
-    const allSheets: NestingSheet[] = [];
-    let globalSheetCounter = 1;
+    const rawSheets: NestingSheet[] = [];
 
-    groupsByMaterial.forEach((matParts, matId) => {
-      const matName = matParts[0]?.materialName || 'Панель AllWall';
-      const matResult = this.packMaterialParts(matParts, matId, matName, sheetW, sheetH, globalSheetCounter);
+    groupsByMaterial.forEach((matParts) => {
+      const firstPart = matParts[0];
+      const matId = firstPart?.materialId || 'mat-sheet-1220';
+      const matName = firstPart?.materialName || (firstPart?.decorCode ? `AllWall декор ${firstPart.decorCode}` : 'Панель AllWall');
+      const matResult = this.packMaterialParts(matParts, matId, matName, sheetW, sheetH);
 
-      globalSheetCounter += matResult.sheets.length;
       materialResults.push(matResult);
-      allSheets.push(...matResult.sheets);
+      rawSheets.push(...matResult.sheets);
+    });
+
+    // Сортируем все сформированные листы по порядку стен, на которых они впервые нужны
+    rawSheets.sort((sA, sB) => {
+      const getMinWall = (s: NestingSheet) => {
+        const wallNums = s.placedParts.map((p) => parseInt(p.part.partLabel?.split('.')[0] || '1', 10));
+        return Math.min(...wallNums, 1);
+      };
+      return getMinWall(sA) - getMinWall(sB);
+    });
+
+    // Перенумеровываем все листы строго последовательно 1, 2, 3, 4, 5...
+    const allSheets: NestingSheet[] = rawSheets.map((sheet, sIdx) => {
+      const sheetIndex = sIdx + 1;
+      return {
+        ...sheet,
+        sheetIndex,
+        sheetLabel: `Лист ${sheetIndex}`,
+      };
     });
 
     const totalSheetsCount = allSheets.length;
@@ -168,8 +205,7 @@ export class NestingEngine {
     materialId: string,
     materialName: string,
     sheetW: number,
-    sheetH: number,
-    startingSheetIndex: number
+    sheetH: number
   ): MaterialNestingResult {
     // Сортировка деталей:
     // 1. Приоритет стены (номер стены из partLabel или wallId), чтобы Лист 1..N шли для Стены 1, затем для Стены 2
@@ -180,17 +216,16 @@ export class NestingEngine {
       if (wallA !== wallB) {
         return wallA - wallB;
       }
-      const maxA = Math.max(a.width, a.height);
-      const maxB = Math.max(b.width, b.height);
-      if (Math.abs(maxB - maxA) > 10) return maxB - maxA;
-      return b.width * b.height - a.width * a.height;
+      const areaA = a.width * a.height;
+      const areaB = b.width * b.height;
+      if (Math.abs(areaB - areaA) > 100) return areaB - areaA;
+      return Math.max(b.width, b.height) - Math.max(a.width, a.height);
     });
 
     const sheets: NestingSheet[] = [];
     const unplaced = [...sortedParts];
 
     while (unplaced.length > 0) {
-      const currentSheetIndex = startingSheetIndex + sheets.length;
       let freeRects: FreeRect[] = [{ x: 0, y: 0, w: sheetW, h: sheetH }];
       const placedOnSheet: PlacedNestingPart[] = [];
 
@@ -281,42 +316,47 @@ export class NestingEngine {
         }
       }
 
-      // Генерация линий распила для листа
-      const cutLines = NestingEngine.generateSheetCutLines(placedOnSheet, sheetW, sheetH);
+      if (placedOnSheet.length > 0) {
+        // Генерация линий распила для листа
+        const cutLines = NestingEngine.generateSheetCutLines(placedOnSheet, sheetW, sheetH);
 
-      // Генерация неперекрывающихся деловых обрезков для визуализации
-      const offcuts: NestingOffcut[] = NestingEngine.calculateDisjointOffcuts(placedOnSheet, sheetW, sheetH);
+        // Генерация неперекрывающихся деловых обрезков для визуализации
+        const offcuts: NestingOffcut[] = NestingEngine.calculateDisjointOffcuts(placedOnSheet, sheetW, sheetH);
 
-      // Точный расчет полезной площади и процента использования (с учетом вырезов)
-      const usedAreaSqM = placedOnSheet.reduce(
-        (acc, p) => acc + NestingEngine.getPartNetAreaSqM(p.part),
-        0
-      );
-      const totalAreaSqM = (sheetW * sheetH) / 1_000_000;
-      const efficiencyPct = Math.min(100, Math.round((usedAreaSqM / totalAreaSqM) * 100));
+        // Точный расчет полезной площади и процента использования (с учетом вырезов)
+        const usedAreaSqM = placedOnSheet.reduce(
+          (acc, p) => acc + NestingEngine.getPartNetAreaSqM(p.part),
+          0
+        );
+        const totalAreaSqM = (sheetW * sheetH) / 1_000_000;
+        const efficiencyPct = Math.min(100, Math.round((usedAreaSqM / totalAreaSqM) * 100));
 
-      sheets.push({
-        sheetIndex: currentSheetIndex,
-        sheetLabel: `Лист ${currentSheetIndex}`,
-        materialId,
-        materialName,
-        sheetWidth: sheetW,
-        sheetHeight: sheetH,
-        placedParts: placedOnSheet,
-        cutLines,
-        offcuts,
-        usedAreaSqM: Math.round(usedAreaSqM * 1000) / 1000,
-        totalAreaSqM: Math.round(totalAreaSqM * 1000) / 1000,
-        efficiencyPct,
-      });
-
-      // Предохранитель от бесконечного цикла, если деталь больше стандартного листа
-      if (placedOnSheet.length === 0 && unplaced.length > 0) {
+        const dummyIdx = sheets.length + 1;
+        sheets.push({
+          sheetIndex: dummyIdx,
+          sheetLabel: `Лист ${dummyIdx}`,
+          materialId,
+          materialName,
+          sheetWidth: sheetW,
+          sheetHeight: sheetH,
+          placedParts: placedOnSheet,
+          cutLines,
+          offcuts,
+          usedAreaSqM: Math.round(usedAreaSqM * 1000) / 1000,
+          totalAreaSqM: Math.round(totalAreaSqM * 1000) / 1000,
+          efficiencyPct,
+        });
+      } else if (unplaced.length > 0) {
+        // Предохранитель от бесконечного цикла, если деталь больше стандартного листа
         const oversized = unplaced.shift()!;
         const netArea = NestingEngine.getPartNetAreaSqM(oversized);
+        const dummyIdx = sheets.length + 1;
+        const totalAreaSqM = Math.round(((sheetW * sheetH) / 1_000_000) * 1000) / 1000;
+        const efficiencyPct = Math.min(100, Math.round((netArea / totalAreaSqM) * 100));
+
         sheets.push({
-          sheetIndex: currentSheetIndex,
-          sheetLabel: `Лист ${currentSheetIndex}`,
+          sheetIndex: dummyIdx,
+          sheetLabel: `Лист ${dummyIdx}`,
           materialId,
           materialName,
           sheetWidth: Math.max(sheetW, oversized.width),
@@ -332,8 +372,8 @@ export class NestingEngine {
           cutLines: [],
           offcuts: [],
           usedAreaSqM: netArea,
-          totalAreaSqM: Math.round(((sheetW * sheetH) / 1_000_000) * 1000) / 1000,
-          efficiencyPct: 100,
+          totalAreaSqM,
+          efficiencyPct,
         });
       }
     }
