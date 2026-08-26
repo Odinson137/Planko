@@ -265,18 +265,18 @@ export class PdfExportService {
 
     // Зона чертежа стены (верхняя половина)
     const wallAreaX = marginX;
-    const wallAreaY = 175;
+    const wallAreaY = 155;
     const wallAreaW = w - marginX * 2;
-    const wallAreaH = 780;
+    const wallAreaH = 820;
 
     this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true);
 
     // Разделительная линия
     ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(marginX, 1010);
-    ctx.lineTo(w - marginX, 1010);
+    ctx.moveTo(marginX, 990);
+    ctx.lineTo(w - marginX, 990);
     ctx.stroke();
 
     // 4. Карты раскроя листов (нижняя половина)
@@ -307,13 +307,13 @@ export class PdfExportService {
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', marginX, 1060);
+    ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', marginX, 1030);
     ctx.restore();
 
     const sheetsAreaX = marginX;
-    const sheetsAreaY = 1090;
+    const sheetsAreaY = 1045;
     const sheetsAreaW = w - marginX * 2;
-    const sheetsAreaH = 780;
+    const sheetsAreaH = 875;
 
     this.drawNestingSheetsOnCanvas(
       ctx,
@@ -332,8 +332,8 @@ export class PdfExportService {
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('! Подрезку брать с запасом на 5 мм, перед началом монтажа сделать условную разметку для удобства.', marginX, 1935);
-    ctx.fillText('! Высоту подсветки регулировать по месту монтажа профилей. Углы в ТВ-зоне брать одного градуса.', marginX, 1970);
+    ctx.fillText('! Подрезку брать с запасом на 5 мм, перед началом монтажа сделать условную разметку для удобства.', marginX, 1940);
+    ctx.fillText('! Высоту подсветки регулировать по месту монтажа профилей. Углы в ТВ-зоне брать одного градуса.', marginX, 1972);
 
     // Динамические сноски об использовании остатков между стенами
     const sharedSheets = sheetsForThisWall.filter((item) => item.otherWallNames.length > 0);
@@ -341,14 +341,14 @@ export class PdfExportService {
       const sharedLabels = sharedSheets.map((item) => item.sheet.sheetLabel).join(', ');
       const targetWalls = Array.from(new Set(sharedSheets.flatMap((item) => item.otherWallNames))).join(', ');
       ctx.fillStyle = '#b45309'; // Темно-янтарный
-      ctx.fillText(`! Остатки от ${sharedLabels} использовать на других стенах: ${targetWalls} (указано на картах раскроя).`, marginX, 2005);
+      ctx.fillText(`! Остатки от ${sharedLabels} использовать на других стенах: ${targetWalls} (указано на картах раскроя).`, marginX, 2004);
     } else if (borrowedSheets.length > 0) {
       const borrowedLabels = borrowedSheets.map((s) => s.sheetLabel).join(', ');
       ctx.fillStyle = '#1d4ed8'; // Синий
-      ctx.fillText(`! Детали для этой стены берутся из остатков ${borrowedLabels} (см. предыдущие листы раскроя).`, marginX, 2005);
+      ctx.fillText(`! Детали для этой стены берутся из остатков ${borrowedLabels} (см. предыдущие листы раскроя).`, marginX, 2004);
     } else {
       ctx.fillStyle = '#475569';
-      ctx.fillText('! Перед монтажом панелей выполнить контрольные замеры уровней стен.', marginX, 2005);
+      ctx.fillText('! Перед монтажом панелей выполнить контрольные замеры уровней стен.', marginX, 2004);
     }
     ctx.restore();
 
@@ -359,7 +359,7 @@ export class PdfExportService {
     ctx.fillStyle = '#64748b';
     ctx.font = '22px "Segoe UI", Arial, sans-serif';
     ctx.fillText(`Лист ${pageNumber} из ${totalPages}`, w - marginX, 2040);
-    ctx.fillText(`Planko CAD Engine • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2005);
+    ctx.fillText(`Planko CAD Engine • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2004);
     ctx.restore();
   }
 
@@ -376,8 +376,8 @@ export class PdfExportService {
     boxH: number,
     showMaterials: boolean = true
   ): void {
-    const padX = 120;
-    const padY = 90;
+    const padX = 80;
+    const padY = 45;
     const availW = boxW - padX * 2;
     const availH = boxH - padY * 2;
 
@@ -472,44 +472,24 @@ export class PdfExportService {
         }
         const dimText = `${Math.round(p.width)}×${Math.round(visibleHeight)}`;
 
-        const hasUserNote = Boolean(
-          p.note &&
-          p.note.trim().length > 0 &&
-          !p.note.toLowerCase().includes('откос') &&
-          !p.note.toLowerCase().startsWith('проем')
-        );
-        const noteText = hasUserNote ? p.note!.trim() : '';
-
         ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
-        let labelW = Math.max(ctx.measureText(label).width, ctx.measureText(dimText).width);
-        if (hasUserNote) {
-          ctx.font = 'italic 13px "Segoe UI", Arial, sans-serif';
-          labelW = Math.max(labelW, ctx.measureText(noteText).width);
-        }
-        labelW += 24;
-
-        const badgeH = hasUserNote ? 62 : 44;
+        const labelW = Math.max(ctx.measureText(label).width, ctx.measureText(dimText).width) + 24;
+        const badgeH = 44;
 
         // Белый бейдж
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         ctx.fillRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
-        ctx.strokeStyle = hasUserNote ? '#f59e0b' : '#94a3b8';
+        ctx.strokeStyle = '#94a3b8';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
 
         ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
         ctx.fillStyle = '#0f172a';
-        ctx.fillText(label, midX, hasUserNote ? midY - 17 : midY - 8);
+        ctx.fillText(label, midX, midY - 8);
 
         ctx.font = '14px "Segoe UI", Arial, sans-serif';
         ctx.fillStyle = '#64748b';
-        ctx.fillText(dimText, midX, hasUserNote ? midY + 3 : midY + 12);
-
-        if (hasUserNote) {
-          ctx.font = 'bold italic 12px "Segoe UI", Arial, sans-serif';
-          ctx.fillStyle = '#b45309';
-          ctx.fillText(`💬 ${noteText}`, midX, midY + 21);
-        }
+        ctx.fillText(dimText, midX, midY + 12);
         ctx.restore();
       }
     });
@@ -1224,14 +1204,15 @@ export class PdfExportService {
       return;
     }
 
-    const count = Math.min(sheetsWithNotes.length, 6);
-    const cols = Math.min(count, 5);
+    const count = sheetsWithNotes.length;
+    // Всегда 1 ряд для листов (до 6 шт), чтобы листы были максимально крупными на всю ширину страницы
+    const cols = Math.min(count, 6);
     const rows = Math.ceil(count / cols);
 
     const cellW = boxW / cols;
     const cellH = boxH / rows;
 
-    sheetsWithNotes.slice(0, count).forEach((item, idx) => {
+    sheetsWithNotes.slice(0, 6).forEach((item, idx) => {
       const sheet = item.sheet;
       const otherWallNames = item.otherWallNames;
 
@@ -1253,12 +1234,12 @@ export class PdfExportService {
       ctx.fillStyle = '#64748b';
       ctx.fillText(`1220 × 2800 • Исп: ${sheet.efficiencyPct}%`, cellX + cellW / 2, cellY + 52);
 
-      // Масштабирование листа в ячейку (оставляем место снизу под пометку других стен)
-      const pad = 25;
+      // Масштабирование листа в ячейку
+      const pad = 16;
       const sAvailW = cellW - pad * 2;
-      const sAvailH = cellH - 100;
+      const sAvailH = cellH - 120;
 
-      const scale = Math.min(sAvailW / sheet.sheetWidth, sAvailH / sheet.sheetHeight, 0.23);
+      const scale = Math.min(sAvailW / sheet.sheetWidth, sAvailH / sheet.sheetHeight, 0.28);
       const sheetOriginX = cellX + (cellW - sheet.sheetWidth * scale) / 2;
       const sheetOriginY = cellY + 62;
 
@@ -1526,14 +1507,6 @@ export class PdfExportService {
             ? (p.part.partLabel || '1.1') + (isSlope ? ' (Откос)' : '')
             : `${p.part.partLabel}${isSlope ? ' Откос' : ''} (${p.part.wallName})`;
 
-          const hasNote = Boolean(
-            p.part.note &&
-            p.part.note.trim().length > 0 &&
-            !p.part.note.toLowerCase().includes('откос') &&
-            !p.part.note.toLowerCase().startsWith('проем')
-          );
-          const rawNote = hasNote ? p.part.note!.trim() : '';
-
           // Если деталь узкая и вытянутая (например, планки откосов), пишем текст вертикально чтобы не было наложения
           if (pw < 55 && ph > 60) {
             ctx.save();
@@ -1557,31 +1530,13 @@ export class PdfExportService {
                   ? py + (doorCutoutTopCanvasY - py) / 2
                   : py + ph / 2);
 
-            if (hasNote && ph > 42 && pw > 45) {
-              ctx.font = 'bold 14px "Segoe UI", Arial, sans-serif';
-              ctx.fillText(label, labelCenterX, labelCenterY - 14);
+            ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
+            ctx.fillText(label, labelCenterX, labelCenterY - 8);
 
-              ctx.font = '11px "Segoe UI", Arial, sans-serif';
-              ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
-              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, labelCenterX, labelCenterY);
-
-              ctx.font = 'bold italic 11px "Segoe UI", Arial, sans-serif';
-              ctx.fillStyle = '#b45309';
-              let displayNote = rawNote;
-              while (displayNote.length > 3 && ctx.measureText(`💬 ${displayNote}`).width > pw - 8) {
-                displayNote = displayNote.slice(0, -2);
-              }
-              if (displayNote !== rawNote) displayNote += '…';
-              ctx.fillText(`💬 ${displayNote}`, labelCenterX, labelCenterY + 14);
-            } else {
-              ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
-              ctx.fillText(label, labelCenterX, labelCenterY - 8);
-
-              // Размер детали
-              ctx.font = '12px "Segoe UI", Arial, sans-serif';
-              ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
-              ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, labelCenterX, labelCenterY + 12);
-            }
+            // Размер детали
+            ctx.font = '12px "Segoe UI", Arial, sans-serif';
+            ctx.fillStyle = isCurrentWall ? '#4b5563' : '#4338ca';
+            ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, labelCenterX, labelCenterY + 12);
           }
         }
       });
