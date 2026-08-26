@@ -201,7 +201,9 @@ export class NestingEngine {
   }
 
   /**
-   * Упаковка деталей одного материала методом MaxRects Best-Fit 2D Bin Packing с приоритетом стен
+   * Упаковка деталей одного материала методом многокритериального MaxRects Best-Fit 2D Bin Packing
+   * Прогоняет несколько стратегий сортировки и правил размещения (BSSF, BAF, BLSF, Bottom-Left)
+   * с полной поддержкой вращения 90° и выбирает вариант с минимальным количеством листов и максимальной эффективностью.
    */
   private static packMaterialParts(
     parts: NestingPartInput[],
@@ -210,21 +212,119 @@ export class NestingEngine {
     sheetW: number,
     sheetH: number
   ): MaterialNestingResult {
-    // Сортировка деталей:
-    // 1. Приоритет стены (номер стены из partLabel или wallId), чтобы Лист 1..N шли для Стены 1, затем для Стены 2
-    // 2. Внутри стены — по максимальному габариту / площади (Max size first)
-    const sortedParts = [...parts].sort((a, b) => {
-      const wallA = parseInt(a.partLabel?.split('.')[0] || '1', 10);
-      const wallB = parseInt(b.partLabel?.split('.')[0] || '1', 10);
-      if (wallA !== wallB) {
-        return wallA - wallB;
-      }
-      const areaA = a.width * a.height;
-      const areaB = b.width * b.height;
-      if (Math.abs(areaB - areaA) > 100) return areaB - areaA;
-      return Math.max(b.width, b.height) - Math.max(a.width, a.height);
-    });
+    if (parts.length === 0) {
+      return {
+        materialId,
+        materialName,
+        totalSheets: 0,
+        totalParts: 0,
+        totalPartsAreaSqM: 0,
+        totalSheetsAreaSqM: 0,
+        overallEfficiencyPct: 100,
+        sheets: [],
+      };
+    }
 
+    type SortStrategy = {
+      name: string;
+      fn: (a: NestingPartInput, b: NestingPartInput) => number;
+    };
+
+    const strategies: SortStrategy[] = [
+      // 1. По максимальному габариту (длинные детали и панели в первую очередь)
+      {
+        name: 'MAX_SIDE_DESC',
+        fn: (a, b) => {
+          const maxA = Math.max(a.width, a.height);
+          const maxB = Math.max(b.width, b.height);
+          if (Math.abs(maxB - maxA) > 1) return maxB - maxA;
+          return b.width * b.height - a.width * a.height;
+        },
+      },
+      // 2. По площади детали
+      {
+        name: 'AREA_DESC',
+        fn: (a, b) => {
+          const areaA = a.width * a.height;
+          const areaB = b.width * b.height;
+          if (Math.abs(areaB - areaA) > 100) return areaB - areaA;
+          return Math.max(b.width, b.height) - Math.max(a.width, a.height);
+        },
+      },
+      // 3. По периметру детали
+      {
+        name: 'PERIMETER_DESC',
+        fn: (a, b) => {
+          const pA = a.width + a.height;
+          const pB = b.width + b.height;
+          if (Math.abs(pB - pA) > 1) return pB - pA;
+          return b.width * b.height - a.width * a.height;
+        },
+      },
+      // 4. По минимальной стороне (толщине/ширине)
+      {
+        name: 'MIN_SIDE_DESC',
+        fn: (a, b) => {
+          const minA = Math.min(a.width, a.height);
+          const minB = Math.min(b.width, b.height);
+          if (Math.abs(minB - minA) > 1) return minB - minA;
+          return b.width * b.height - a.width * a.height;
+        },
+      },
+      // 5. По стенам и габариту
+      {
+        name: 'WALL_THEN_SIZE',
+        fn: (a, b) => {
+          const wallA = parseInt(a.partLabel?.split('.')[0] || '1', 10);
+          const wallB = parseInt(b.partLabel?.split('.')[0] || '1', 10);
+          if (wallA !== wallB) return wallA - wallB;
+          return Math.max(b.width, b.height) - Math.max(a.width, a.height);
+        },
+      },
+    ];
+
+    const fitModes: ('BSSF' | 'BAF' | 'BLSF' | 'BOTTOM_LEFT')[] = ['BSSF', 'BAF', 'BLSF', 'BOTTOM_LEFT'];
+
+    let bestResult: MaterialNestingResult | null = null;
+    let bestScore = Number.MAX_VALUE;
+
+    for (const strat of strategies) {
+      for (const fitMode of fitModes) {
+        const sorted = [...parts].sort(strat.fn);
+        const res = NestingEngine.runSinglePackingPass(
+          sorted,
+          fitMode,
+          materialId,
+          materialName,
+          sheetW,
+          sheetH
+        );
+
+        // Оценка качества раскроя:
+        // 1. Чем меньше листов — тем лучше (главный фактор: weight 1 000 000)
+        // 2. Чем выше процент использования плит — тем лучше (weight 1 000)
+        // 3. Чем лучше заполнен последний лист — тем лучше (weight 10)
+        const lastSheetEff = res.sheets.length > 0 ? res.sheets[res.sheets.length - 1].efficiencyPct : 100;
+        const score = res.sheets.length * 1_000_000 - res.overallEfficiencyPct * 1_000 - lastSheetEff * 10;
+
+        if (score < bestScore) {
+          bestScore = score;
+          bestResult = res;
+        }
+      }
+    }
+
+    return bestResult!;
+  }
+
+  private static runSinglePackingPass(
+    sortedParts: NestingPartInput[],
+    fitMode: 'BSSF' | 'BAF' | 'BLSF' | 'BOTTOM_LEFT',
+    materialId: string,
+    materialName: string,
+    sheetW: number,
+    sheetH: number
+  ): MaterialNestingResult {
     const sheets: NestingSheet[] = [];
     const unplaced = [...sortedParts];
 
@@ -238,7 +338,6 @@ export class NestingEngine {
         const itemW = Math.round(item.width);
         const itemH = Math.round(item.height);
 
-        // Ищем наилучший свободный прямоугольник методом Best Short Side Fit (BSSF)
         let bestRectIdx = -1;
         let bestFitScore = Number.MAX_VALUE;
         let bestRotated = false;
@@ -246,11 +345,21 @@ export class NestingEngine {
         for (let r = 0; r < freeRects.length; r++) {
           const rect = freeRects[r];
 
-          // 1. Попытка без вращения
+          // 1. Проверяем без вращения
           if (itemW <= rect.w && itemH <= rect.h) {
             const leftoverW = rect.w - itemW;
             const leftoverH = rect.h - itemH;
-            const score = Math.min(leftoverW, leftoverH) * 1000 + Math.max(leftoverW, leftoverH);
+            let score = 0;
+            if (fitMode === 'BSSF') {
+              score = Math.min(leftoverW, leftoverH) * 1000 + Math.max(leftoverW, leftoverH);
+            } else if (fitMode === 'BLSF') {
+              score = Math.max(leftoverW, leftoverH) * 1000 + Math.min(leftoverW, leftoverH);
+            } else if (fitMode === 'BAF') {
+              score = rect.w * rect.h - itemW * itemH;
+            } else {
+              score = rect.y * 10000 + rect.x;
+            }
+
             if (score < bestFitScore) {
               bestFitScore = score;
               bestRectIdx = r;
@@ -258,11 +367,21 @@ export class NestingEngine {
             }
           }
 
-          // 2. Попытка с поворотом на 90 градусов (если помещается)
+          // 2. Проверяем с поворотом на 90 градусов
           if (itemH <= rect.w && itemW <= rect.h) {
             const leftoverW = rect.w - itemH;
             const leftoverH = rect.h - itemW;
-            const score = Math.min(leftoverW, leftoverH) * 1000 + Math.max(leftoverW, leftoverH);
+            let score = 0;
+            if (fitMode === 'BSSF') {
+              score = Math.min(leftoverW, leftoverH) * 1000 + Math.max(leftoverW, leftoverH);
+            } else if (fitMode === 'BLSF') {
+              score = Math.max(leftoverW, leftoverH) * 1000 + Math.min(leftoverW, leftoverH);
+            } else if (fitMode === 'BAF') {
+              score = rect.w * rect.h - itemH * itemW;
+            } else {
+              score = rect.y * 10000 + rect.x;
+            }
+
             if (score < bestFitScore) {
               bestFitScore = score;
               bestRectIdx = r;
@@ -287,13 +406,9 @@ export class NestingEngine {
             rotated: bestRotated,
           });
 
-          // Удаляем деталь из неразмещенных
           unplaced.splice(itemIdx, 1);
-
-          // Полноценное разбиение MaxRects для всех пересекающихся свободных прямоугольников
           freeRects = NestingEngine.splitMaxRects(freeRects, px, py, placedW, placedH);
 
-          // Добавляем деловой остаток от выреза проемов (двери, окна, ниши) в список свободных зон
           if (item.cutouts && item.cutouts.length > 0) {
             item.cutouts.forEach((cut) => {
               const cutX = px + (bestRotated ? cut.y : cut.x);
@@ -311,22 +426,16 @@ export class NestingEngine {
             });
           }
 
-          // Очищаем вложенные и дублирующиеся прямоугольники
           NestingEngine.cleanFreeRects(freeRects);
         } else {
-          // Не поместился на этот лист, пробуем следующую деталь
           itemIdx++;
         }
       }
 
       if (placedOnSheet.length > 0) {
-        // Генерация линий распила для листа
         const cutLines = NestingEngine.generateSheetCutLines(placedOnSheet, sheetW, sheetH);
-
-        // Генерация неперекрывающихся деловых обрезков для визуализации
         const offcuts: NestingOffcut[] = NestingEngine.calculateDisjointOffcuts(placedOnSheet, sheetW, sheetH);
 
-        // Точный расчет полезной площади и процента использования (с учетом вырезов)
         const usedAreaSqM = placedOnSheet.reduce(
           (acc, p) => acc + NestingEngine.getPartNetAreaSqM(p.part),
           0
@@ -354,7 +463,6 @@ export class NestingEngine {
           efficiencyPct,
         });
       } else if (unplaced.length > 0) {
-        // Предохранитель от бесконечного цикла, если деталь больше стандартного листа
         const oversized = unplaced.shift()!;
         const netArea = NestingEngine.getPartNetAreaSqM(oversized);
         const dummyIdx = sheets.length + 1;
@@ -388,7 +496,7 @@ export class NestingEngine {
       }
     }
 
-    const totalPartsAreaSqM = parts.reduce((acc, p) => acc + NestingEngine.getPartNetAreaSqM(p), 0);
+    const totalPartsAreaSqM = sortedParts.reduce((acc, p) => acc + NestingEngine.getPartNetAreaSqM(p), 0);
     const totalSheetsAreaSqM = sheets.length * ((sheetW * sheetH) / 1_000_000);
     const overallEfficiencyPct = totalSheetsAreaSqM > 0
       ? Math.min(100, Math.round((totalPartsAreaSqM / totalSheetsAreaSqM) * 100))
@@ -398,7 +506,7 @@ export class NestingEngine {
       materialId,
       materialName,
       totalSheets: sheets.length,
-      totalParts: parts.length,
+      totalParts: sortedParts.length,
       totalPartsAreaSqM: Math.round(totalPartsAreaSqM * 100) / 100,
       totalSheetsAreaSqM: Math.round(totalSheetsAreaSqM * 100) / 100,
       overallEfficiencyPct,

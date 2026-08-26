@@ -1266,11 +1266,11 @@ export class PdfExportService {
       const sheetOriginX = cellX + (cellW - sheet.sheetWidth * scale) / 2;
       const sheetOriginY = cellY + 62;
 
-      // Тело листа (благородный песочный цвет плиты AllWall)
-      ctx.fillStyle = '#fef3c7';
+      // Тело листа (чистый нейтральный фон листа)
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(sheetOriginX, sheetOriginY, sheet.sheetWidth * scale, sheet.sheetHeight * scale);
-      ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1.5;
       ctx.strokeRect(sheetOriginX, sheetOriginY, sheet.sheetWidth * scale, sheet.sheetHeight * scale);
 
       // Размещенные детали на листе
@@ -1301,17 +1301,7 @@ export class PdfExportService {
         let polyCanvasPts: { x: number; y: number }[] = [];
 
         if (isDiagonalCut) {
-          // 1. Рисуем габаритный прямоугольник заготовки (сырая плита до среза)
-          ctx.save();
-          ctx.fillStyle = 'rgba(241, 245, 249, 0.7)';
-          ctx.fillRect(px, py, pw, ph);
-          ctx.strokeStyle = '#94a3b8';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 4]);
-          ctx.strokeRect(px, py, pw, ph);
-          ctx.restore();
-
-          // 2. Преобразуем полигон детали в координаты листа раскроя
+          // 1. Преобразуем полигон детали в координаты листа раскроя
           polyCanvasPts = rawPts!.map((pt) => {
             const localX = pt.x - minX;
             const localY = pt.y - minY;
@@ -1338,23 +1328,7 @@ export class PdfExportService {
           ctx.stroke();
           ctx.restore();
 
-          // 3. Подпись «Остаток (Срез)» в зоне среза
-          ctx.save();
-          ctx.fillStyle = '#64748b';
-          ctx.font = 'italic 10px "Segoe UI", Arial, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          const polyCentroidX = polyCanvasPts.reduce((s, pt) => s + pt.x, 0) / polyCanvasPts.length;
-          const polyCentroidY = polyCanvasPts.reduce((s, pt) => s + pt.y, 0) / polyCanvasPts.length;
-          const remnantCenterX = px + (polyCentroidX < px + pw / 2 ? pw * 0.75 : pw * 0.25);
-          const remnantCenterY = py + (polyCentroidY < py + ph / 2 ? ph * 0.75 : ph * 0.25);
-          if (pw > 35 && ph > 35) {
-            ctx.fillText('Остаток', remnantCenterX, remnantCenterY - 6);
-            ctx.fillText('(Срез)', remnantCenterX, remnantCenterY + 6);
-          }
-          ctx.restore();
-
-          // 4. Размеры и углы диагонального реза на листе
+          // 2. Размеры и углы диагонального реза на листе
           for (let i = 0; i < rawPts!.length; i++) {
             const pt1 = rawPts![i];
             const pt2 = rawPts![(i + 1) % rawPts!.length];
@@ -1583,24 +1557,6 @@ export class PdfExportService {
         ctx.lineTo(cl2.x, cl2.y);
         ctx.stroke();
         ctx.setLineDash([]);
-      });
-
-      // Деловые обрезки
-      sheet.offcuts.forEach((off) => {
-        const ox = sheetOriginX + off.x * scale;
-        const oy = sheetOriginY + (sheet.sheetHeight - (off.y + off.height)) * scale;
-        const ow = off.width * scale;
-        const oh = off.height * scale;
-
-        if (ow > 30 && oh > 25) {
-          ctx.fillStyle = 'rgba(203, 213, 225, 0.45)';
-          ctx.fillRect(ox, oy, ow, oh);
-          ctx.fillStyle = '#64748b';
-          ctx.font = 'italic 12px "Segoe UI", Arial, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('Остаток', ox + ow / 2, oy + oh / 2);
-        }
       });
 
       // СТРУКТУРИРОВАННЫЙ ПОДВАЛ ЛИСТА: ПРИМЕЧАНИЯ И ОСТАТКИ (БЕЗ ПЕРЕСЕЧЕНИЙ И НАЛОЖЕНИЙ)
