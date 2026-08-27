@@ -625,38 +625,54 @@ export class PolygonSlicingEngine {
    * Очистка дублирующихся или строго коллинеарных соседних вершин
    */
   public static cleanCollinearPoints(points: Point2D[]): Point2D[] {
-    if (points.length <= 3) return points;
-    const cleaned: Point2D[] = [];
-    const n = points.length;
+    if (!points || points.length <= 3) return points || [];
+    let current = [...points];
+    let changed = true;
+    let iterations = 0;
 
-    for (let i = 0; i < n; i++) {
-      const pPrev = points[(i - 1 + n) % n];
-      const pCur = points[i];
-      const pNext = points[(i + 1) % n];
+    while (changed && iterations++ < 5 && current.length > 3) {
+      changed = false;
+      const cleaned: Point2D[] = [];
+      const n = current.length;
 
-      if (Math.hypot(pCur.x - pPrev.x, pCur.y - pPrev.y) < 0.5) {
-        continue;
+      for (let i = 0; i < n; i++) {
+        const pPrev = current[(i - 1 + n) % n];
+        const pCur = current[i];
+        const pNext = current[(i + 1) % n];
+
+        if (Math.hypot(pCur.x - pPrev.x, pCur.y - pPrev.y) < 0.5) {
+          changed = true;
+          continue;
+        }
+
+        const v1x = pCur.x - pPrev.x;
+        const v1y = pCur.y - pPrev.y;
+        const v2x = pNext.x - pCur.x;
+        const v2y = pNext.y - pCur.y;
+        const len1 = Math.hypot(v1x, v1y);
+        const len2 = Math.hypot(v2x, v2y);
+        if (len1 < 1e-4 || len2 < 1e-4) {
+          changed = true;
+          continue;
+        }
+
+        const cross = (v1x * v2y - v1y * v2x) / (len1 * len2);
+        const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+
+        if (Math.abs(cross) < 1e-3 && dot > 0.99) {
+          changed = true;
+          continue;
+        }
+
+        cleaned.push(pCur);
       }
 
-      const v1x = pCur.x - pPrev.x;
-      const v1y = pCur.y - pPrev.y;
-      const v2x = pNext.x - pCur.x;
-      const v2y = pNext.y - pCur.y;
-      const len1 = Math.hypot(v1x, v1y);
-      const len2 = Math.hypot(v2x, v2y);
-      if (len1 < 1e-4 || len2 < 1e-4) continue;
-
-      const cross = (v1x * v2y - v1y * v2x) / (len1 * len2);
-      const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
-
-      if (Math.abs(cross) < 1e-3 && dot > 0.99) {
-        continue;
+      if (cleaned.length >= 3) {
+        current = cleaned;
       }
-
-      cleaned.push(pCur);
     }
 
-    return cleaned;
+    return current;
   }
 
   /**
@@ -2218,11 +2234,6 @@ export class PolygonSlicingEngine {
     const nextPanels: WallPanelPiece[] = [];
 
     panels.forEach((p) => {
-      if (p.isVoid) {
-        nextPanels.push(p);
-        return;
-      }
-
       let currentPolys: Point2D[][] = [p.points];
 
       cutoutOpenings.forEach((op) => {
@@ -2259,7 +2270,10 @@ export class PolygonSlicingEngine {
             ...p,
             id: `${p.id}-cut-${idx + 1}-${Math.random().toString(36).substring(2, 5)}`,
             points: poly,
-            partLabel: `${p.partLabel}.${idx + 1}`,
+            partLabel:
+              p.isVoid || p.materialId === MATERIAL_NONE_ID
+                ? 'ПУСТО'
+                : `${p.partLabel}.${idx + 1}`,
           });
         });
       }
@@ -2650,13 +2664,7 @@ export class PolygonSlicingEngine {
     const opTop = opening.y + opening.height;
 
     for (const panel of panels) {
-      // 1. Пустые поверхности (ПУСТОТА / MATERIAL_NONE_ID) не должны разрезаться на куски
-      if (panel.isVoid || panel.materialId === MATERIAL_NONE_ID) {
-        resultPanels.push(panel);
-        continue;
-      }
-
-      // 2. Проверяем пересечение с проемом по bounding box
+      // 1. Проверяем пересечение с проемом по bounding box
       const xs = panel.points.map((p) => p.x);
       const ys = panel.points.map((p) => p.y);
       const minX = Math.min(...xs);
@@ -2670,7 +2678,7 @@ export class PolygonSlicingEngine {
         continue;
       }
 
-      // 3. Вырезаем проем только из той панели, куда он вставляется
+      // 2. Вырезаем проем только из той панели, куда он вставляется
       const remainingPolys = this.subtractRectangleFromPolygon(panel.points, opening);
       if (remainingPolys.length === 0) {
         continue;
@@ -2682,7 +2690,10 @@ export class PolygonSlicingEngine {
             ? panel.id
             : `panel-${Date.now()}-${resultPanels.length + 1}-${kIdx + 1}-${Math.random().toString(36).substring(2, 5)}`,
           points: poly,
-          partLabel: remainingPolys.length > 1 ? `${panel.partLabel}.${kIdx + 1}` : panel.partLabel,
+          partLabel:
+            panel.isVoid || panel.materialId === MATERIAL_NONE_ID
+              ? 'ПУСТО'
+              : (remainingPolys.length > 1 ? `${panel.partLabel}.${kIdx + 1}` : panel.partLabel),
         });
       });
     }

@@ -1468,12 +1468,6 @@ export class LayoutEngine {
     const resultPanels: CalculatedPanelPiece[] = [];
 
     panels.forEach((p) => {
-      // Пустые поверхности (ПУСТОТА / MATERIAL_NONE_ID) не должны разрезаться проемами на части!
-      if (p.isVoid || p.materialId === MATERIAL_NONE_ID) {
-        resultPanels.push(p);
-        return;
-      }
-
       const initialPoly: Point2D[] =
         p.polygonPoints && p.polygonPoints.length >= 3
           ? p.polygonPoints
