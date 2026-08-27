@@ -1,7 +1,7 @@
-import type { WallPanelPiece, WallJointLine } from '../models/Wall';
+import type { WallPanelPiece, WallJointLine, Wall } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
-import { MATERIAL_NONE_ID } from '../models/Material';
+import { MATERIAL_NONE_ID, Material } from '../models/Material';
 
 export interface Point2D {
   x: number;
@@ -449,6 +449,7 @@ export class PolygonSlicingEngine {
 
   /**
    * Автоматическое разбиение полигона на вертикальные ламели/полосы заданной ширины (например, ширина рейки 158 мм или листа 1220 мм)
+   * Формат заполнения: [максимальная ширина] + [стык seamGap] + [максимальная ширина] + ...
    */
   public static slicePolygonIntoVerticalStrips(
     polygon: Point2D[],
@@ -469,42 +470,57 @@ export class PolygonSlicingEngine {
     const maxY = Math.max(...ys) + 100;
     const totalW = maxX - minX;
 
-    if (totalW <= stripWidth + 5) {
+    if (totalW <= stripWidth + 2) {
       return [baseSubPiece];
     }
 
     const finalPolys: Point2D[][] = [];
     let remainingPolys: Point2D[][] = [polygon];
 
-    let curX = minX + stripWidth;
-    while (curX < maxX - 5) {
+    let curStart = minX;
+    while (curStart + stripWidth < maxX - 5) {
+      const cutLeft = curStart + stripWidth;
+      const cutRight = cutLeft + seamGap;
       const nextRemaining: Point2D[][] = [];
-      const p1: Point2D = { x: curX, y: minY };
-      const p2: Point2D = { x: curX, y: maxY };
 
       for (const piece of remainingPolys) {
         const pieceMinX = Math.min(...piece.map((p) => p.x));
         const pieceMaxX = Math.max(...piece.map((p) => p.x));
 
-        if (pieceMaxX <= curX + 1e-4) {
+        if (pieceMaxX <= cutLeft + 1e-4) {
           finalPolys.push(piece);
           continue;
         }
-        if (pieceMinX >= curX - 1e-4) {
+        if (pieceMinX >= cutRight - 1e-4) {
           nextRemaining.push(piece);
           continue;
         }
 
-        const split = this.splitPolygonByLine(piece, p1, p2, seamGap);
-        if (split && split.allPieces && split.allPieces.length > 0) {
-          split.allPieces.forEach((p) => {
+        // 1. Отрезаем панель полной ширины stripWidth (1200 мм)
+        const splitLeft = this.splitPolygonByLine(piece, { x: cutLeft, y: minY }, { x: cutLeft, y: maxY }, 0);
+        if (splitLeft && splitLeft.allPieces && splitLeft.allPieces.length > 0) {
+          splitLeft.allPieces.forEach((p) => {
             if (this.calculatePolygonArea(p) < 10) return;
             const pXs = p.map((pt) => pt.x);
             const pMidX = (Math.min(...pXs) + Math.max(...pXs)) / 2;
-            if (pMidX < curX) {
+            if (pMidX <= cutLeft + 1e-4) {
               finalPolys.push(p);
             } else {
-              nextRemaining.push(p);
+              // 2. Вычитаем зазор шва seamGap (если он > 0)
+              if (seamGap > 0) {
+                const splitRight = this.splitPolygonByLine(p, { x: cutRight, y: minY }, { x: cutRight, y: maxY }, 0);
+                if (splitRight && splitRight.allPieces && splitRight.allPieces.length > 0) {
+                  splitRight.allPieces.forEach((pr) => {
+                    if (this.calculatePolygonArea(pr) < 10) return;
+                    const prMidX = (Math.min(...pr.map((pt) => pt.x)) + Math.max(...pr.map((pt) => pt.x))) / 2;
+                    if (prMidX >= cutRight - 1e-4) {
+                      nextRemaining.push(pr);
+                    }
+                  });
+                }
+              } else {
+                nextRemaining.push(p);
+              }
             }
           });
         } else {
@@ -513,7 +529,7 @@ export class PolygonSlicingEngine {
       }
 
       remainingPolys = nextRemaining;
-      curX += stripWidth;
+      curStart += stripWidth + seamGap;
     }
 
     remainingPolys.forEach((p) => {
@@ -1278,32 +1294,23 @@ export class PolygonSlicingEngine {
       const jX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
 
-      // 1. Примыкание к левой или правой стене (краю стены)
-      const nearLeftWall = jX <= 15;
+      // 1. Примыкание к правой стене (краю) или проем справа
       const nearRightWall = jX >= wallWidth - 15;
-
-      // 2. Проверка прилегания к проемам слева и справа
-      const ptLeft = { x: jX - 25, y: midY };
       const ptRight = { x: jX + 25, y: midY };
-      const leftIsOpening = isInsideOpening(ptLeft);
       const rightIsOpening = isInsideOpening(ptRight);
 
-      if ((nearLeftWall || leftIsOpening) && !(nearRightWall || rightIsOpening)) {
-        return 'RIGHT'; // Забирать только справа, левая стена/проем зафиксирована
-      }
-      if ((nearRightWall || rightIsOpening) && !(nearLeftWall || leftIsOpening)) {
+      if (nearRightWall || rightIsOpening) {
         return 'LEFT'; // Забирать только слева, правая стена/проем зафиксирована
       }
-      return 'BOTH';
+      // По умолчанию для вертикальных стыков активна правая стрелка (RIGHT)
+      return 'RIGHT';
     } else {
       const jY = (p1.y + p2.y) / 2;
       const midX = (p1.x + p2.x) / 2;
 
-      // 1. Примыкание к полу или потолку (краю стены)
+      // 1. Примыкание к полу (краю стены) или проем снизу
       const nearBottomWall = jY <= 15;
       const nearTopWall = jY >= wallHeight - 15;
-
-      // 2. Проверка прилегания к проемам снизу и сверху
       const ptBottom = { x: midX, y: jY - 25 };
       const ptTop = { x: midX, y: jY + 25 };
       const bottomIsOpening = isInsideOpening(ptBottom);
@@ -1312,10 +1319,8 @@ export class PolygonSlicingEngine {
       if ((nearBottomWall || bottomIsOpening) && !(nearTopWall || topIsOpening)) {
         return 'TOP'; // Забирать только сверху, пол/проем снизу зафиксирован
       }
-      if ((nearTopWall || topIsOpening) && !(nearBottomWall || bottomIsOpening)) {
-        return 'BOTTOM'; // Забирать только снизу, потолок/проем сверху зафиксирован
-      }
-      return 'BOTH';
+      // По умолчанию для горизонтальных стыков активна нижняя стрелка (BOTTOM)
+      return 'BOTTOM';
     }
   }
 
@@ -1563,10 +1568,13 @@ export class PolygonSlicingEngine {
     }));
 
     const joints: WallJointLine[] = [];
-    let curX = minX + stripWidth;
-    while (curX < maxX - 5) {
-      const cutP1 = { x: curX, y: minY - 10 };
-      const cutP2 = { x: curX, y: maxY + 10 };
+    let curStart = minX;
+    while (curStart + stripWidth < maxX - 5) {
+      const cutLeft = curStart + stripWidth;
+      const seamCenterX = cutLeft + effSeamGap / 2;
+
+      const cutP1 = { x: seamCenterX, y: minY - 10 };
+      const cutP2 = { x: seamCenterX, y: maxY + 10 };
       const cutRes = this.splitPolygonByLine(panel.points, cutP1, cutP2, 0);
       if (cutRes && cutRes.cutSegments && cutRes.cutSegments.length > 0) {
         cutRes.cutSegments.forEach((seg, sIdx) => {
@@ -1577,22 +1585,67 @@ export class PolygonSlicingEngine {
             width: effSeamGap,
             isLED: false,
             orientation: 'VERTICAL',
+            takeSide: 'RIGHT',
           });
         });
       } else {
         joints.push({
           id: `joint-${Date.now()}-${joints.length + 1}`,
-          p1: { x: curX, y: minY },
-          p2: { x: curX, y: maxY },
+          p1: { x: seamCenterX, y: minY },
+          p2: { x: seamCenterX, y: maxY },
           width: effSeamGap,
           isLED: false,
           orientation: 'VERTICAL',
+          takeSide: 'RIGHT',
         });
       }
-      curX += stripWidth;
+      curStart += stripWidth + effSeamGap;
     }
 
     return { newPanels, joints };
+  }
+
+  /**
+   * Проверяет все детали стены на превышение максимальных габаритов листа материала.
+   * Если панель превышает ширину листа (например, при уменьшении стыка или заполнении пространства),
+   * она автоматически нарезается на допустимые листы: [макс. ширина] + [стык 8мм] + ...
+   */
+  public static ensureValidPanelDimensions(
+    wall: Wall,
+    materials: Material[],
+    defaultSeamGap: number = 8
+  ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
+    if (!wall.panels || wall.panels.length === 0) {
+      return { panels: wall.panels || [], joints: wall.joints || [] };
+    }
+
+    const nextPanels: WallPanelPiece[] = [];
+    const nextJoints: WallJointLine[] = wall.joints ? [...wall.joints] : [];
+
+    wall.panels.forEach((p) => {
+      const mat = materials.find((m) => m.id === p.materialId);
+      const isVoid = p.isVoid || mat?.isVoid || p.materialId === MATERIAL_NONE_ID;
+      const maxW = mat?.width && mat.width > 0 ? mat.width : 1220;
+
+      const xs = p.points.map((pt) => pt.x);
+      const pieceW = Math.max(...xs) - Math.min(...xs);
+
+      if (!isVoid && maxW > 0 && pieceW > maxW + 2) {
+        const isSlat =
+          p.reliefType !== 'FLAT' ||
+          p.materialId?.includes('slat') ||
+          p.decorName?.toLowerCase().includes('рейка');
+        const seam = isSlat ? 0 : defaultSeamGap;
+
+        const sliced = this.sliceWallPanelIntoStrips(p, maxW, seam);
+        nextPanels.push(...sliced.newPanels);
+        nextJoints.push(...sliced.joints);
+      } else {
+        nextPanels.push(p);
+      }
+    });
+
+    return { panels: nextPanels, joints: nextJoints };
   }
 
   /**

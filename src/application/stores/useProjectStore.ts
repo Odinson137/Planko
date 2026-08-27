@@ -959,6 +959,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             );
           }
         });
+
+        const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+          { ...wall, panels: nextPanels, joints: nextWallJoints },
+          state.project.materials
+        );
+        nextPanels = valid.panels;
+        nextWallJoints = valid.joints;
       }
 
       return {
@@ -1028,6 +1035,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             );
           }
         });
+
+        const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+          { ...wall, panels: nextPanels, joints: nextWallJoints },
+          state.project.materials
+        );
+        nextPanels = valid.panels;
+        nextWallJoints = valid.joints;
       }
 
       return {
@@ -1087,15 +1101,15 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       const nextCustomJoints = { ...wall.customJoints };
 
       state.selectedJointIds.forEach((id) => {
-        const current = nextCustomJoints[id];
-        const currentArticle = current?.profileArticle;
+        const existing = nextCustomJoints[id];
+        const currentArticle = existing?.profileArticle;
         const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
         const isMatch = currentProfile && currentProfile.visibleWidth === clampedW;
         const profileArticle = isMatch ? currentArticle : undefined;
         const isLED = isMatch ? (currentProfile.isLEDCompatible ?? false) : false;
 
         nextCustomJoints[id] = {
-          ...(current || {
+          ...(existing || {
             id,
             orientation: id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
           }),
@@ -1109,13 +1123,14 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (nextWallJoints && nextWallJoints.length > 0) {
         nextWallJoints = nextWallJoints.map((j) => {
           if (state.selectedJointIds.includes(j.id)) {
-            const currentProfile = j.profileArticle ? findProfileByArticle(j.profileArticle) : undefined;
+            const currentArticle = j.profileArticle;
+            const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
             const isMatch = currentProfile && currentProfile.visibleWidth === clampedW;
             return {
               ...j,
               width: clampedW,
               isLED: isMatch ? (currentProfile?.isLEDCompatible ?? false) : false,
-              profileArticle: isMatch ? j.profileArticle : undefined,
+              profileArticle: isMatch ? currentArticle : undefined,
             };
           }
           return j;
@@ -1140,6 +1155,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             );
           }
         });
+
+        const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+          { ...wall, panels: nextPanels, joints: nextWallJoints },
+          state.project.materials
+        );
+        nextPanels = valid.panels;
+        nextWallJoints = valid.joints;
       }
 
       return {
@@ -1208,6 +1230,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             );
           }
         });
+
+        const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+          { ...wall, panels: nextPanels, joints: nextWallJoints },
+          state.project.materials
+        );
+        nextPanels = valid.panels;
+        nextWallJoints = valid.joints;
       }
 
       return {
@@ -2413,6 +2442,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               w.width,
               w.height
             );
+
+            const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+              { ...w, panels: nextPanels, joints: nextWallJoints },
+              state.project.materials
+            );
+            nextPanels = valid.panels;
+            nextWallJoints = valid.joints;
           }
 
           return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
@@ -2492,6 +2528,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               w.height,
               w.openings
             );
+
+            const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+              { ...w, panels: nextPanels, joints: nextWallJoints },
+              state.project.materials
+            );
+            nextPanels = valid.panels;
+            nextWallJoints = valid.joints;
           }
 
           return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
