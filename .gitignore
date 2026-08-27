@@ -6,6 +6,8 @@ node_modules
 # Production build
 dist
 build
+release
+dist-electron
 
 # Environment & logs
 *.log
