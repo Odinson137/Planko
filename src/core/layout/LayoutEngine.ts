@@ -402,7 +402,9 @@ export class LayoutEngine {
           const rad = customConfig.radiusConfig.radius;
           const angle = customConfig.radiusConfig.angleDeg ?? 90;
           arcLength = Math.round((Math.PI * rad * angle) / 180);
-          baseWidth = columnMaterial.isVoid ? arcLength : Math.min(arcLength, columnMaterial.width);
+          baseWidth = columnMaterial.isVoid
+            ? (rad > 0 ? arcLength : (customConfig?.customWidth !== undefined ? customConfig.customWidth : columnMaterial.width))
+            : (rad > 0 ? Math.min(arcLength, columnMaterial.width) : (customConfig?.customWidth !== undefined ? customConfig.customWidth : columnMaterial.width));
         } else if (customConfig?.customWidth !== undefined) {
           baseWidth = customConfig.customWidth;
         }

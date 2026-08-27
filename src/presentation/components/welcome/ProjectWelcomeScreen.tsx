@@ -15,6 +15,7 @@ import {
   ThemeIcon,
   Paper,
   Divider,
+  SegmentedControl,
 } from '@mantine/core';
 import {
   Search,
@@ -28,15 +29,17 @@ import {
   Settings,
   Clock,
   GitBranch,
-  CheckCircle2,
   AlertTriangle,
   FileCode,
   Edit2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { ProjectMetadata } from '../../../core/models/Project';
 import { localProjectRepository } from '../../../infrastructure/repositories/LocalSQLiteRepository';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { NewProjectModal } from './NewProjectModal';
 
 // Палитра цветных плашек проектов
@@ -75,6 +78,7 @@ function getAvatarColor(id: string): { bg: string; text: string } {
 }
 
 export const ProjectWelcomeScreen: React.FC = () => {
+  const t = useAppTheme();
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'PROJECTS' | 'SHORTCUTS' | 'SETTINGS'>('PROJECTS');
@@ -183,8 +187,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
       w="100vw"
       h="100vh"
       style={{
-        backgroundColor: '#1E1F22',
-        color: '#DFE1E5',
+        backgroundColor: t.bgApp,
+        color: t.textPrimary,
         display: 'flex',
         flexDirection: 'column',
         userSelect: 'none',
@@ -207,25 +211,25 @@ export const ProjectWelcomeScreen: React.FC = () => {
         px="md"
         py={6}
         style={{
-          borderBottom: '1px solid #2B2D30',
-          backgroundColor: '#1E1F22',
+          borderBottom: `1px solid ${t.border}`,
+          backgroundColor: t.bgHeader,
           height: 38,
         }}
       >
         <Group gap="xs">
           <ThemeIcon size={20} radius="sm" color="blue" variant="filled">
             <Text fw={900} size="xs" style={{ fontFamily: 'monospace' }}>
-              PL
+              AW
             </Text>
           </ThemeIcon>
-          <Text size="xs" fw={600} c="#9DA5B4">
-            Welcome to Planko CAD
+          <Text size="xs" fw={600} c={t.textSecondary}>
+            Welcome to AllWall CAD
           </Text>
         </Group>
         <Group gap={6}>
-          <Box w={10} h={10} style={{ borderRadius: '50%', backgroundColor: '#4B5563' }} />
-          <Box w={10} h={10} style={{ borderRadius: '50%', backgroundColor: '#4B5563' }} />
-          <Box w={10} h={10} style={{ borderRadius: '50%', backgroundColor: '#4B5563' }} />
+          <Box w={10} h={10} style={{ borderRadius: '50%', backgroundColor: t.isDark ? '#4B5563' : '#CBD5E1' }} />
+          <Box w={10} h={10} style={{ borderRadius: '50%', backgroundColor: t.isDark ? '#4B5563' : '#CBD5E1' }} />
+          <Box w={10} h={10} style={{ borderRadius: '50%', backgroundColor: t.isDark ? '#4B5563' : '#CBD5E1' }} />
         </Group>
       </Flex>
 
@@ -239,8 +243,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
           gap="xs"
           justify="space-between"
           style={{
-            borderRight: '1px solid #2B2D30',
-            backgroundColor: '#1E1F22',
+            borderRight: `1px solid ${t.border}`,
+            backgroundColor: t.bgSidebar,
             flexShrink: 0,
           }}
         >
@@ -262,13 +266,13 @@ export const ProjectWelcomeScreen: React.FC = () => {
                   boxShadow: '0 4px 12px rgba(53, 116, 240, 0.35)',
                 }}
               >
-                PL
+                AW
               </Box>
               <Stack gap={0}>
-                <Text fw={700} size="sm" c="#FFFFFF">
-                  Planko CAD
+                <Text fw={700} size="sm" c={t.textPrimary}>
+                  AllWall CAD
                 </Text>
-                <Text size="xs" c="dimmed">
+                <Text size="xs" c={t.textDimmed}>
                   2026.1.0 CAD Edition
                 </Text>
               </Stack>
@@ -279,12 +283,12 @@ export const ProjectWelcomeScreen: React.FC = () => {
               <Button
                 variant={activeTab === 'PROJECTS' ? 'light' : 'subtle'}
                 color={activeTab === 'PROJECTS' ? 'blue' : 'gray'}
-                justify="space-between"
+                justify="flex-start"
                 fullWidth
                 size="sm"
                 leftSection={<Layers size={16} />}
                 rightSection={
-                  <Badge size="xs" variant="filled" color={activeTab === 'PROJECTS' ? 'blue' : 'dark'}>
+                  <Badge size="xs" variant="filled" color={activeTab === 'PROJECTS' ? 'blue' : t.isDark ? 'dark' : 'gray'}>
                     {projects.length}
                   </Badge>
                 }
@@ -292,12 +296,16 @@ export const ProjectWelcomeScreen: React.FC = () => {
                 styles={{
                   root: {
                     borderRadius: 6,
-                    backgroundColor: activeTab === 'PROJECTS' ? '#2B3956' : 'transparent',
-                    color: activeTab === 'PROJECTS' ? '#FFFFFF' : '#ADB0B8',
+                    backgroundColor: activeTab === 'PROJECTS' ? (t.isDark ? '#2B3956' : '#E7F5FF') : 'transparent',
+                    color: activeTab === 'PROJECTS' ? (t.isDark ? '#FFFFFF' : '#1971c2') : t.textSecondary,
+                  },
+                  label: {
+                    flex: 1,
+                    textAlign: 'left',
                   },
                 }}
               >
-                Проекты (Projects)
+                Проекты
               </Button>
 
               <Button
@@ -311,8 +319,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
                 styles={{
                   root: {
                     borderRadius: 6,
-                    backgroundColor: activeTab === 'SHORTCUTS' ? '#2B3956' : 'transparent',
-                    color: activeTab === 'SHORTCUTS' ? '#FFFFFF' : '#ADB0B8',
+                    backgroundColor: activeTab === 'SHORTCUTS' ? (t.isDark ? '#2B3956' : '#E7F5FF') : 'transparent',
+                    color: activeTab === 'SHORTCUTS' ? (t.isDark ? '#FFFFFF' : '#1971c2') : t.textSecondary,
                   },
                 }}
               >
@@ -330,8 +338,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
                 styles={{
                   root: {
                     borderRadius: 6,
-                    backgroundColor: activeTab === 'SETTINGS' ? '#2B3956' : 'transparent',
-                    color: activeTab === 'SETTINGS' ? '#FFFFFF' : '#ADB0B8',
+                    backgroundColor: activeTab === 'SETTINGS' ? (t.isDark ? '#2B3956' : '#E7F5FF') : 'transparent',
+                    color: activeTab === 'SETTINGS' ? (t.isDark ? '#FFFFFF' : '#1971c2') : t.textSecondary,
                   },
                 }}
               >
@@ -339,25 +347,10 @@ export const ProjectWelcomeScreen: React.FC = () => {
               </Button>
             </Stack>
           </Stack>
-
-          {/* Нижний блок: статус и версия */}
-          <Paper p="xs" radius="sm" style={{ backgroundColor: '#26282D', border: '1px solid #33363D' }}>
-            <Group gap="xs">
-              <CheckCircle2 size={15} color="#10B981" />
-              <Stack gap={0}>
-                <Text size="xs" fw={600} c="#E5E7EB">
-                  Offline-Ready
-                </Text>
-                <Text size="xs" c="dimmed" style={{ fontSize: 11 }}>
-                  Локальное хранилище
-                </Text>
-              </Stack>
-            </Group>
-          </Paper>
         </Stack>
 
         {/* Правая часть: контент в зависимости от вкладки */}
-        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#1E1F22' }}>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: t.bgApp }}>
           {activeTab === 'PROJECTS' && (
             <>
               {/* Верхняя панель: Поиск проектов + Кнопки New Solution / Open */}
@@ -366,19 +359,19 @@ export const ProjectWelcomeScreen: React.FC = () => {
                 align="center"
                 px="lg"
                 py="sm"
-                style={{ borderBottom: '1px solid #2B2D30', minHeight: 56 }}
+                style={{ borderBottom: `1px solid ${t.border}`, minHeight: 56, backgroundColor: t.bgHeader }}
               >
                 <TextInput
                   placeholder="Поиск проектов..."
-                  leftSection={<Search size={15} color="#80848E" />}
+                  leftSection={<Search size={15} color={t.textDimmed} />}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.currentTarget.value)}
                   w={340}
                   styles={{
                     input: {
-                      backgroundColor: '#26282E',
-                      borderColor: '#363940',
-                      color: '#DFE1E5',
+                      backgroundColor: t.bgInput,
+                      borderColor: t.borderInput,
+                      color: t.textPrimary,
                       height: 34,
                       fontSize: 13,
                     },
@@ -411,9 +404,9 @@ export const ProjectWelcomeScreen: React.FC = () => {
                     onClick={() => fileInputRef.current?.click()}
                     styles={{
                       root: {
-                        backgroundColor: '#2B2D30',
-                        borderColor: '#3E4249',
-                        color: '#DFE1E5',
+                        backgroundColor: t.isDark ? '#2B2D30' : '#FFFFFF',
+                        borderColor: t.borderInput,
+                        color: t.textPrimary,
                       },
                     }}
                   >
@@ -425,9 +418,9 @@ export const ProjectWelcomeScreen: React.FC = () => {
               {/* Всплывающее уведомление (Toast) */}
               {toastMessage && (
                 <Box px="lg" pt="xs">
-                  <Paper p="xs" radius="sm" style={{ backgroundColor: '#1E3A5F', border: '1px solid #3B82F6' }}>
+                  <Paper p="xs" radius="sm" style={{ backgroundColor: t.isDark ? '#1E3A5F' : '#E7F5FF', border: '1px solid #3B82F6' }}>
                     <Group justify="space-between">
-                      <Text size="xs" c="#BFDBFE" fw={600}>
+                      <Text size="xs" c={t.isDark ? '#BFDBFE' : '#1971c2'} fw={600}>
                         {toastMessage}
                       </Text>
                       <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => setToastMessage(null)}>
@@ -445,7 +438,7 @@ export const ProjectWelcomeScreen: React.FC = () => {
                     <ThemeIcon size={48} radius="xl" variant="light" color="gray">
                       <FileCode size={24} />
                     </ThemeIcon>
-                    <Text size="sm" c="dimmed">
+                    <Text size="sm" c={t.textDimmed}>
                       {searchQuery ? 'Проекты не найдены' : 'Список проектов пуст'}
                     </Text>
                     <Button size="xs" variant="light" color="blue" onClick={() => setIsNewProjectModalOpen(true)}>
@@ -453,7 +446,7 @@ export const ProjectWelcomeScreen: React.FC = () => {
                     </Button>
                   </Stack>
                 ) : (
-                  <Stack gap={4}>
+                  <Stack gap={6}>
                     {filteredProjects.map((item) => {
                       const avatar = getAvatarColor(item.id);
                       const initials = getProjectInitials(item.name);
@@ -474,18 +467,11 @@ export const ProjectWelcomeScreen: React.FC = () => {
                           radius="sm"
                           onClick={() => handleOpenProject(item.id)}
                           style={{
-                            backgroundColor: '#26282E',
-                            border: '1px solid #31343C',
+                            backgroundColor: t.bgCard,
+                            border: `1px solid ${t.border}`,
                             cursor: 'pointer',
-                            transition: 'background-color 0.15s ease, border-color 0.15s ease',
-                          }}
-                          styles={{
-                            root: {
-                              '&:hover': {
-                                backgroundColor: '#2E3138',
-                                borderColor: '#454952',
-                              },
-                            },
+                            transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
+                            boxShadow: t.isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.05)',
                           }}
                         >
                           <Group justify="space-between" align="center" wrap="nowrap">
@@ -510,20 +496,20 @@ export const ProjectWelcomeScreen: React.FC = () => {
                               </Box>
 
                               <Stack gap={2} style={{ overflow: 'hidden' }}>
-                                <Text fw={600} size="sm" c="#FFFFFF" truncate>
+                                <Text fw={600} size="sm" c={t.textPrimary} truncate>
                                   {item.name}
                                 </Text>
                                 <Group gap="xs" wrap="nowrap">
                                   <Group gap={4}>
-                                    <GitBranch size={12} color="#80848E" />
-                                    <Text size="xs" c="dimmed" style={{ fontSize: 12 }}>
+                                    <GitBranch size={12} color={t.textDimmed} />
+                                    <Text size="xs" c={t.textDimmed} style={{ fontSize: 12 }}>
                                       {item.dimensionsSummary}
                                     </Text>
                                   </Group>
                                   <Divider orientation="vertical" style={{ height: 10 }} />
                                   <Group gap={4}>
-                                    <Clock size={12} color="#80848E" />
-                                    <Text size="xs" c="dimmed" style={{ fontSize: 12 }}>
+                                    <Clock size={12} color={t.textDimmed} />
+                                    <Text size="xs" c={t.textDimmed} style={{ fontSize: 12 }}>
                                       {formattedDate}
                                     </Text>
                                   </Group>
@@ -598,11 +584,11 @@ export const ProjectWelcomeScreen: React.FC = () => {
             <ScrollArea style={{ flex: 1 }} p="xl">
               <Stack gap="lg" maw={700}>
                 <Stack gap={4}>
-                  <Text fw={700} size="lg" c="#FFF">
+                  <Text fw={700} size="lg" c={t.textPrimary}>
                     Горячие клавиши и навигация
                   </Text>
-                  <Text size="xs" c="dimmed">
-                    Быстрые сочетания клавиш для эффективной работы в Planko CAD
+                  <Text size="xs" c={t.textDimmed}>
+                    Быстрые сочетания клавиш для эффективной работы в AllWall CAD
                   </Text>
                 </Stack>
 
@@ -615,9 +601,18 @@ export const ProjectWelcomeScreen: React.FC = () => {
                     { key: 'Зажатый пробел / Средняя кнопка', desc: 'Панорамирование рабочей области холста' },
                     { key: 'Delete / Backspace', desc: 'Удалить выбранный проем или фигурный раскрой' },
                   ].map((sc, i) => (
-                    <Paper key={i} p="sm" radius="sm" style={{ backgroundColor: '#26282E', border: '1px solid #33363D' }}>
+                    <Paper
+                      key={i}
+                      p="sm"
+                      radius="sm"
+                      style={{
+                        backgroundColor: t.bgCard,
+                        border: `1px solid ${t.border}`,
+                        boxShadow: t.isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)',
+                      }}
+                    >
                       <Group justify="space-between">
-                        <Text size="xs" c="#E5E7EB">
+                        <Text size="xs" c={t.textPrimary}>
                           {sc.desc}
                         </Text>
                         <Badge variant="outline" color="blue" size="sm">
@@ -633,18 +628,82 @@ export const ProjectWelcomeScreen: React.FC = () => {
 
           {activeTab === 'SETTINGS' && (
             <ScrollArea style={{ flex: 1 }} p="xl">
-              <Stack gap="lg" maw={600}>
-                <Text fw={700} size="lg" c="#FFF">
-                  Настройки приложения
-                </Text>
-                <Paper p="md" radius="sm" style={{ backgroundColor: '#26282E', border: '1px solid #33363D' }}>
-                  <Stack gap="md">
-                    <Group justify="space-between">
+              <Stack gap="lg" maw={640}>
+                <Stack gap={4}>
+                  <Text fw={700} size="lg" c={t.textPrimary}>
+                    Настройки приложения
+                  </Text>
+                  <Text size="xs" c={t.textDimmed}>
+                    Параметры внешнего вида и управления локальным хранилищем AllWall CAD
+                  </Text>
+                </Stack>
+
+                {/* Блок переключения темы оформления */}
+                <Paper
+                  p="md"
+                  radius="sm"
+                  style={{
+                    backgroundColor: t.bgCard,
+                    border: `1px solid ${t.border}`,
+                    boxShadow: t.isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="center">
                       <Stack gap={2}>
-                        <Text size="sm" fw={600} c="#FFF">
+                        <Text size="sm" fw={600} c={t.textPrimary}>
+                          Тема оформления
+                        </Text>
+                        <Text size="xs" c={t.textDimmed}>
+                          Выберите светлую или тёмную тему интерфейса
+                        </Text>
+                      </Stack>
+
+                      <SegmentedControl
+                        value={t.colorScheme}
+                        onChange={(val: any) => t.setColorScheme(val)}
+                        data={[
+                          {
+                            value: 'light',
+                            label: (
+                              <Group gap={6} px={4}>
+                                <Sun size={15} color="#f59e0b" />
+                                <span>Светлая (по умолч.)</span>
+                              </Group>
+                            ),
+                          },
+                          {
+                            value: 'dark',
+                            label: (
+                              <Group gap={6} px={4}>
+                                <Moon size={15} color="#60a5fa" />
+                                <span>Тёмная</span>
+                              </Group>
+                            ),
+                          },
+                        ]}
+                      />
+                    </Group>
+                  </Stack>
+                </Paper>
+
+                {/* Блок управления локальными данными */}
+                <Paper
+                  p="md"
+                  radius="sm"
+                  style={{
+                    backgroundColor: t.bgCard,
+                    border: `1px solid ${t.border}`,
+                    boxShadow: t.isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  <Stack gap="md">
+                    <Group justify="space-between" align="center">
+                      <Stack gap={2}>
+                        <Text size="sm" fw={600} c={t.textPrimary}>
                           Очистить список проектов
                         </Text>
-                        <Text size="xs" c="dimmed">
+                        <Text size="xs" c={t.textDimmed}>
                           Удалить все сохраненные проекты из локального хранилища
                         </Text>
                       </Stack>
@@ -691,8 +750,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
         size="sm"
         centered
         styles={{
-          header: { backgroundColor: '#1E1F22', borderBottom: '1px solid #2B2D30' },
-          content: { backgroundColor: '#1E1F22', border: '1px solid #383A42' },
+          header: { backgroundColor: t.bgHeader, borderBottom: `1px solid ${t.border}` },
+          content: { backgroundColor: t.bgCard, border: `1px solid ${t.border}` },
           body: { padding: 20 },
         }}
       >
@@ -704,8 +763,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
             onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
             data-autofocus
             styles={{
-              input: { backgroundColor: '#2B2D30', borderColor: '#3E4249', color: '#FFF' },
-              label: { color: '#C0C4CC', fontSize: 13, marginBottom: 4 },
+              input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary },
+              label: { color: t.textSecondary, fontSize: 13, marginBottom: 4 },
             }}
           />
           <Group justify="flex-end" gap="xs">
@@ -734,12 +793,12 @@ export const ProjectWelcomeScreen: React.FC = () => {
         size="sm"
         centered
         styles={{
-          header: { backgroundColor: '#1E1F22', borderBottom: '1px solid #2B2D30' },
-          content: { backgroundColor: '#1E1F22', border: '1px solid #383A42' },
+          header: { backgroundColor: t.bgHeader, borderBottom: `1px solid ${t.border}` },
+          content: { backgroundColor: t.bgCard, border: `1px solid ${t.border}` },
         }}
       >
         <Stack gap="md">
-          <Text size="xs" c="#D1D5DB">
+          <Text size="xs" c={t.textSecondary}>
             Вы уверены, что хотите удалить этот проект? Это действие нельзя отменить.
           </Text>
           <Group justify="flex-end" gap="xs">

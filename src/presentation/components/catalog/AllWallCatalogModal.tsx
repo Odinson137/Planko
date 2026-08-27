@@ -45,6 +45,7 @@ import {
   AllWallProfileItem,
 } from '../../../core/models/Profile';
 import { Material } from '../../../core/models/Material';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface AllWallCatalogModalProps {
   opened: boolean;
@@ -52,6 +53,7 @@ interface AllWallCatalogModalProps {
 }
 
 export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened, onClose }) => {
+  const t = useAppTheme();
   const {
     project,
     selectedJointId,
@@ -259,8 +261,8 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
         centered
         styles={{
           content: {
-            backgroundColor: '#141517',
-            border: '1px solid #2C2E33',
+            backgroundColor: t.bgApp,
+            border: `1px solid ${t.border}`,
             height: '90vh',
             maxHeight: '90vh',
             display: 'flex',
@@ -268,8 +270,8 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
             overflow: 'hidden',
           },
           header: {
-            backgroundColor: '#1A1B1E',
-            borderBottom: '1px solid #2C2E33',
+            backgroundColor: t.bgHeader,
+            borderBottom: `1px solid ${t.border}`,
             flexShrink: 0,
           },
           body: {
@@ -286,7 +288,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           {/* Вкладки каталога: 1. Стеновые панели AllWall, 2. Профили и фурнитура */}
           <Box style={{ flexShrink: 0 }}>
             <Tabs value={activeTab} onChange={setActiveTab} variant="outline" radius="md">
-              <Tabs.List style={{ borderColor: '#2C2E33' }}>
+              <Tabs.List style={{ borderColor: t.border }}>
                 <Tabs.Tab value="PANELS" leftSection={<Layers size={16} />}>
                   1. Стеновые панели AllWall ({allModels.length})
                 </Tabs.Tab>
@@ -300,7 +302,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           {/* Фильтры для вкладки Панелей */}
           {activeTab === 'PANELS' && (
             <Box style={{ flexShrink: 0 }}>
-              <Paper p="xs" radius="md" style={{ backgroundColor: '#1A1B1E', border: '1px solid #2C2E33' }}>
+              <Paper p="xs" radius="md" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
                 <Stack gap="xs">
                   <Group justify="space-between" align="center" style={{ flexWrap: 'wrap' }}>
                     <Group gap={6}>
@@ -364,7 +366,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           {/* Фильтры для вкладки Профилей */}
           {activeTab === 'PROFILES' && (
             <Box style={{ flexShrink: 0 }}>
-              <Paper p="xs" radius="md" style={{ backgroundColor: '#1A1B1E', border: '1px solid #2C2E33' }}>
+              <Paper p="xs" radius="md" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
                 <Stack gap="xs">
                   <Group justify="space-between" align="center" style={{ flexWrap: 'wrap' }}>
                     <Group gap={6}>
@@ -400,15 +402,15 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                         { value: 'ALL', label: 'Все толщины' },
                         { value: '5', label: '5 мм' },
                         { value: '8', label: '8 мм' },
-                      ].map((t) => (
+                      ].map((tVal) => (
                         <Button
-                          key={t.value}
+                          key={tVal.value}
                           size="compact-xs"
-                          variant={profileThicknessFilter === t.value ? 'filled' : 'subtle'}
+                          variant={profileThicknessFilter === tVal.value ? 'filled' : 'subtle'}
                           color="cyan"
-                          onClick={() => setProfileThicknessFilter(t.value)}
+                          onClick={() => setProfileThicknessFilter(tVal.value)}
                         >
-                          {t.label}
+                          {tVal.label}
                         </Button>
                       ))}
                     </Group>
@@ -433,8 +435,8 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                       padding="md"
                       radius="md"
                       style={{
-                        backgroundColor: '#1A1B1E',
-                        border: prof.isLEDCompatible ? '1px solid #fab005' : '1px solid #2C2E33',
+                        backgroundColor: t.bgCard,
+                        border: prof.isLEDCompatible ? '1px solid #fab005' : `1px solid ${t.border}`,
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
@@ -455,13 +457,13 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                                 Хлыст {prof.stockLength} мм
                               </Badge>
                             </Group>
-                            <Text fw={700} size="sm" c="gray.1">
+                            <Text fw={700} size="sm" c={t.textPrimary}>
                               {prof.name}
                             </Text>
                           </div>
                         </Group>
 
-                        <Text size="xs" c="gray.4" mb="sm">
+                        <Text size="xs" c={t.textDimmed} mb="sm">
                           {prof.description}
                         </Text>
 
@@ -553,12 +555,12 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                       padding="md"
                       radius="md"
                       style={{
-                        backgroundColor: '#1A1B1E',
+                        backgroundColor: t.bgCard,
                         border: isCurrentDecorApplied
                           ? '2px solid #339af0'
                           : isWallUsingThisModel
                           ? '2px dashed #339af0'
-                          : '1px solid #2C2E33',
+                          : `1px solid ${t.border}`,
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
@@ -567,7 +569,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                       <div>
                         <Group justify="space-between" align="flex-start" mb="xs">
                           <div style={{ flex: 1 }}>
-                            <Text fw={700} size="sm" c="gray.1">
+                            <Text fw={700} size="sm" c={t.textPrimary}>
                               {model.name}
                             </Text>
                             <Text size="xs" c="dimmed">
@@ -603,13 +605,13 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                           </Group>
                         </Group>
 
-                        <Text size="xs" c="gray.4" mb="sm" lineClamp={2}>
+                        <Text size="xs" c={t.textDimmed} mb="sm" lineClamp={2}>
                           {model.description}
                         </Text>
 
                         {/* Выбранный декор и его код */}
                         {activeDecor && (
-                          <Paper p="xs" mb="xs" radius="sm" style={{ backgroundColor: '#25262B' }}>
+                          <Paper p="xs" mb="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle }}>
                             <Group justify="space-between" align="center">
                               <Group gap="xs">
                                 <ColorSwatch color={activeDecor.color} size={20} />
@@ -734,8 +736,8 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
         size="lg"
         centered
         styles={{
-          content: { backgroundColor: '#141517', border: '1px solid #2C2E33' },
-          header: { backgroundColor: '#1A1B1E', borderBottom: '1px solid #2C2E33' },
+          content: { backgroundColor: t.bgCard, border: `1px solid ${t.border}` },
+          header: { backgroundColor: t.bgHeader, borderBottom: `1px solid ${t.border}` },
           body: { padding: '16px' },
         }}
       >
@@ -850,7 +852,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                   <Badge
                     key={`${d.code}-${idx}`}
                     variant="filled"
-                    style={{ backgroundColor: '#25262B', color: '#E9ECEF', textTransform: 'none' }}
+                    style={{ backgroundColor: t.bgCardSubtle, color: t.textPrimary, textTransform: 'none' }}
                     leftSection={<ColorSwatch color={d.color} size={10} />}
                     rightSection={
                       editDecors.length > 1 ? (
@@ -896,8 +898,8 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
         centered
         size="md"
         styles={{
-          content: { backgroundColor: '#141517', border: '1px solid #2C2E33' },
-          header: { backgroundColor: '#1A1B1E', borderBottom: '1px solid #2C2E33' },
+          content: { backgroundColor: t.bgCard, border: `1px solid ${t.border}` },
+          header: { backgroundColor: t.bgHeader, borderBottom: `1px solid ${t.border}` },
         }}
       >
         <Stack gap="md">

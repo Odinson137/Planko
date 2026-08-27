@@ -1,11 +1,13 @@
 import React, { useEffect } from 'react';
-import { MantineProvider } from '@mantine/core';
+import { MantineProvider, localStorageColorSchemeManager } from '@mantine/core';
 import '@mantine/core/styles.css';
 import { theme } from '../presentation/theme/theme';
 import { MainLayout } from '../presentation/components/layout/MainLayout';
 import { ProjectWelcomeScreen } from '../presentation/components/welcome/ProjectWelcomeScreen';
 import { useEditorStore } from '../application/stores/useEditorStore';
 import { useProjectStore } from '../application/stores/useProjectStore';
+
+const colorSchemeManager = localStorageColorSchemeManager({ key: 'planko-color-scheme' });
 
 export const App: React.FC = () => {
   const { currentScreen } = useEditorStore();
@@ -25,9 +27,8 @@ export const App: React.FC = () => {
   }, [saveCurrentProject]);
 
   return (
-    <MantineProvider theme={theme} defaultColorScheme="dark">
+    <MantineProvider theme={theme} defaultColorScheme="light" colorSchemeManager={colorSchemeManager}>
       {currentScreen === 'WELCOME' ? <ProjectWelcomeScreen /> : <MainLayout />}
     </MantineProvider>
   );
 };
-

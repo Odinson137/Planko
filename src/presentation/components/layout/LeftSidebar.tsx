@@ -15,8 +15,10 @@ import {
 import { Plus, Layout, DoorOpen, AppWindow, Tv, Square, Trash2 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { OpeningType } from '../../../core/models/Opening';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 export const LeftSidebar: React.FC = () => {
+  const t = useAppTheme();
   const { project, selectedWallBendId, selectWall, selectOpening, selectWallBend, addWall, removeOpening, deleteWallBend } = useProjectStore();
   const selectedWallId = project.selectedWallId;
   const selectedOpeningId = project.selectedOpeningId;
@@ -42,14 +44,14 @@ export const LeftSidebar: React.FC = () => {
       gap="xs"
       p="xs"
       style={{
-        borderRight: '1px solid #2C2E33',
-        backgroundColor: '#141517',
+        borderRight: `1px solid ${t.border}`,
+        backgroundColor: t.bgSidebar,
         width: 260,
         minWidth: 260,
       }}
     >
       <Group justify="space-between" px="xs" pt="xs">
-        <Title order={6} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <Title order={6} c={t.textDimmed} style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: 11 }}>
           Стены ({project.walls.length})
         </Title>
         <Button
@@ -75,7 +77,7 @@ export const LeftSidebar: React.FC = () => {
                   active={isWallSelected && !selectedOpeningId && !selectedWallBendId}
                   label={
                     <Group justify="space-between" wrap="nowrap" gap={4}>
-                      <Text size="xs" fw={500} truncate style={{ flex: 1 }}>
+                      <Text size="xs" fw={500} truncate style={{ flex: 1, color: isWallSelected ? undefined : t.textPrimary }}>
                         {wall.name}
                       </Text>
                       {wall.roomName && (
@@ -112,7 +114,7 @@ export const LeftSidebar: React.FC = () => {
                           active={bend.id === selectedWallBendId}
                           label={bend.name || 'Угол'}
                           description={bend.radius === 0 ? `X: ${bend.x} мм, Острый (R=0)` : `X: ${bend.x} мм, R: ${bend.radius}`}
-                          leftSection={<Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>{bend.radius === 0 ? '📐' : '⌒'}</Text>}
+                          leftSection={<Text size="xs" fw={700} c="cyan.5" style={{ fontFamily: 'JetBrains Mono' }}>{bend.radius === 0 ? '📐' : '⌒'}</Text>}
                           rightSection={
                             <Group gap={4}>
                               <Badge size="xs" variant="light" color="cyan">
@@ -199,14 +201,14 @@ export const LeftSidebar: React.FC = () => {
         </Stack>
       </ScrollArea>
 
-      <Divider color="#2C2E33" />
+      <Divider color={t.border} />
 
       {/* Информационный футер */}
       <Stack gap={2} p="xs">
-        <Text size="xs" c="dimmed">
+        <Text size="xs" c={t.textDimmed}>
           Активная стена:
         </Text>
-        <Text size="xs" fw={500} c="bright">
+        <Text size="xs" fw={500} c={t.textPrimary}>
           {currentWall
             ? `${currentWall.name}${currentWall.roomName ? ` [${currentWall.roomName}]` : ''} (${currentWall.width}×${currentWall.height} мм)`
             : 'Не выбрана'}

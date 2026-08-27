@@ -14,7 +14,7 @@ const cadBrand: MantineColorsTuple = [
 ];
 
 export const theme = createTheme({
-  primaryColor: 'dark',
+  primaryColor: 'blue',
   colors: {
     cadBrand,
   },

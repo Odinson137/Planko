@@ -25,8 +25,10 @@ import {
 } from '../../../core/geometry/PolygonSlicingEngine';
 import { LayoutEngine, CalculatedPanelPiece } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 export const PanelSlicingModal: React.FC = () => {
+  const t = useAppTheme();
   const {
     project,
     isSlicingModalOpen,
@@ -360,7 +362,7 @@ export const PanelSlicingModal: React.FC = () => {
     const height = canvas.height;
 
     // 1. Черный технический CAD-фон
-    ctx.fillStyle = '#0f1115';
+    ctx.fillStyle = t.canvasBg;
     ctx.fillRect(0, 0, width, height);
 
     // Масштабирование по габаритам панели
@@ -382,7 +384,7 @@ export const PanelSlicingModal: React.FC = () => {
     for (let x = 0; x <= panelWidth; x += 100) {
       const p1 = toCanvas({ x, y: 0 });
       const p2 = toCanvas({ x, y: panelHeight });
-      ctx.strokeStyle = x % 500 === 0 ? 'rgba(77, 171, 247, 0.18)' : 'rgba(255, 255, 255, 0.04)';
+      ctx.strokeStyle = x % 500 === 0 ? (t.isDark ? 'rgba(77, 171, 247, 0.18)' : 'rgba(25, 113, 194, 0.25)') : (t.isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)');
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
@@ -391,7 +393,7 @@ export const PanelSlicingModal: React.FC = () => {
     for (let y = 0; y <= panelHeight; y += 100) {
       const p1 = toCanvas({ x: 0, y });
       const p2 = toCanvas({ x: panelWidth, y });
-      ctx.strokeStyle = y % 500 === 0 ? 'rgba(77, 171, 247, 0.18)' : 'rgba(255, 255, 255, 0.04)';
+      ctx.strokeStyle = y % 500 === 0 ? (t.isDark ? 'rgba(77, 171, 247, 0.18)' : 'rgba(25, 113, 194, 0.25)') : (t.isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)');
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
@@ -450,10 +452,10 @@ export const PanelSlicingModal: React.FC = () => {
           const textW = ctx.measureText(dimText).width;
 
           // Подложка под размер
-          ctx.fillStyle = 'rgba(15, 17, 21, 0.85)';
+          ctx.fillStyle = t.isDark ? 'rgba(15, 17, 21, 0.85)' : 'rgba(255, 255, 255, 0.9)';
           ctx.fillRect(-textW / 2 - 3, -8, textW + 6, 16);
 
-          ctx.fillStyle = isSelectedPiece ? '#ffe066' : '#ced4da';
+          ctx.fillStyle = isSelectedPiece ? '#ffe066' : (t.isDark ? '#ced4da' : '#334155');
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(dimText, 0, 0);
@@ -470,14 +472,14 @@ export const PanelSlicingModal: React.FC = () => {
 
       ctx.font = '700 11px JetBrains Mono, monospace';
       const badgeW = ctx.measureText(labelText).width;
-      ctx.fillStyle = isSelectedPiece ? 'rgba(30, 26, 10, 0.95)' : 'rgba(15, 17, 21, 0.9)';
+      ctx.fillStyle = isSelectedPiece ? (t.isDark ? 'rgba(30, 26, 10, 0.95)' : 'rgba(254, 243, 199, 0.95)') : (t.isDark ? 'rgba(15, 17, 21, 0.9)' : 'rgba(255, 255, 255, 0.95)');
       ctx.fillRect(cCanvas.x - badgeW / 2 - 8, cCanvas.y - 12, badgeW + 16, 24);
 
       ctx.strokeStyle = isSelectedPiece ? '#ffd43b' : cadColor.stroke;
       ctx.lineWidth = isSelectedPiece ? 2.0 : 1.5;
       ctx.strokeRect(cCanvas.x - badgeW / 2 - 8, cCanvas.y - 12, badgeW + 16, 24);
 
-      ctx.fillStyle = isSelectedPiece ? '#ffd43b' : cadColor.text;
+      ctx.fillStyle = isSelectedPiece ? (t.isDark ? '#ffd43b' : '#b45309') : (t.isDark ? cadColor.text : '#1e293b');
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(labelText, cCanvas.x, cCanvas.y);
@@ -847,9 +849,9 @@ export const PanelSlicingModal: React.FC = () => {
         </Group>
       }
       styles={{
-        header: { backgroundColor: '#141517', borderBottom: '1px solid #2C2E33', padding: '12px 16px' },
-        body: { backgroundColor: '#0e1013', padding: 12 },
-        content: { backgroundColor: '#0e1013', border: '1px solid #339af0' },
+        header: { backgroundColor: t.bgHeader, borderBottom: `1px solid ${t.border}`, padding: '12px 16px' },
+        body: { backgroundColor: t.bgApp, padding: 12 },
+        content: { backgroundColor: t.bgApp, border: `1px solid ${t.border}` },
       }}
     >
       <Stack gap="xs">
@@ -858,7 +860,7 @@ export const PanelSlicingModal: React.FC = () => {
           ref={containerRef}
           style={{
             height: '63vh',
-            backgroundColor: '#0f1115',
+            backgroundColor: t.canvasBg,
             borderRadius: 8,
             overflow: 'hidden',
             position: 'relative',
@@ -866,7 +868,7 @@ export const PanelSlicingModal: React.FC = () => {
             justifyContent: 'center',
             alignItems: 'center',
             cursor: 'crosshair',
-            border: '1px solid #25262b',
+            border: `1px solid ${t.border}`,
           }}
         >
           <canvas
@@ -880,7 +882,7 @@ export const PanelSlicingModal: React.FC = () => {
         </Box>
 
         {/* ПАНЕЛЬ ТОЧНОГО ВВОДА РАЗМЕРОВ И ОТСТУПОВ (CAD Precision Toolbar) */}
-        <Paper p="xs" withBorder style={{ backgroundColor: '#141517', borderColor: '#2C2E33' }}>
+        <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
           <Group justify="space-between" align="center" wrap="wrap">
             <Group gap="sm" align="center">
               <Text size="xs" fw={700} c="dimmed">

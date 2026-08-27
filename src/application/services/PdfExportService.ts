@@ -1,11 +1,11 @@
 import { jsPDF } from 'jspdf';
 import { Project } from '../../core/models/Project';
-import { Wall } from '../../core/models/Wall';
+import { Wall, RadiusType } from '../../core/models/Wall';
 import { LayoutEngine, LayoutCalculationResult } from '../../core/layout/LayoutEngine';
 import { NestingEngine, NestingPartInput, ProjectNestingResult, NestingSheet, NestingCutout } from '../../core/layout/NestingEngine';
 import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport, PROFILE_CATEGORIES_INFO } from '../../core/layout/ProfileSpecificationEngine';
 import { MATERIAL_NONE_ID } from '../../core/models/Material';
-import { PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
+import { Point2D, PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
 
 export class PdfExportService {
   /**
@@ -66,6 +66,7 @@ export class PdfExportService {
             thickness: p.thickness,
             polygonPoints: p.polygonPoints,
             cutouts: panelCutouts.length > 0 ? panelCutouts : undefined,
+            bendsInfo: p.bendsInfo,
             note: p.note,
           });
         }
@@ -185,6 +186,8 @@ export class PdfExportService {
             materialName: mat?.name || p.decorName || 'Панель AllWall',
             decorCode: p.decorCode,
             thickness: p.thickness,
+            polygonPoints: p.polygonPoints,
+            bendsInfo: p.bendsInfo,
           });
         }
       });
@@ -359,7 +362,7 @@ export class PdfExportService {
     ctx.fillStyle = '#64748b';
     ctx.font = '22px "Segoe UI", Arial, sans-serif';
     ctx.fillText(`Лист ${pageNumber} из ${totalPages}`, w - marginX, 2040);
-    ctx.fillText(`Planko CAD Engine • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2004);
+    ctx.fillText(`AllWall CAD Engine • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2004);
     ctx.restore();
   }
 
@@ -533,6 +536,129 @@ export class PdfExportService {
         }
       }
     });
+
+    // 2.3. Зоны сгибов и углы стены (WallBend)
+    if (wall.bends && wall.bends.length > 0) {
+      wall.bends.forEach((bend) => {
+        const arcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
+        const bendX = originX + bend.x * scale;
+        const bendW = arcLen * scale;
+
+        ctx.save();
+        if (bend.radius <= 0 || arcLen <= 0) {
+          // Острый угол (R = 0): вертикальная пунктирная линия перегиба и бейдж
+          ctx.strokeStyle = '#0284c7';
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([8, 6]);
+          ctx.beginPath();
+          ctx.moveTo(bendX, originY);
+          ctx.lineTo(bendX, originY + wall.height * scale);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Бейдж угла
+          const angleLabel = `📐 ${bend.name || (bend.type === 'INNER_CORNER' ? 'Внутр' : 'Внешн')} ${bend.angleDeg || 90}° (${Math.round(bend.x)} мм)`;
+          ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
+          const bw = ctx.measureText(angleLabel).width + 16;
+          const bh = 24;
+          const bx = bendX - bw / 2;
+          const by = originY + 12;
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw, bh, 4);
+          ctx.fill();
+          ctx.strokeStyle = '#0284c7';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = '#0284c7';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(angleLabel, bendX, by + bh / 2);
+
+          // Сноска с указателем снизу
+          ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
+          ctx.fillStyle = '#0369a1';
+          ctx.fillText(`▲ Линия угла: ${Math.round(bend.x)} мм`, bendX, originY + wall.height * scale - 14);
+        } else {
+          // Радиусный сгиб (R > 0): зона скругления, керф-пропилы и бейджи
+          ctx.fillStyle = bend.type === 'INNER_CORNER' ? 'rgba(0, 0, 0, 0.08)' : 'rgba(2, 132, 199, 0.08)';
+          ctx.fillRect(bendX, originY, bendW, wall.height * scale);
+
+          ctx.strokeStyle = '#0284c7';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 4]);
+          ctx.beginPath();
+          ctx.moveTo(bendX, originY);
+          ctx.lineTo(bendX, originY + wall.height * scale);
+          ctx.moveTo(bendX + bendW, originY);
+          ctx.lineTo(bendX + bendW, originY + wall.height * scale);
+          ctx.stroke();
+
+          // Пропилы керф-бендинга
+          const numLines = Math.min(8, Math.max(3, Math.floor(bend.radius / 30)));
+          ctx.strokeStyle = 'rgba(2, 132, 199, 0.35)';
+          ctx.lineWidth = 1;
+          for (let l = 1; l < numLines; l++) {
+            const lx = bendX + (l / numLines) * bendW;
+            ctx.beginPath();
+            ctx.moveTo(lx, originY);
+            ctx.lineTo(lx, originY + wall.height * scale);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+
+          // Бейдж радиуса
+          const radLabel = `⌒ ${bend.name || (bend.type === 'INNER_CORNER' ? 'Внутр' : 'Внешн')} R=${bend.radius} (${arcLen} мм, ${bend.angleDeg || 90}°)`;
+          ctx.font = 'bold 13px "Segoe UI", Arial, sans-serif';
+          const bw = ctx.measureText(radLabel).width + 16;
+          const bh = 24;
+          const bx = bendX + bendW / 2 - bw / 2;
+          const by = originY + 12;
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw, bh, 4);
+          ctx.fill();
+          ctx.strokeStyle = '#0284c7';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = '#0284c7';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(radLabel, bendX + bendW / 2, by + bh / 2);
+
+          // Размерные сноски начала и конца изгиба
+          ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
+          ctx.fillStyle = '#0284c7';
+          ctx.textAlign = 'center';
+          ctx.fillText(`▲ Начало: ${Math.round(bend.x)} мм`, bendX, originY + wall.height * scale - 28);
+          ctx.fillText(`▲ Конец: ${Math.round(bend.x + arcLen)} мм`, bendX + bendW, originY + wall.height * scale - 14);
+
+          // Размерная стрелка развертки дуги
+          if (bendW > 40) {
+            const arrY = originY + 44;
+            ctx.strokeStyle = '#0284c7';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(bendX, arrY);
+            ctx.lineTo(bendX + bendW, arrY);
+            ctx.moveTo(bendX, arrY - 4);
+            ctx.lineTo(bendX, arrY + 4);
+            ctx.moveTo(bendX + bendW, arrY - 4);
+            ctx.lineTo(bendX + bendW, arrY + 4);
+            ctx.stroke();
+
+            ctx.fillStyle = '#0369a1';
+            ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
+            ctx.fillText(`Развертка ${arcLen} мм`, bendX + bendW / 2, arrY + 11);
+          }
+        }
+        ctx.restore();
+      });
+    }
 
     // 3. Проемы (окна, двери, ТВ-зона, ниши)
     wall.openings.forEach((op) => {
@@ -778,6 +904,15 @@ export class PdfExportService {
         xCuts.add(Math.round(op.x));
         xCuts.add(Math.round(op.x + op.width));
       });
+    if (wall.bends && wall.bends.length > 0) {
+      wall.bends.forEach((b) => {
+        const arcLen = Math.round((Math.PI * b.radius * (b.angleDeg || 90)) / 180);
+        xCuts.add(Math.round(b.x));
+        if (b.radius > 0 && arcLen > 0) {
+          xCuts.add(Math.round(b.x + arcLen));
+        }
+      });
+    }
 
     const sortedXCuts = Array.from(xCuts).sort((a, b) => a - b);
     const cleanedXCuts: number[] = [sortedXCuts[0]];
@@ -1493,6 +1628,161 @@ export class PdfExportService {
           });
         }
 
+        // ЗОНЫ СГИБОВ И КЕРФ-БЕНДИНГА НА ДЕТАЛИ ЛИСТА РАСКРОЯ
+        if (p.part.bendsInfo && p.part.bendsInfo.length > 0) {
+          p.part.bendsInfo.forEach((bend) => {
+            const isRot = p.rotated;
+            const bOffset = bend.bendOffsetInSheet;
+            const bW = bend.bendWidth;
+
+            const bCanvasX = isRot ? px : px + bOffset * scale;
+            const bCanvasY = isRot ? py + (p.height - (bOffset + bW)) * scale : py;
+            const bCanvasW = isRot ? pw : bW * scale;
+            const bCanvasH = isRot ? bW * scale : ph;
+
+            ctx.save();
+            // 1. Заливка зоны изгиба
+            ctx.fillStyle = 'rgba(2, 132, 199, 0.14)';
+            ctx.fillRect(bCanvasX, bCanvasY, bCanvasW, bCanvasH);
+
+            // 2. Граничные пунктирные линии начала и конца сгиба
+            ctx.strokeStyle = '#0284c7';
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([5, 3]);
+            if (!isRot) {
+              ctx.beginPath();
+              ctx.moveTo(bCanvasX, bCanvasY);
+              ctx.lineTo(bCanvasX, bCanvasY + bCanvasH);
+              ctx.moveTo(bCanvasX + bCanvasW, bCanvasY);
+              ctx.lineTo(bCanvasX + bCanvasW, bCanvasY + bCanvasH);
+              ctx.stroke();
+            } else {
+              ctx.beginPath();
+              ctx.moveTo(bCanvasX, bCanvasY);
+              ctx.lineTo(bCanvasX + bCanvasW, bCanvasY);
+              ctx.moveTo(bCanvasX, bCanvasY + bCanvasH);
+              ctx.lineTo(bCanvasX + bCanvasW, bCanvasY + bCanvasH);
+              ctx.stroke();
+            }
+
+            // 3. Линии пропилов керф-бендинга
+            const numLines = Math.min(8, Math.max(3, Math.floor(bend.radius / 30)));
+            ctx.strokeStyle = 'rgba(2, 132, 199, 0.45)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            for (let l = 1; l < numLines; l++) {
+              if (!isRot) {
+                const lx = bCanvasX + (l / numLines) * bCanvasW;
+                ctx.beginPath();
+                ctx.moveTo(lx, bCanvasY);
+                ctx.lineTo(lx, bCanvasY + bCanvasH);
+                ctx.stroke();
+              } else {
+                const ly = bCanvasY + (l / numLines) * bCanvasH;
+                ctx.beginPath();
+                ctx.moveTo(bCanvasX, ly);
+                ctx.lineTo(bCanvasX + bCanvasW, ly);
+                ctx.stroke();
+              }
+            }
+            ctx.setLineDash([]);
+
+            // 4. Бейдж угла/радиуса в зоне сгиба
+            const radBadge = bend.radius > 0
+              ? `⌒ ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} R=${bend.radius} (${Math.round(bW)} мм, ∠${bend.angleDeg || 90}°)`
+              : `📐 ${bend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'} ${bend.angleDeg || 90}°`;
+            ctx.font = 'bold 10.5px "Segoe UI", Arial, sans-serif';
+            const bbw = ctx.measureText(radBadge).width + 12;
+            const bbh = 20;
+            const bbx = isRot ? bCanvasX + (bCanvasW - bbw) / 2 : bCanvasX + bCanvasW / 2 - bbw / 2;
+            const bby = isRot ? bCanvasY + bCanvasH / 2 - bbh / 2 : bCanvasY + 12;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.roundRect(bbx, bby, bbw, bbh, 3);
+            ctx.fill();
+            ctx.strokeStyle = '#0284c7';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            ctx.fillStyle = '#0284c7';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(radBadge, bbx + bbw / 2, bby + bbh / 2);
+
+            // 5. ВЫНОСКИ РАЗМЕРОВ ДЛЯ ЦЕХА: (Плоский слева | Зона гибки | Плоский справа)
+            const flatLeft = Math.round(bend.flatLeft);
+            const flatRight = Math.round(bend.flatRight);
+            const bendDimY = hasBottomDoorCutout ? py - 20 : py + ph + 16;
+
+            if (!isRot) {
+              ctx.strokeStyle = '#0284c7';
+              ctx.fillStyle = '#0284c7';
+              ctx.lineWidth = 1.2;
+
+              // Цепочка размеров под/над деталью
+              // Отрезок 1 (слева):
+              if (flatLeft > 5) {
+                ctx.beginPath();
+                ctx.moveTo(px, bendDimY);
+                ctx.lineTo(bCanvasX, bendDimY);
+                ctx.moveTo(px, bendDimY - 4);
+                ctx.lineTo(px, bendDimY + 4);
+                ctx.moveTo(bCanvasX, bendDimY - 4);
+                ctx.lineTo(bCanvasX, bendDimY + 4);
+                ctx.stroke();
+
+                ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(`${flatLeft}`, px + (bCanvasX - px) / 2, bendDimY + 2);
+              }
+
+              // Отрезок 2 (зона сгиба):
+              ctx.beginPath();
+              ctx.moveTo(bCanvasX, bendDimY);
+              ctx.lineTo(bCanvasX + bCanvasW, bendDimY);
+              ctx.moveTo(bCanvasX, bendDimY - 4);
+              ctx.lineTo(bCanvasX, bendDimY + 4);
+              ctx.moveTo(bCanvasX + bCanvasW, bendDimY - 4);
+              ctx.lineTo(bCanvasX + bCanvasW, bendDimY + 4);
+              ctx.stroke();
+
+              ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'top';
+              ctx.fillText(`${Math.round(bW)} (сгиб)`, bCanvasX + bCanvasW / 2, bendDimY + 2);
+
+              // Отрезок 3 (справа):
+              if (flatRight > 5) {
+                ctx.beginPath();
+                ctx.moveTo(bCanvasX + bCanvasW, bendDimY);
+                ctx.lineTo(px + pw, bendDimY);
+                ctx.moveTo(bCanvasX + bCanvasW, bendDimY - 4);
+                ctx.lineTo(bCanvasX + bCanvasW, bendDimY + 4);
+                ctx.moveTo(px + pw, bendDimY - 4);
+                ctx.lineTo(px + pw, bendDimY + 4);
+                ctx.stroke();
+
+                ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(`${flatRight}`, bCanvasX + bCanvasW + (px + pw - (bCanvasX + bCanvasW)) / 2, bendDimY + 2);
+              }
+
+              // Сноски с указателями на начало и конец гибки:
+              ctx.font = 'bold 9px "Segoe UI", Arial, sans-serif';
+              ctx.fillStyle = '#0369a1';
+              ctx.fillText(`▲ Начало гибки (${Math.round(bOffset)} мм)`, bCanvasX, py + ph - 24);
+              if (bW > 20) {
+                ctx.fillText(`▲ Конец гибки (${Math.round(bOffset + bW)} мм)`, bCanvasX + bCanvasW, py + ph - 12);
+              }
+            }
+
+            ctx.restore();
+          });
+        }
+
         // Метка детали
         if (pw > 15 && ph > 15) {
           ctx.fillStyle = isCurrentWall ? '#111827' : '#312e81';
@@ -1518,9 +1808,17 @@ export class PdfExportService {
             ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, 0, 8);
             ctx.restore();
           } else {
-            const labelCenterX = isDiagonalCut && polyCanvasPts.length >= 3
-              ? polyCanvasPts.reduce((s, pt) => s + pt.x, 0) / polyCanvasPts.length
-              : px + pw / 2;
+            // Если есть зона сгиба, сдвигаем метку детали в плоскую зону
+            let labelCenterX = px + pw / 2;
+            if (p.part.bendsInfo && p.part.bendsInfo.length > 0 && !p.rotated) {
+              const firstBend = p.part.bendsInfo[0];
+              if (firstBend.flatLeft > 150) {
+                labelCenterX = px + (firstBend.bendOffsetInSheet * scale) / 2;
+              }
+            } else if (isDiagonalCut && polyCanvasPts.length >= 3) {
+              labelCenterX = polyCanvasPts.reduce((s, pt) => s + pt.x, 0) / polyCanvasPts.length;
+            }
+
             const labelCenterY = isDiagonalCut && polyCanvasPts.length >= 3
               ? polyCanvasPts.reduce((s, pt) => s + pt.y, 0) / polyCanvasPts.length
               : (hasBottomDoorCutout && doorCutoutTopCanvasY > py + 25
@@ -1701,12 +1999,74 @@ export class PdfExportService {
     ctx.fillStyle = '#64748b';
     ctx.font = '22px "Segoe UI", Arial, sans-serif';
     ctx.fillText(`Лист ${pageNumber} из ${totalPages}`, w - marginX, 2040);
-    ctx.fillText(`Planko 3D Visualization • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2005);
+    ctx.fillText(`AllWall CAD 3D Visualization • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2005);
     ctx.restore();
   }
 
+  private static adjustBrightness(hex: string, percent: number): string {
+    if (!hex || !hex.startsWith('#')) return hex || '#888';
+    let num = parseInt(hex.slice(1), 16);
+    let r = Math.min(255, Math.max(0, Math.round(((num >> 16) & 255) * percent)));
+    let g = Math.min(255, Math.max(0, Math.round(((num >> 8) & 255) * percent)));
+    let b = Math.min(255, Math.max(0, Math.round((num & 255) * percent)));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  private static clipPolygonByXRange(points: Point2D[], xMin: number, xMax: number): Point2D[] {
+    if (!points || points.length < 3) return [];
+    let outputList = points;
+
+    const clipLeft = (pts: Point2D[]) => {
+      const res: Point2D[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        const p1In = p1.x >= xMin - 0.001;
+        const p2In = p2.x >= xMin - 0.001;
+
+        if (p1In && p2In) {
+          res.push(p2);
+        } else if (p1In && !p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMin - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMin, y: p1.y + t * (p2.y - p1.y) });
+        } else if (!p1In && p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMin - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMin, y: p1.y + t * (p2.y - p1.y) });
+          res.push(p2);
+        }
+      }
+      return res;
+    };
+
+    const clipRight = (pts: Point2D[]) => {
+      const res: Point2D[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        const p1In = p1.x <= xMax + 0.001;
+        const p2In = p2.x <= xMax + 0.001;
+
+        if (p1In && p2In) {
+          res.push(p2);
+        } else if (p1In && !p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMax - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMax, y: p1.y + t * (p2.y - p1.y) });
+        } else if (!p1In && p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMax - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMax, y: p1.y + t * (p2.y - p1.y) });
+          res.push(p2);
+        }
+      }
+      return res;
+    };
+
+    outputList = clipLeft(outputList);
+    outputList = clipRight(outputList);
+    return outputList;
+  }
+
   /**
-   * Отрисовка фотореалистичной 3D-сцены стены (Светлая тема)
+   * Отрисовка фотореалистичной 3D-сцены стены (Светлая презентационная тема с полной поддержкой сгибов и углов)
    */
   private static drawWall3DScene(
     ctx: CanvasRenderingContext2D,
@@ -1722,17 +2082,28 @@ export class PdfExportService {
     const radA = (angleDeg * Math.PI) / 180;
     const radE = (elevationDeg * Math.PI) / 180;
 
-    const cx = boxX + boxW * 0.38;
-    const cy = boxY + boxH * 0.72;
+    interface Point3D {
+      x: number;
+      y: number;
+      z: number;
+    }
 
-    const scale = Math.min(boxW / (wall.width * 1.5), boxH / (wall.height * 1.8), 0.55);
+    interface Interval1D {
+      start: number;
+      end: number;
+    }
 
-    const project3D = (p: { x: number; y: number; z: number }) => {
-      const xRot = p.x * Math.cos(radA) - p.z * Math.sin(radA);
-      const zRot = p.x * Math.sin(radA) + p.z * Math.cos(radA);
-      const screenX = cx + xRot * scale;
-      const screenY = cy - (p.y * Math.cos(radE) - zRot * Math.sin(radE)) * scale;
-      return { x: screenX, y: screenY };
+    const subtractInterval = (intervals: Interval1D[], cutStart: number, cutEnd: number): Interval1D[] => {
+      const result: Interval1D[] = [];
+      intervals.forEach((inv) => {
+        if (cutEnd <= inv.start || cutStart >= inv.end) {
+          result.push(inv);
+        } else {
+          if (cutStart > inv.start) result.push({ start: inv.start, end: cutStart });
+          if (cutEnd < inv.end) result.push({ start: cutEnd, end: inv.end });
+        }
+      });
+      return result;
     };
 
     const wallIndex = project.walls.findIndex((w) => w.id === wall.id);
@@ -1740,28 +2111,320 @@ export class PdfExportService {
     const defMat = project.materials.find((m) => m.id === wall.zone.materialId) || project.materials[0];
     const layout = LayoutEngine.calculateWallLayout(wall, defMat, project.materials, wallNumber);
 
-    // 1. Светлый плиточный пол
-    const minX = -600;
-    const maxX = wall.width + 600;
-    const minZ = -700;
-    const maxZ = 1600;
+    const wallW = wall.width;
+    const wallH = wall.height;
+    const wallThick = 150;
+    const panelThick = 8;
 
-    const f0 = project3D({ x: minX, y: 0, z: minZ });
-    const f1 = project3D({ x: maxX, y: 0, z: minZ });
-    const f2 = project3D({ x: maxX, y: 0, z: maxZ });
-    const f3 = project3D({ x: minX, y: 0, z: maxZ });
+    // 1. Построение 3D траектории стены (с поворотами на WallBend)
+    interface ActiveBend3D {
+      id: string;
+      sStart: number;
+      sEnd: number;
+      arcLen: number;
+      radius: number;
+      angleDeg: number;
+      type: RadiusType;
+    }
+
+    const activeBends: ActiveBend3D[] = [];
+    if (wall.bends && wall.bends.length > 0) {
+      wall.bends.forEach((b) => {
+        const arcLen = Math.round((Math.PI * b.radius * (b.angleDeg || 90)) / 180);
+        activeBends.push({
+          id: b.id,
+          sStart: b.x,
+          sEnd: b.x + arcLen,
+          arcLen,
+          radius: b.radius,
+          angleDeg: b.angleDeg || 90,
+          type: b.type,
+        });
+      });
+    } else {
+      layout.panels.forEach((p) => {
+        if (p.radiusConfig && !activeBends.some((b) => b.sStart === p.x)) {
+          const arcLen = p.arcLength || Math.round((Math.PI * p.radiusConfig.radius * (p.radiusConfig.angleDeg || 90)) / 180);
+          activeBends.push({
+            id: `legacy-${p.id}`,
+            sStart: p.x,
+            sEnd: p.x + arcLen,
+            arcLen,
+            radius: p.radiusConfig.radius,
+            angleDeg: p.radiusConfig.angleDeg || 90,
+            type: p.radiusConfig.type,
+          });
+        }
+      });
+    }
+
+    activeBends.sort((a, b) => a.sStart - b.sStart);
+
+    interface PathSection3D {
+      sStart: number;
+      sEnd: number;
+      isBend: boolean;
+      bend?: ActiveBend3D;
+      startPoint: Point3D;
+      endPoint: Point3D;
+      startHeading: number;
+      endHeading: number;
+      centerPoint?: Point3D;
+      totalTurn?: number;
+      getPoint: (s: number, y: number, depthOffset: number) => Point3D;
+    }
+
+    const computeMiterVector = (psi1: number, psi2: number, d: number): { x: number; z: number } => {
+      const n1x = -Math.sin(psi1);
+      const n1z = -Math.cos(psi1);
+      const n2x = -Math.sin(psi2);
+      const n2z = -Math.cos(psi2);
+
+      const sumX = n1x + n2x;
+      const sumZ = n1z + n2z;
+      const len = Math.sqrt(sumX * sumX + sumZ * sumZ);
+
+      if (len < 0.001) {
+        return { x: n1x * d, z: n1z * d };
+      }
+
+      const mX = sumX / len;
+      const mZ = sumZ / len;
+      const dot = n1x * mX + n1z * mZ;
+      const scale = Math.abs(dot) > 0.05 ? d / dot : d;
+
+      return { x: mX * scale, z: mZ * scale };
+    };
+
+    const pathSections: PathSection3D[] = [];
+    let curS = 0;
+    let curPt: Point3D = { x: 0, y: 0, z: 0 };
+    let curHeading = 0;
+    const allPathPoints: Point3D[] = [{ x: 0, y: 0, z: 0 }];
+
+    activeBends.forEach((bend) => {
+      if (bend.sStart > curS + 0.5) {
+        const straightLen = bend.sStart - curS;
+        const straightStartPt = { ...curPt };
+        const straightHeading = curHeading;
+        const sStart = curS;
+        const sEnd = bend.sStart;
+        const straightEndPt = {
+          x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
+          y: 0,
+          z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
+        };
+
+        pathSections.push({
+          sStart,
+          sEnd,
+          isBend: false,
+          startPoint: straightStartPt,
+          endPoint: straightEndPt,
+          startHeading: straightHeading,
+          endHeading: straightHeading,
+          getPoint: (s: number, y: number, depthOffset = 0) => {
+            const dist = Math.max(0, Math.min(straightLen, s - sStart));
+            const normX = -Math.sin(straightHeading) * depthOffset;
+            const normZ = -Math.cos(straightHeading) * depthOffset;
+            return {
+              x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
+              y,
+              z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
+            };
+          },
+        });
+
+        curPt = { ...straightEndPt };
+        curS = sEnd;
+        allPathPoints.push({ ...curPt });
+      }
+
+      const R = bend.radius;
+      const totalTurn = ((bend.angleDeg || 90) * Math.PI) / 180;
+      const psi = curHeading;
+      const bendStartPt = { ...curPt };
+
+      if (R <= 0 || bend.arcLen <= 0) {
+        if (bend.type === 'INNER_CORNER') {
+          curHeading = psi - totalTurn;
+        } else {
+          curHeading = psi + totalTurn;
+        }
+        curS = bend.sStart;
+        allPathPoints.push({ ...curPt });
+      } else {
+        const sStart = curS;
+        const sEnd = curS + bend.arcLen;
+
+        if (bend.type === 'INNER_CORNER') {
+          const cX = bendStartPt.x + Math.sin(psi) * R;
+          const cZ = bendStartPt.z + Math.cos(psi) * R;
+          const centerPt = { x: cX, y: 0, z: cZ };
+          const endPhi = psi + Math.PI / 2 - totalTurn;
+          const bendEndPt = {
+            x: cX + Math.cos(endPhi) * R,
+            y: 0,
+            z: cZ - Math.sin(endPhi) * R,
+          };
+          const endHeading = psi - totalTurn;
+
+          pathSections.push({
+            sStart,
+            sEnd,
+            isBend: true,
+            bend,
+            startPoint: bendStartPt,
+            endPoint: bendEndPt,
+            startHeading: psi,
+            endHeading,
+            centerPoint: centerPt,
+            totalTurn,
+            getPoint: (s: number, y: number, depthOffset = 0) => {
+              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
+              const alpha = u * totalTurn;
+              const phi = psi + Math.PI / 2 - alpha;
+              const effR = Math.max(5, R + depthOffset);
+              return {
+                x: cX + Math.cos(phi) * effR,
+                y,
+                z: cZ - Math.sin(phi) * effR,
+              };
+            },
+          });
+
+          curPt = { ...bendEndPt };
+          curHeading = endHeading;
+        } else {
+          const cX = bendStartPt.x - Math.sin(psi) * R;
+          const cZ = bendStartPt.z - Math.cos(psi) * R;
+          const centerPt = { x: cX, y: 0, z: cZ };
+          const endPhi = psi - Math.PI / 2 + totalTurn;
+          const bendEndPt = {
+            x: cX + Math.cos(endPhi) * R,
+            y: 0,
+            z: cZ - Math.sin(endPhi) * R,
+          };
+          const endHeading = psi + totalTurn;
+
+          pathSections.push({
+            sStart,
+            sEnd,
+            isBend: true,
+            bend,
+            startPoint: bendStartPt,
+            endPoint: bendEndPt,
+            startHeading: psi,
+            endHeading,
+            centerPoint: centerPt,
+            totalTurn,
+            getPoint: (s: number, y: number, depthOffset = 0) => {
+              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
+              const alpha = u * totalTurn;
+              const phi = psi - Math.PI / 2 + alpha;
+              const effR = Math.max(5, R - depthOffset);
+              return {
+                x: cX + Math.cos(phi) * effR,
+                y,
+                z: cZ - Math.sin(phi) * effR,
+              };
+            },
+          });
+
+          curPt = { ...bendEndPt };
+          curHeading = endHeading;
+        }
+
+        curS = sEnd;
+        allPathPoints.push({ ...curPt });
+      }
+    });
+
+    if (curS < wallW) {
+      const straightLen = wallW - curS;
+      const straightStartPt = { ...curPt };
+      const straightHeading = curHeading;
+      const sStart = curS;
+      const sEnd = wallW;
+      const straightEndPt = {
+        x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
+        y: 0,
+        z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
+      };
+
+      pathSections.push({
+        sStart,
+        sEnd,
+        isBend: false,
+        startPoint: straightStartPt,
+        endPoint: straightEndPt,
+        startHeading: straightHeading,
+        endHeading: straightHeading,
+        getPoint: (s: number, y: number, depthOffset = 0) => {
+          const dist = Math.max(0, Math.min(straightLen, s - sStart));
+          const normX = -Math.sin(straightHeading) * depthOffset;
+          const normZ = -Math.cos(straightHeading) * depthOffset;
+          return {
+            x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
+            y,
+            z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
+          };
+        },
+      });
+
+      curPt = { ...straightEndPt };
+      allPathPoints.push({ ...curPt });
+    }
+
+    const getPointAtS = (s: number, y: number, depthOffset = 0): Point3D => {
+      const clampedS = Math.max(0, Math.min(wallW, s));
+      const section = pathSections.find((sec) => clampedS >= sec.sStart && clampedS <= sec.sEnd) || pathSections[pathSections.length - 1];
+      if (!section) return { x: 0, y, z: 0 };
+      return section.getPoint(clampedS, y, depthOffset);
+    };
+
+    // Динамический расчет масштаба и центрирования
+    const minX = Math.min(...allPathPoints.map((p) => p.x), 0) - 600;
+    const maxX = Math.max(...allPathPoints.map((p) => p.x), 0) + 600;
+    const minZ = Math.min(...allPathPoints.map((p) => p.z), 0) - wallThick - 600;
+    const maxZ = Math.max(...allPathPoints.map((p) => p.z), 0) + 1600;
+
+    const spanX = Math.max(1000, maxX - minX);
+    const spanZ = Math.max(1000, maxZ - minZ);
+    const scale = Math.min(boxW / (spanX * 1.3), boxH / (wallH * 1.8 + spanZ * 0.4), 0.52);
+
+    const midX = (minX + maxX) / 2;
+    const midZ = (minZ + maxZ) / 2;
+    const xRotMid = midX * Math.cos(radA) - midZ * Math.sin(radA);
+    const zRotMid = midX * Math.sin(radA) + midZ * Math.cos(radA);
+
+    const cx = boxX + boxW / 2 - xRotMid * scale;
+    const cy = boxY + boxH * 0.72 + (wallH / 2 * Math.cos(radE) - zRotMid * Math.sin(radE)) * scale * 0.4;
+
+    const project3D = (p: Point3D) => {
+      const xRot = p.x * Math.cos(radA) - p.z * Math.sin(radA);
+      const zRot = p.x * Math.sin(radA) + p.z * Math.cos(radA);
+      const screenX = cx + xRot * scale;
+      const screenY = cy - (p.y * Math.cos(radE) - zRot * Math.sin(radE)) * scale;
+      return { x: screenX, y: screenY };
+    };
+
+    // 2. Светлый плиточный пол
+    const floorPoints = [
+      project3D({ x: minX, y: 0, z: minZ }),
+      project3D({ x: maxX, y: 0, z: minZ }),
+      project3D({ x: maxX, y: 0, z: maxZ }),
+      project3D({ x: minX, y: 0, z: maxZ }),
+    ];
 
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(f0.x, f0.y);
-    ctx.lineTo(f1.x, f1.y);
-    ctx.lineTo(f2.x, f2.y);
-    ctx.lineTo(f3.x, f3.y);
+    ctx.moveTo(floorPoints[0].x, floorPoints[0].y);
+    floorPoints.forEach((p) => ctx.lineTo(p.x, p.y));
     ctx.closePath();
-    ctx.fillStyle = '#f1f5f9'; // Светло-серый чистый пол
+    ctx.fillStyle = '#f1f5f9';
     ctx.fill();
 
-    // Сетка плитки пола
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 1.8;
     for (let x = Math.floor(minX / 500) * 500; x <= maxX; x += 500) {
@@ -1782,82 +2445,310 @@ export class PdfExportService {
     }
     ctx.restore();
 
-    // 2. Несущая стена (задняя грань и верхний срез в светлых тонах)
-    const wallThick = 150;
-    const topF0 = project3D({ x: 0, y: wall.height, z: 0 });
-    const topF1 = project3D({ x: wall.width, y: wall.height, z: 0 });
-    const topB1 = project3D({ x: wall.width, y: wall.height, z: wallThick });
-    const topB0 = project3D({ x: 0, y: wall.height, z: wallThick });
+    // 3. Несущая стена (Задняя грань, Верхний срез с Miter Joint и торцы)
+    pathSections.forEach((sec) => {
+      const steps = sec.isBend ? 14 : 1;
+      const len = sec.sEnd - sec.sStart;
+      for (let i = 0; i < steps; i++) {
+        const s0 = sec.sStart + (i / steps) * len;
+        const s1 = sec.sStart + ((i + 1) / steps) * len;
 
-    ctx.save();
-    ctx.fillStyle = '#cbd5e1';
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2;
+        let intervals: Interval1D[] = [{ start: 0, end: wallH }];
+        wall.openings.forEach((op) => {
+          if (op.isCutout !== false && (op.type === 'WINDOW' || op.type === 'DOOR') && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+            intervals = subtractInterval(intervals, op.y, op.y + op.height);
+          }
+        });
+
+        for (const inv of intervals) {
+          if (inv.end - inv.start <= 1) continue;
+          const b0_bot = project3D(sec.getPoint(s0, inv.start, wallThick));
+          const b1_bot = project3D(sec.getPoint(s1, inv.start, wallThick));
+          const b1_top = project3D(sec.getPoint(s1, inv.end, wallThick));
+          const b0_top = project3D(sec.getPoint(s0, inv.end, wallThick));
+
+          ctx.fillStyle = '#cbd5e1';
+          ctx.strokeStyle = '#94a3b8';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(b0_bot.x, b0_bot.y);
+          ctx.lineTo(b1_bot.x, b1_bot.y);
+          ctx.lineTo(b1_top.x, b1_top.y);
+          ctx.lineTo(b0_top.x, b0_top.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    });
+
+    pathSections.forEach((sec, idx) => {
+      if (sec.isBend) {
+        const steps = 14;
+        const len = sec.sEnd - sec.sStart;
+        for (let i = 0; i < steps; i++) {
+          const s0 = sec.sStart + (i / steps) * len;
+          const s1 = sec.sStart + ((i + 1) / steps) * len;
+
+          const topF0 = project3D(sec.getPoint(s0, wallH, 0));
+          const topF1 = project3D(sec.getPoint(s1, wallH, 0));
+          const topB1 = project3D(sec.getPoint(s1, wallH, wallThick));
+          const topB0 = project3D(sec.getPoint(s0, wallH, wallThick));
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.strokeStyle = '#64748b';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(topF0.x, topF0.y);
+          ctx.lineTo(topF1.x, topF1.y);
+          ctx.lineTo(topB1.x, topB1.y);
+          ctx.lineTo(topB0.x, topB0.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      } else {
+        const psiBefore = idx > 0 ? pathSections[idx - 1].endHeading : sec.startHeading;
+        const psiAfter = idx < pathSections.length - 1 ? pathSections[idx + 1].startHeading : sec.endHeading;
+        const vMiterStart = computeMiterVector(psiBefore, sec.startHeading, wallThick);
+        const vMiterEnd = computeMiterVector(sec.endHeading, psiAfter, wallThick);
+
+        const topF0 = project3D({ x: sec.startPoint.x, y: wallH, z: sec.startPoint.z });
+        const topF1 = project3D({ x: sec.endPoint.x, y: wallH, z: sec.endPoint.z });
+        const topB1 = project3D({ x: sec.endPoint.x + vMiterEnd.x, y: wallH, z: sec.endPoint.z + vMiterEnd.z });
+        const topB0 = project3D({ x: sec.startPoint.x + vMiterStart.x, y: wallH, z: sec.startPoint.z + vMiterStart.z });
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(topF0.x, topF0.y);
+        ctx.lineTo(topF1.x, topF1.y);
+        ctx.lineTo(topB1.x, topB1.y);
+        ctx.lineTo(topB0.x, topB0.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    });
+
+    // Левый торец стены
+    const tL0 = project3D(getPointAtS(0, 0, 0));
+    const tL1 = project3D(getPointAtS(0, wallH, 0));
+    const tL2 = project3D(getPointAtS(0, wallH, wallThick));
+    const tL3 = project3D(getPointAtS(0, 0, wallThick));
+
+    ctx.fillStyle = '#94a3b8';
     ctx.beginPath();
-    ctx.moveTo(topF0.x, topF0.y);
-    ctx.lineTo(topF1.x, topF1.y);
-    ctx.lineTo(topB1.x, topB1.y);
-    ctx.lineTo(topB0.x, topB0.y);
+    ctx.moveTo(tL0.x, tL0.y);
+    ctx.lineTo(tL1.x, tL1.y);
+    ctx.lineTo(tL2.x, tL2.y);
+    ctx.lineTo(tL3.x, tL3.y);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.restore();
 
-    // 3. Декоративные панели на лицевой грани
+    // Правый торец стены
+    const tR0 = project3D(getPointAtS(wallW, 0, 0));
+    const tR1 = project3D(getPointAtS(wallW, wallH, 0));
+    const tR2 = project3D(getPointAtS(wallW, wallH, wallThick));
+    const tR3 = project3D(getPointAtS(wallW, 0, wallThick));
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.moveTo(tR0.x, tR0.y);
+    ctx.lineTo(tR1.x, tR1.y);
+    ctx.lineTo(tR2.x, tR2.y);
+    ctx.lineTo(tR3.x, tR3.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 4. Отрисовка декоративных панелей
     layout.panels.forEach((p) => {
       const isVoid = p.isVoid || p.materialId === MATERIAL_NONE_ID;
       const baseColor = isVoid ? '#f8fafc' : (p.materialColor || '#d6cbbe');
       const thick = isVoid ? 0 : (p.thickness || 8);
+      const pStartS = p.x;
+      const pEndS = p.x + p.width;
+      const yBot = p.y;
+      const yTop = p.y + p.height;
 
-      const p0 = project3D({ x: p.x, y: p.y, z: -thick });
-      const p1 = project3D({ x: p.x + p.width, y: p.y, z: -thick });
-      const p2 = project3D({ x: p.x + p.width, y: p.y + p.height, z: -thick });
-      const p3 = project3D({ x: p.x, y: p.y + p.height, z: -thick });
+      if (p.polygonPoints && p.polygonPoints.length >= 3) {
+        const polySliceBoundaries: number[] = [pStartS];
+        pathSections.forEach((sec) => {
+          if (sec.sEnd > pStartS && sec.sStart < pEndS) {
+            const overlapStart = Math.max(pStartS, sec.sStart);
+            const overlapEnd = Math.min(pEndS, sec.sEnd);
+            if (sec.isBend) {
+              const bendSlices = 14;
+              for (let k = 1; k <= bendSlices; k++) {
+                polySliceBoundaries.push(overlapStart + (k / bendSlices) * (overlapEnd - overlapStart));
+              }
+            } else {
+              polySliceBoundaries.push(overlapEnd);
+            }
+          }
+        });
+        activeBends.forEach((b) => {
+          if (b.sStart > pStartS && b.sStart < pEndS) polySliceBoundaries.push(b.sStart);
+          if (b.sEnd > pStartS && b.sEnd < pEndS) polySliceBoundaries.push(b.sEnd);
+        });
+        polySliceBoundaries.push(pEndS);
+        const sortedPolySlices = Array.from(new Set(polySliceBoundaries.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
 
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(p0.x, p0.y);
-      ctx.lineTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.lineTo(p3.x, p3.y);
-      ctx.closePath();
+        for (let i = 0; i < sortedPolySlices.length - 1; i++) {
+          const s0 = sortedPolySlices[i];
+          const s1 = sortedPolySlices[i + 1];
+          if (s1 - s0 <= 0.5) continue;
 
-      ctx.fillStyle = baseColor;
-      ctx.fill();
-      ctx.strokeStyle = isVoid ? '#e2e8f0' : '#475569';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+          const clippedPoly = PdfExportService.clipPolygonByXRange(p.polygonPoints, s0, s1);
+          if (clippedPoly.length < 3) continue;
 
-      // Текстурные волокна для дерева
-      if (!isVoid && p.textureCategory === 'WOOD') {
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.lineWidth = 2;
-        for (let f = 1; f < 5; f++) {
-          const u = f / 5;
-          const bX = p0.x + (p1.x - p0.x) * u;
-          const bY = p0.y + (p1.y - p0.y) * u;
-          const tX = p3.x + (p2.x - p3.x) * u;
-          const tY = p3.y + (p2.y - p3.y) * u;
+          const poly3D = clippedPoly.map((pt) => project3D(getPointAtS(pt.x, pt.y, -thick)));
+
+          ctx.save();
           ctx.beginPath();
-          ctx.moveTo(bX, bY);
-          ctx.lineTo(tX, tY);
+          ctx.moveTo(poly3D[0].x, poly3D[0].y);
+          for (let pi = 1; pi < poly3D.length; pi++) ctx.lineTo(poly3D[pi].x, poly3D[pi].y);
+          ctx.closePath();
+          ctx.fillStyle = baseColor;
+          ctx.fill();
+          ctx.strokeStyle = isVoid ? '#e2e8f0' : '#475569';
+          ctx.lineWidth = 1.5;
           ctx.stroke();
+          ctx.restore();
         }
+        return;
       }
-      ctx.restore();
-    });
 
-    // 4. Светодиодные линии LED
-    layout.joints.forEach((j) => {
-      if (j.isLED) {
-        const p1 = project3D({ x: j.p1 ? j.p1.x : j.x, y: j.p1 ? j.p1.y : j.y, z: -10 });
-        const p2 = project3D({
-          x: j.p2 ? j.p2.x : (j.orientation === 'VERTICAL' ? j.x : j.x + j.length),
-          y: j.p2 ? j.p2.y : (j.orientation === 'VERTICAL' ? j.y + j.length : j.y),
-          z: -10,
+      const slicePoints: number[] = [pStartS];
+      pathSections.forEach((sec) => {
+        if (sec.sEnd > pStartS && sec.sStart < pEndS) {
+          const overlapStart = Math.max(pStartS, sec.sStart);
+          const overlapEnd = Math.min(pEndS, sec.sEnd);
+          if (sec.isBend) {
+            const bendSlices = 14;
+            for (let k = 1; k <= bendSlices; k++) {
+              slicePoints.push(overlapStart + (k / bendSlices) * (overlapEnd - overlapStart));
+            }
+          } else {
+            slicePoints.push(overlapEnd);
+          }
+        }
+      });
+      activeBends.forEach((b) => {
+        if (b.sStart > pStartS && b.sStart < pEndS) slicePoints.push(b.sStart);
+        if (b.sEnd > pStartS && b.sEnd < pEndS) slicePoints.push(b.sEnd);
+      });
+      wall.openings.forEach((op) => {
+        if (op.isCutout !== false) {
+          if (op.x > pStartS && op.x < pEndS) slicePoints.push(op.x);
+          if (op.x + op.width > pStartS && op.x + op.width < pEndS) slicePoints.push(op.x + op.width);
+        }
+      });
+      slicePoints.push(pEndS);
+      const sortedSlices = Array.from(new Set(slicePoints.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
+
+      for (let i = 0; i < sortedSlices.length - 1; i++) {
+        const s0 = sortedSlices[i];
+        const s1 = sortedSlices[i + 1];
+        if (s1 - s0 <= 0.5) continue;
+
+        let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
+        wall.openings.forEach((op) => {
+          if (op.isCutout !== false && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+            intervals = subtractInterval(intervals, op.y, op.y + op.height);
+          }
         });
 
-        // Неоновое свечение в светлой теме
+        for (const inv of intervals) {
+          if (inv.end - inv.start <= 1) continue;
+          const segYBot = inv.start;
+          const segYTop = inv.end;
+
+          const p0 = project3D(getPointAtS(s0, segYBot, -thick));
+          const p1 = project3D(getPointAtS(s1, segYBot, -thick));
+          const p2 = project3D(getPointAtS(s1, segYTop, -thick));
+          const p3 = project3D(getPointAtS(s0, segYTop, -thick));
+
+          const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);
+          let lightFactor = 0.96;
+          if (inBend) {
+            const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
+            lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.75 + 0.25 * Math.abs(u - 0.5) * 2 : 0.85 + 0.15 * Math.sin(u * Math.PI);
+          } else {
+            const sec = pathSections.find((s) => s0 >= s.sStart - 0.1 && s1 <= s.sEnd + 0.1);
+            if (sec) {
+              const sunAngle = -Math.PI / 4;
+              const angleDiff = sec.startHeading - sunAngle;
+              lightFactor = 0.90 + 0.10 * Math.cos(angleDiff);
+            }
+          }
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.lineTo(p3.x, p3.y);
+          ctx.closePath();
+
+          ctx.fillStyle = isVoid ? '#f8fafc' : PdfExportService.adjustBrightness(baseColor, lightFactor);
+          ctx.fill();
+          ctx.strokeStyle = isVoid ? '#e2e8f0' : '#475569';
+          ctx.lineWidth = inBend ? 0.5 : 1.5;
+          ctx.stroke();
+
+          // Текстурные волокна для дерева
+          if (!isVoid && p.textureCategory === 'WOOD') {
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+            ctx.lineWidth = 1.5;
+            for (let f = 1; f < 5; f++) {
+              const u = f / 5;
+              const bX = p0.x + (p1.x - p0.x) * u;
+              const bY = p0.y + (p1.y - p0.y) * u;
+              const tX = p3.x + (p2.x - p3.x) * u;
+              const tY = p3.y + (p2.y - p3.y) * u;
+              ctx.beginPath();
+              ctx.moveTo(bX, bY);
+              ctx.lineTo(tX, tY);
+              ctx.stroke();
+            }
+          }
+
+          // Верхний торец панели
+          const pt0 = p3;
+          const pt1 = p2;
+          const pt2 = project3D(getPointAtS(s1, segYTop, 0));
+          const pt3 = project3D(getPointAtS(s0, segYTop, 0));
+
+          ctx.fillStyle = PdfExportService.adjustBrightness(baseColor, 1.08);
+          ctx.beginPath();
+          ctx.moveTo(pt0.x, pt0.y);
+          ctx.lineTo(pt1.x, pt1.y);
+          ctx.lineTo(pt2.x, pt2.y);
+          ctx.lineTo(pt3.x, pt3.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    });
+
+    // 5. Светодиодные линии LED
+    layout.joints.forEach((j) => {
+      if (j.isLED) {
+        const p1 = project3D(getPointAtS(j.p1 ? j.p1.x : j.x, j.p1 ? j.p1.y : j.y, -panelThick - 3));
+        const p2 = project3D(
+          getPointAtS(
+            j.p2 ? j.p2.x : (j.orientation === 'VERTICAL' ? j.x : j.x + j.length),
+            j.p2 ? j.p2.y : (j.orientation === 'VERTICAL' ? j.y + j.length : j.y),
+            -panelThick - 3
+          )
+        );
+
         ctx.save();
         ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
         ctx.lineWidth = 14;
@@ -1876,17 +2767,15 @@ export class PdfExportService {
       }
     });
 
-    // 5. Отрисовка проемов (Двери, Окна, ТВ-зоны, Ниши) в 3D
+    // 6. Проемы (Двери, Окна, ТВ, Ниши)
     wall.openings.forEach((op) => {
       const opDepth = op.depth || 150;
 
       if (op.type === 'DOOR') {
-        // 5.1. ДВЕРНОЙ ПРОЕМ И ДВЕРЬ В 3D
-        // Левый откос двери (z = -10..opDepth)
-        const jL0 = project3D({ x: op.x, y: op.y, z: -10 });
-        const jL1 = project3D({ x: op.x, y: op.y, z: opDepth });
-        const jL2 = project3D({ x: op.x, y: op.y + op.height, z: opDepth });
-        const jL3 = project3D({ x: op.x, y: op.y + op.height, z: -10 });
+        const jL0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2));
+        const jL1 = project3D(getPointAtS(op.x, op.y, opDepth));
+        const jL2 = project3D(getPointAtS(op.x, op.y + op.height, opDepth));
+        const jL3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2));
 
         ctx.save();
         ctx.fillStyle = '#cbd5e1';
@@ -1901,48 +2790,41 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Верхний откос двери (соффит)
-        const jT0 = jL3;
-        const jT1 = jL2;
-        const jT2 = project3D({ x: op.x + op.width, y: op.y + op.height, z: opDepth });
-        const jT3 = project3D({ x: op.x + op.width, y: op.y + op.height, z: -10 });
+        const jT2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth));
+        const jT3 = project3D(getPointAtS(op.x + op.width, op.y + op.height, -panelThick - 2));
 
         ctx.fillStyle = '#94a3b8';
         ctx.strokeStyle = '#64748b';
         ctx.beginPath();
-        ctx.moveTo(jT0.x, jT0.y);
-        ctx.lineTo(jT1.x, jT1.y);
+        ctx.moveTo(jL3.x, jL3.y);
+        ctx.lineTo(jL2.x, jL2.y);
         ctx.lineTo(jT2.x, jT2.y);
         ctx.lineTo(jT3.x, jT3.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
 
-        // Правый откос двери
-        const jR0 = jT3;
-        const jR1 = jT2;
-        const jR2 = project3D({ x: op.x + op.width, y: op.y, z: opDepth });
-        const jR3 = project3D({ x: op.x + op.width, y: op.y, z: -10 });
+        const jR2 = project3D(getPointAtS(op.x + op.width, op.y, opDepth));
+        const jR3 = project3D(getPointAtS(op.x + op.width, op.y, -panelThick - 2));
 
         ctx.fillStyle = '#cbd5e1';
         ctx.strokeStyle = '#94a3b8';
         ctx.beginPath();
-        ctx.moveTo(jR0.x, jR0.y);
-        ctx.lineTo(jR1.x, jR1.y);
+        ctx.moveTo(jT3.x, jT3.y);
+        ctx.lineTo(jT2.x, jT2.y);
         ctx.lineTo(jR2.x, jR2.y);
         ctx.lineTo(jR3.x, jR3.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
 
-        // Дверное полотно (в глубине проема z = 60)
         const doorZ = 60;
-        const d0 = project3D({ x: op.x + 20, y: op.y, z: doorZ });
-        const d1 = project3D({ x: op.x + op.width - 20, y: op.y, z: doorZ });
-        const d2 = project3D({ x: op.x + op.width - 20, y: op.y + op.height - 20, z: doorZ });
-        const d3 = project3D({ x: op.x + 20, y: op.y + op.height - 20, z: doorZ });
+        const d0 = project3D(getPointAtS(op.x + 20, op.y, doorZ));
+        const d1 = project3D(getPointAtS(op.x + op.width - 20, op.y, doorZ));
+        const d2 = project3D(getPointAtS(op.x + op.width - 20, op.y + op.height - 20, doorZ));
+        const d3 = project3D(getPointAtS(op.x + 20, op.y + op.height - 20, doorZ));
 
-        ctx.fillStyle = '#ffffff'; // Светлое полотно двери скрытого монтажа
+        ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#64748b';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -1954,9 +2836,8 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Дверная ручка (черный металл)
-        const hStart = project3D({ x: op.x + op.width - 90, y: op.y + 1000, z: doorZ - 10 });
-        const hEnd = project3D({ x: op.x + op.width - 45, y: op.y + 1000, z: doorZ - 10 });
+        const hStart = project3D(getPointAtS(op.x + op.width - 90, op.y + 1000, doorZ - 10));
+        const hEnd = project3D(getPointAtS(op.x + op.width - 45, op.y + 1000, doorZ - 10));
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -1966,13 +2847,12 @@ export class PdfExportService {
 
         ctx.restore();
       } else if (op.type === 'WINDOW') {
-        // 5.2. ОКОННЫЙ ПРОЕМ В 3D
         ctx.save();
         const winDepth = 200;
-        const wL0 = project3D({ x: op.x, y: op.y, z: -10 });
-        const wL1 = project3D({ x: op.x, y: op.y, z: winDepth });
-        const wL2 = project3D({ x: op.x, y: op.y + op.height, z: winDepth });
-        const wL3 = project3D({ x: op.x, y: op.y + op.height, z: -10 });
+        const wL0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2));
+        const wL1 = project3D(getPointAtS(op.x, op.y, winDepth));
+        const wL2 = project3D(getPointAtS(op.x, op.y + op.height, winDepth));
+        const wL3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2));
 
         ctx.fillStyle = '#cbd5e1';
         ctx.strokeStyle = '#94a3b8';
@@ -1986,9 +2866,8 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Верхний откос окна
-        const wT1 = project3D({ x: op.x + op.width, y: op.y + op.height, z: winDepth });
-        const wT2 = project3D({ x: op.x + op.width, y: op.y + op.height, z: -10 });
+        const wT1 = project3D(getPointAtS(op.x + op.width, op.y + op.height, winDepth));
+        const wT2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, -panelThick - 2));
         ctx.fillStyle = '#94a3b8';
         ctx.beginPath();
         ctx.moveTo(wL3.x, wL3.y);
@@ -1999,28 +2878,10 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Подоконник
-        const sill0 = project3D({ x: op.x - 20, y: op.y, z: -30 });
-        const sill1 = project3D({ x: op.x + op.width + 20, y: op.y, z: -30 });
-        const sill2 = project3D({ x: op.x + op.width + 20, y: op.y, z: winDepth });
-        const sill3 = project3D({ x: op.x - 20, y: op.y, z: winDepth });
-        ctx.fillStyle = '#f8fafc';
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(sill0.x, sill0.y);
-        ctx.lineTo(sill1.x, sill1.y);
-        ctx.lineTo(sill2.x, sill2.y);
-        ctx.lineTo(sill3.x, sill3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Стеклопакет
-        const g0 = project3D({ x: op.x + 20, y: op.y + 15, z: 100 });
-        const g1 = project3D({ x: op.x + op.width - 20, y: op.y + 15, z: 100 });
-        const g2 = project3D({ x: op.x + op.width - 20, y: op.y + op.height - 20, z: 100 });
-        const g3 = project3D({ x: op.x + 20, y: op.y + op.height - 20, z: 100 });
+        const g0 = project3D(getPointAtS(op.x + 20, op.y + 15, 100));
+        const g1 = project3D(getPointAtS(op.x + op.width - 20, op.y + 15, 100));
+        const g2 = project3D(getPointAtS(op.x + op.width - 20, op.y + op.height - 20, 100));
+        const g3 = project3D(getPointAtS(op.x + 20, op.y + op.height - 20, 100));
         ctx.fillStyle = 'rgba(224, 242, 254, 0.6)';
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 2;
@@ -2033,9 +2894,8 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Импост (рама окна)
-        const imp0 = project3D({ x: op.x + op.width / 2, y: op.y + 15, z: 100 });
-        const imp1 = project3D({ x: op.x + op.width / 2, y: op.y + op.height - 20, z: 100 });
+        const imp0 = project3D(getPointAtS(op.x + op.width / 2, op.y + 15, 100));
+        const imp1 = project3D(getPointAtS(op.x + op.width / 2, op.y + op.height - 20, 100));
         ctx.strokeStyle = '#0284c7';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -2045,15 +2905,13 @@ export class PdfExportService {
 
         ctx.restore();
       } else if (op.type === 'TV_ZONE') {
-        // 5.3. ТВ-ЗОНА В 3D
         ctx.save();
         const tvZ = -30;
-        const t0 = project3D({ x: op.x, y: op.y, z: tvZ });
-        const t1 = project3D({ x: op.x + op.width, y: op.y, z: tvZ });
-        const t2 = project3D({ x: op.x + op.width, y: op.y + op.height, z: tvZ });
-        const t3 = project3D({ x: op.x, y: op.y + op.height, z: tvZ });
+        const t0 = project3D(getPointAtS(op.x, op.y, tvZ));
+        const t1 = project3D(getPointAtS(op.x + op.width, op.y, tvZ));
+        const t2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, tvZ));
+        const t3 = project3D(getPointAtS(op.x, op.y + op.height, tvZ));
 
-        // Корпус ТВ
         ctx.fillStyle = '#0f172a';
         ctx.strokeStyle = '#334155';
         ctx.lineWidth = 2.5;
@@ -2066,7 +2924,6 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Глянцевый экран с бликом
         ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.beginPath();
         ctx.moveTo(t0.x, t0.y);
@@ -2074,16 +2931,14 @@ export class PdfExportService {
         ctx.lineTo(t3.x, t3.y);
         ctx.closePath();
         ctx.fill();
-
         ctx.restore();
       } else {
-        // 5.4. НИША В 3D
         ctx.save();
         const nDepth = opDepth;
-        const nL0 = project3D({ x: op.x, y: op.y, z: -10 });
-        const nL1 = project3D({ x: op.x, y: op.y, z: nDepth });
-        const nL2 = project3D({ x: op.x, y: op.y + op.height, z: nDepth });
-        const nL3 = project3D({ x: op.x, y: op.y + op.height, z: -10 });
+        const nL0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2));
+        const nL1 = project3D(getPointAtS(op.x, op.y, nDepth));
+        const nL2 = project3D(getPointAtS(op.x, op.y + op.height, nDepth));
+        const nL3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2));
 
         ctx.fillStyle = '#94a3b8';
         ctx.strokeStyle = '#64748b';
@@ -2097,22 +2952,18 @@ export class PdfExportService {
         ctx.fill();
         ctx.stroke();
 
-        // Задняя стенка ниши
-        const nBack0 = nL1;
-        const nBack1 = project3D({ x: op.x + op.width, y: op.y, z: nDepth });
-        const nBack2 = project3D({ x: op.x + op.width, y: op.y + op.height, z: nDepth });
-        const nBack3 = nL2;
+        const nBack1 = project3D(getPointAtS(op.x + op.width, op.y, nDepth));
+        const nBack2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, nDepth));
 
         ctx.fillStyle = '#e2e8f0';
         ctx.beginPath();
-        ctx.moveTo(nBack0.x, nBack0.y);
+        ctx.moveTo(nL1.x, nL1.y);
         ctx.lineTo(nBack1.x, nBack1.y);
         ctx.lineTo(nBack2.x, nBack2.y);
-        ctx.lineTo(nBack3.x, nBack3.y);
+        ctx.lineTo(nL2.x, nL2.y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-
         ctx.restore();
       }
     });

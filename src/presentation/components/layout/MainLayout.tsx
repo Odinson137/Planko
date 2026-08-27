@@ -7,12 +7,14 @@ import { CadCanvas } from '../canvas/CadCanvas';
 import { Axonometric3DView } from '../canvas/Axonometric3DView';
 import { PanelSlicingModal } from '../catalog/PanelSlicingModal';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 export const MainLayout: React.FC = () => {
   const { viewMode } = useEditorStore();
+  const t = useAppTheme();
 
   return (
-    <Flex direction="column" h="100vh" w="100vw" style={{ overflow: 'hidden', backgroundColor: '#1A1B1E' }}>
+    <Flex direction="column" h="100vh" w="100vw" style={{ overflow: 'hidden', backgroundColor: t.bgApp }}>
       {/* Верхний тулбар */}
       <TopToolbar />
 

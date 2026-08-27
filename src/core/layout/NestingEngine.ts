@@ -1,4 +1,5 @@
 import { Point2D } from '../geometry/PolygonSlicingEngine';
+import { PanelBendInfo } from '../models/Wall';
 
 export interface NestingCutout {
   x: number;          // смещение выреза от левого края детали в мм
@@ -24,6 +25,7 @@ export interface NestingPartInput {
   thickness?: number;
   polygonPoints?: Point2D[];
   cutouts?: NestingCutout[];
+  bendsInfo?: PanelBendInfo[];
   note?: string;
 }
 

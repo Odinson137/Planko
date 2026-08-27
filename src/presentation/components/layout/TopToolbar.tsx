@@ -34,8 +34,10 @@ import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
 import { PdfExportService } from '../../../application/services/PdfExportService';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 export const TopToolbar: React.FC = () => {
+  const t = useAppTheme();
   const {
     viewMode,
     setViewMode,
@@ -124,7 +126,7 @@ export const TopToolbar: React.FC = () => {
 
   return (
     <>
-      <Group justify="space-between" px="md" py={6} style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#1A1B1E' }}>
+      <Group justify="space-between" px="md" py={6} style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.bgHeader }}>
         {/* Меню проектов, Сохранение и Экспорт */}
         <Group gap="xs">
           {/* Кнопка возврата в меню проектов */}
@@ -138,9 +140,9 @@ export const TopToolbar: React.FC = () => {
               styles={{
                 root: {
                   fontWeight: 700,
-                  backgroundColor: '#26282D',
-                  border: '1px solid #363940',
-                  color: '#DFE1E5',
+                  backgroundColor: t.isDark ? '#26282D' : '#F1F5F9',
+                  border: `1px solid ${t.border}`,
+                  color: t.textPrimary,
                   paddingLeft: 8,
                   paddingRight: 10,
                 },
@@ -202,7 +204,7 @@ export const TopToolbar: React.FC = () => {
                 onClick={handleExportPanelsLayout}
               >
                 <div>
-                  <Text size="xs" fw={700} c="blue.4">1. Раскладка панелей (PDF)</Text>
+                  <Text size="xs" fw={700} c="blue.6">1. Раскладка панелей (PDF)</Text>
                   <Text size="10px" c="dimmed">План стены + карты раскроя листов 1220×2800</Text>
                 </div>
               </Menu.Item>
@@ -211,7 +213,7 @@ export const TopToolbar: React.FC = () => {
                 onClick={handleExport3DAlbum}
               >
                 <div>
-                  <Text size="xs" fw={700} c="green.4">2. 3D Аксонометрия (PDF)</Text>
+                  <Text size="xs" fw={700} c="green.6">2. 3D Аксонометрия (PDF)</Text>
                   <Text size="10px" c="dimmed">3D альбом всех стен с текстурами и размерами</Text>
                 </div>
               </Menu.Item>
@@ -220,7 +222,7 @@ export const TopToolbar: React.FC = () => {
                 onClick={handleExportInstaller}
               >
                 <div>
-                  <Text size="xs" fw={700} c="yellow.4">3. Для монтажников (PDF)</Text>
+                  <Text size="xs" fw={700} c="yellow.7">3. Для монтажников (PDF)</Text>
                   <Text size="10px" c="dimmed">Сводка панелей, 2D стыки и расчет 3м профилей</Text>
                 </div>
               </Menu.Item>

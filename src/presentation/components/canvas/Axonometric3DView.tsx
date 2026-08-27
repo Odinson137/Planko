@@ -7,6 +7,7 @@ import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { RadiusType } from '../../../core/models/Wall';
 import { ensureOpeningSlopes } from '../../../core/models/Opening';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface Point3D {
   x: number;
@@ -42,6 +43,7 @@ function subtractInterval(intervals: Interval1D[], removeStart: number, removeEn
 }
 
 export const Axonometric3DView: React.FC = () => {
+  const t = useAppTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -220,6 +222,61 @@ export const Axonometric3DView: React.FC = () => {
     }
 
     ctx.restore();
+  };
+
+  // Отсечение 2D-полигона вертикальной полосой [xMin, xMax] (Sutherland-Hodgman)
+  const clipPolygonByXRange = (points: Point2D[], xMin: number, xMax: number): Point2D[] => {
+    if (!points || points.length < 3) return [];
+
+    let outputList = points;
+
+    const clipLeft = (pts: Point2D[]) => {
+      const res: Point2D[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        const p1In = p1.x >= xMin - 0.001;
+        const p2In = p2.x >= xMin - 0.001;
+
+        if (p1In && p2In) {
+          res.push(p2);
+        } else if (p1In && !p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMin - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMin, y: p1.y + t * (p2.y - p1.y) });
+        } else if (!p1In && p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMin - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMin, y: p1.y + t * (p2.y - p1.y) });
+          res.push(p2);
+        }
+      }
+      return res;
+    };
+
+    const clipRight = (pts: Point2D[]) => {
+      const res: Point2D[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        const p1In = p1.x <= xMax + 0.001;
+        const p2In = p2.x <= xMax + 0.001;
+
+        if (p1In && p2In) {
+          res.push(p2);
+        } else if (p1In && !p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMax - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMax, y: p1.y + t * (p2.y - p1.y) });
+        } else if (!p1In && p2In) {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMax - p1.x) / (p2.x - p1.x) : 0;
+          res.push({ x: xMax, y: p1.y + t * (p2.y - p1.y) });
+          res.push(p2);
+        }
+      }
+      return res;
+    };
+
+    outputList = clipLeft(outputList);
+    outputList = clipRight(outputList);
+    return outputList;
   };
 
   // Расчет угловой биссектрисы (Miter Joint) для стыковки стен и панелей под произвольным углом
@@ -513,31 +570,9 @@ export const Axonometric3DView: React.FC = () => {
       allPathPoints.push({ ...curPt });
     }
 
-    // 4. Постобработка прямых секций: точный расчет Miter Joint биссектрисы для бесшовных углов
-    pathSections.forEach((sec, idx) => {
-      if (!sec.isBend) {
-        const psiBefore = idx > 0 ? pathSections[idx - 1].endHeading : sec.startHeading;
-        const psiAfter = idx < pathSections.length - 1 ? pathSections[idx + 1].startHeading : sec.endHeading;
-        const sLen = Math.max(0.1, sec.sEnd - sec.sStart);
-
-        sec.getPoint = (s: number, y: number, depthOffset = 0) => {
-          const u = Math.max(0, Math.min(1, (s - sec.sStart) / sLen));
-          const vStart = computeMiterVector(psiBefore, sec.startHeading, depthOffset);
-          const vEnd = computeMiterVector(sec.endHeading, psiAfter, depthOffset);
-
-          const fx = (1 - u) * sec.startPoint.x + u * sec.endPoint.x;
-          const fz = (1 - u) * sec.startPoint.z + u * sec.endPoint.z;
-          const ox = (1 - u) * vStart.x + u * vEnd.x;
-          const oz = (1 - u) * vStart.z + u * vEnd.z;
-
-          return {
-            x: fx + ox,
-            y,
-            z: fz + oz,
-          };
-        };
-      }
-    });
+    // 4. Постобработка прямых секций: сохраняем строгую перпендикулярность нормали
+    // getPoint использует постоянный вектор нормали (-sin(heading), -cos(heading)),
+    // исключая перекос и сдвиг откосов дверей, окон и панелей.
 
     const getPointAtS = (s: number, y: number, depthOffset = 0): Point3D => {
       const clampedS = Math.max(0, Math.min(wallW, s));
@@ -561,7 +596,7 @@ export const Axonometric3DView: React.FC = () => {
       project3D({ x: minX, y: 0, z: maxZ }, cx, cy, scale),
     ];
 
-    ctx.fillStyle = '#18191c';
+    ctx.fillStyle = t.canvas3dFloor;
     ctx.beginPath();
     ctx.moveTo(floorPoints[0].x, floorPoints[0].y);
     floorPoints.forEach((p) => ctx.lineTo(p.x, p.y));
@@ -569,7 +604,7 @@ export const Axonometric3DView: React.FC = () => {
     ctx.fill();
 
     // Сетка плитки
-    ctx.strokeStyle = '#22252a';
+    ctx.strokeStyle = t.canvas3dGrid;
     ctx.lineWidth = 1;
     for (let x = Math.floor(minX / 500) * 500; x <= maxX; x += 500) {
       const pA = project3D({ x, y: 0, z: minZ }, cx, cy, scale);
@@ -615,8 +650,8 @@ export const Axonometric3DView: React.FC = () => {
           const b1_top = project3D(sec.getPoint(s1, inv.end, wallThick), cx, cy, scale);
           const b0_top = project3D(sec.getPoint(s0, inv.end, wallThick), cx, cy, scale);
 
-          ctx.fillStyle = '#1c1e22';
-          ctx.strokeStyle = '#25272c';
+          ctx.fillStyle = t.canvas3dWallBack;
+          ctx.strokeStyle = t.isDark ? '#25272c' : '#CBD5E1';
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(b0_bot.x, b0_bot.y);
@@ -631,20 +666,44 @@ export const Axonometric3DView: React.FC = () => {
     });
 
     // 3.2. Верхняя грань несущей стены (Бесшовный Miter Joint)
-    pathSections.forEach((sec) => {
-      const steps = sec.isBend ? 14 : 1;
-      const len = sec.sEnd - sec.sStart;
-      for (let i = 0; i < steps; i++) {
-        const s0 = sec.sStart + (i / steps) * len;
-        const s1 = sec.sStart + ((i + 1) / steps) * len;
+    pathSections.forEach((sec, idx) => {
+      if (sec.isBend) {
+        const steps = 14;
+        const len = sec.sEnd - sec.sStart;
+        for (let i = 0; i < steps; i++) {
+          const s0 = sec.sStart + (i / steps) * len;
+          const s1 = sec.sStart + ((i + 1) / steps) * len;
 
-        const topF0 = project3D(sec.getPoint(s0, wallH, 0), cx, cy, scale);
-        const topF1 = project3D(sec.getPoint(s1, wallH, 0), cx, cy, scale);
-        const topB1 = project3D(sec.getPoint(s1, wallH, wallThick), cx, cy, scale);
-        const topB0 = project3D(sec.getPoint(s0, wallH, wallThick), cx, cy, scale);
+          const topF0 = project3D(sec.getPoint(s0, wallH, 0), cx, cy, scale);
+          const topF1 = project3D(sec.getPoint(s1, wallH, 0), cx, cy, scale);
+          const topB1 = project3D(sec.getPoint(s1, wallH, wallThick), cx, cy, scale);
+          const topB0 = project3D(sec.getPoint(s0, wallH, wallThick), cx, cy, scale);
 
-        ctx.fillStyle = '#2c2f35';
-        ctx.strokeStyle = '#3a3e47';
+          ctx.fillStyle = t.canvas3dWallTop;
+          ctx.strokeStyle = t.isDark ? '#3a3e47' : '#94A3B8';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(topF0.x, topF0.y);
+          ctx.lineTo(topF1.x, topF1.y);
+          ctx.lineTo(topB1.x, topB1.y);
+          ctx.lineTo(topB0.x, topB0.y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      } else {
+        const psiBefore = idx > 0 ? pathSections[idx - 1].endHeading : sec.startHeading;
+        const psiAfter = idx < pathSections.length - 1 ? pathSections[idx + 1].startHeading : sec.endHeading;
+        const vMiterStart = computeMiterVector(psiBefore, sec.startHeading, wallThick);
+        const vMiterEnd = computeMiterVector(sec.endHeading, psiAfter, wallThick);
+
+        const topF0 = project3D({ x: sec.startPoint.x, y: wallH, z: sec.startPoint.z }, cx, cy, scale);
+        const topF1 = project3D({ x: sec.endPoint.x, y: wallH, z: sec.endPoint.z }, cx, cy, scale);
+        const topB1 = project3D({ x: sec.endPoint.x + vMiterEnd.x, y: wallH, z: sec.endPoint.z + vMiterEnd.z }, cx, cy, scale);
+        const topB0 = project3D({ x: sec.startPoint.x + vMiterStart.x, y: wallH, z: sec.startPoint.z + vMiterStart.z }, cx, cy, scale);
+
+        ctx.fillStyle = t.canvas3dWallTop;
+        ctx.strokeStyle = t.isDark ? '#3a3e47' : '#94A3B8';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(topF0.x, topF0.y);
@@ -663,7 +722,7 @@ export const Axonometric3DView: React.FC = () => {
     const tL2 = project3D(getPointAtS(0, wallH, wallThick), cx, cy, scale);
     const tL3 = project3D(getPointAtS(0, 0, wallThick), cx, cy, scale);
 
-    ctx.fillStyle = '#1c1e22';
+    ctx.fillStyle = t.canvas3dWallBack;
     ctx.beginPath();
     ctx.moveTo(tL0.x, tL0.y);
     ctx.lineTo(tL1.x, tL1.y);
@@ -679,7 +738,7 @@ export const Axonometric3DView: React.FC = () => {
     const tR2 = project3D(getPointAtS(wallW, wallH, wallThick), cx, cy, scale);
     const tR3 = project3D(getPointAtS(wallW, 0, wallThick), cx, cy, scale);
 
-    ctx.fillStyle = '#222429';
+    ctx.fillStyle = t.canvas3dWallBack;
     ctx.beginPath();
     ctx.moveTo(tR0.x, tR0.y);
     ctx.lineTo(tR1.x, tR1.y);
@@ -705,72 +764,129 @@ export const Axonometric3DView: React.FC = () => {
       // Если это полигональная деталь (треугольник, трапеция после раскроя)
       if (panel.polygonPoints && panel.polygonPoints.length >= 3) {
         const thisPanelThick = isVoid ? 0 : (panel.thickness || (isSlat ? 15 : 5));
-        const poly3D = panel.polygonPoints.map((pt) =>
-          project3D(getPointAtS(pt.x, pt.y, -thisPanelThick), cx, cy, scale)
-        );
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(poly3D[0].x, poly3D[0].y);
-        for (let i = 1; i < poly3D.length; i++) {
-          ctx.lineTo(poly3D[i].x, poly3D[i].y);
-        }
-        ctx.closePath();
-        ctx.fillStyle = isVoid ? 'rgba(20, 21, 24, 0.7)' : adjustBrightness(baseColor, 0.96);
-        ctx.strokeStyle = isVoid ? '#2C2E33' : adjustBrightness(baseColor, 0.7);
-        ctx.lineWidth = 1;
-        ctx.fill();
-        ctx.stroke();
-
-        // Отрисовка текстуры и реек внутри маски полигона
-        if (!isVoid) {
-          ctx.clip();
-          if (isSlat) {
-            const slatThick = panel.thickness || 15;
-            const slatWidth = panel.width > 200 ? 50 : Math.max(30, Math.floor(panel.width / (panel.reliefType === 'WAVE_GW90' ? 4 : 3)));
-            const count = Math.max(1, Math.floor(panel.width / slatWidth));
-
-            for (let i = 0; i < count; i++) {
-              const s0 = pStartS + i * slatWidth;
-              const s1 = Math.min(pEndS, s0 + slatWidth - 4);
-
-              let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
-              selectedWall.openings.forEach((op) => {
-                if (op.isCutout !== false && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
-                  intervals = subtractInterval(intervals, op.y, op.y + op.height);
-                }
-              });
-
-              for (const inv of intervals) {
-                if (inv.end - inv.start <= 1) continue;
-                const segYBot = inv.start;
-                const segYTop = inv.end;
-
-                const p0 = project3D(getPointAtS(s0, segYBot, -slatThick), cx, cy, scale);
-                const p1 = project3D(getPointAtS(s1, segYBot, -slatThick), cx, cy, scale);
-                const p2 = project3D(getPointAtS(s1, segYTop, -slatThick), cx, cy, scale);
-                const p3 = project3D(getPointAtS(s0, segYTop, -slatThick), cx, cy, scale);
-
-                ctx.fillStyle = adjustBrightness(baseColor, 0.95);
-                ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(p0.x, p0.y);
-                ctx.lineTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-                ctx.lineTo(p3.x, p3.y);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-
-                if (showTextures) {
-                  draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
-                }
+        const polySliceBoundaries: number[] = [pStartS];
+        pathSections.forEach((sec) => {
+          if (sec.sEnd > pStartS && sec.sStart < pEndS) {
+            const overlapStart = Math.max(pStartS, sec.sStart);
+            const overlapEnd = Math.min(pEndS, sec.sEnd);
+            if (sec.isBend) {
+              const bendSlices = 14;
+              for (let k = 1; k <= bendSlices; k++) {
+                polySliceBoundaries.push(overlapStart + (k / bendSlices) * (overlapEnd - overlapStart));
               }
+            } else {
+              polySliceBoundaries.push(overlapEnd);
             }
           }
+        });
+        activeBends.forEach((b) => {
+          if (b.sStart > pStartS && b.sStart < pEndS) {
+            polySliceBoundaries.push(b.sStart);
+          }
+          if (b.sEnd > pStartS && b.sEnd < pEndS) {
+            polySliceBoundaries.push(b.sEnd);
+          }
+        });
+        polySliceBoundaries.push(pEndS);
+        const sortedPolySlices = Array.from(new Set(polySliceBoundaries.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
+
+        for (let i = 0; i < sortedPolySlices.length - 1; i++) {
+          const s0 = sortedPolySlices[i];
+          const s1 = sortedPolySlices[i + 1];
+          if (s1 - s0 <= 0.5) continue;
+
+          const clippedPoly = clipPolygonByXRange(panel.polygonPoints, s0, s1);
+          if (clippedPoly.length < 3) continue;
+
+          const poly3D = clippedPoly.map((pt) =>
+            project3D(getPointAtS(pt.x, pt.y, -thisPanelThick), cx, cy, scale)
+          );
+
+          // Проверяем, находится ли этот срез внутри сгиба
+          const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);
+          let lightFactor = 0.95;
+          if (inBend) {
+            const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
+            lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.55 + 0.45 * Math.abs(u - 0.5) * 2 : 0.65 + 0.35 * Math.sin(u * Math.PI);
+          } else {
+            const sec = pathSections.find((s) => s0 >= s.sStart - 0.1 && s1 <= s.sEnd + 0.1);
+            if (sec) {
+              const sunAngle = -Math.PI / 4;
+              const angleDiff = sec.startHeading - sunAngle;
+              lightFactor = 0.86 + 0.14 * Math.cos(angleDiff);
+            }
+          }
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(poly3D[0].x, poly3D[0].y);
+          for (let pi = 1; pi < poly3D.length; pi++) {
+            ctx.lineTo(poly3D[pi].x, poly3D[pi].y);
+          }
+          ctx.closePath();
+          ctx.fillStyle = isVoid ? 'rgba(20, 21, 24, 0.7)' : adjustBrightness(baseColor, lightFactor);
+          ctx.strokeStyle = isVoid ? '#2C2E33' : adjustBrightness(baseColor, 0.7);
+          ctx.lineWidth = inBend ? 0.5 : 1;
+          ctx.fill();
+          ctx.stroke();
+
+          // Отрисовка текстуры и реек внутри маски среза полигона
+          if (!isVoid) {
+            ctx.clip();
+            if (isSlat) {
+              const slatThick = panel.thickness || 15;
+              const slatWidth = panel.width > 200 ? 50 : Math.max(30, Math.floor(panel.width / (panel.reliefType === 'WAVE_GW90' ? 4 : 3)));
+              const count = Math.max(1, Math.floor((s1 - s0) / slatWidth));
+
+              for (let k = 0; k < count; k++) {
+                const subS0 = s0 + k * slatWidth;
+                const subS1 = Math.min(s1, subS0 + slatWidth - 4);
+
+                let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
+                selectedWall.openings.forEach((op) => {
+                  if (op.isCutout !== false && subS1 > op.x + 0.1 && subS0 < op.x + op.width - 0.1) {
+                    intervals = subtractInterval(intervals, op.y, op.y + op.height);
+                  }
+                });
+
+                for (const inv of intervals) {
+                  if (inv.end - inv.start <= 1) continue;
+                  const segYBot = inv.start;
+                  const segYTop = inv.end;
+
+                  const p0 = project3D(getPointAtS(subS0, segYBot, -slatThick), cx, cy, scale);
+                  const p1 = project3D(getPointAtS(subS1, segYBot, -slatThick), cx, cy, scale);
+                  const p2 = project3D(getPointAtS(subS1, segYTop, -slatThick), cx, cy, scale);
+                  const p3 = project3D(getPointAtS(subS0, segYTop, -slatThick), cx, cy, scale);
+
+                  ctx.fillStyle = adjustBrightness(baseColor, 0.95);
+                  ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
+                  ctx.lineWidth = 1;
+                  ctx.beginPath();
+                  ctx.moveTo(p0.x, p0.y);
+                  ctx.lineTo(p1.x, p1.y);
+                  ctx.lineTo(p2.x, p2.y);
+                  ctx.lineTo(p3.x, p3.y);
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.stroke();
+
+                  if (showTextures) {
+                    draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+                  }
+                }
+              }
+            } else if (showTextures) {
+              const p0 = project3D(getPointAtS(s0, yBot, -thisPanelThick), cx, cy, scale);
+              const p1 = project3D(getPointAtS(s1, yBot, -thisPanelThick), cx, cy, scale);
+              const p2 = project3D(getPointAtS(s1, yTop, -thisPanelThick), cx, cy, scale);
+              const p3 = project3D(getPointAtS(s0, yTop, -thisPanelThick), cx, cy, scale);
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+            }
+          }
+          ctx.restore();
         }
-        ctx.restore();
         return;
       }
 
@@ -1450,7 +1566,7 @@ export const Axonometric3DView: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = `${project.name || 'Planko'}_3D_Render_${Math.round(angleDeg)}deg.png`;
+    link.download = `${project.name || 'AllWall'}_3D_Render_${Math.round(angleDeg)}deg.png`;
     link.href = canvas.toDataURL('image/png', 1.0);
     link.click();
   };
@@ -1461,7 +1577,7 @@ export const Axonometric3DView: React.FC = () => {
       style={{
         width: '100%',
         height: '100%',
-        backgroundColor: '#121316',
+        backgroundColor: t.canvas3dBg,
         position: 'relative',
         overflow: 'hidden',
         cursor: isDragging ? 'grabbing' : 'grab',
@@ -1481,9 +1597,9 @@ export const Axonometric3DView: React.FC = () => {
           position: 'absolute',
           top: 16,
           left: 16,
-          backgroundColor: 'rgba(26, 27, 30, 0.85)',
+          backgroundColor: t.canvas3dPanelOverlay,
           backdropFilter: 'blur(8px)',
-          border: '1px solid #2C2E33',
+          border: `1px solid ${t.border}`,
           zIndex: 10,
         }}
       >
@@ -1491,8 +1607,8 @@ export const Axonometric3DView: React.FC = () => {
           <Badge color="blue" variant="light" leftSection={<Camera size={12} />}>
             3D Обзор
           </Badge>
-          <Text size="xs" c="dimmed">
-            Поворот: <strong style={{ color: '#E9ECEF' }}>{Math.round(angleDeg)}°</strong> | Наклон: <strong style={{ color: '#E9ECEF' }}>{Math.round(elevationDeg)}°</strong>
+          <Text size="xs" c={t.textDimmed}>
+            Поворот: <strong style={{ color: t.textPrimary }}>{Math.round(angleDeg)}°</strong> | Наклон: <strong style={{ color: t.textPrimary }}>{Math.round(elevationDeg)}°</strong>
           </Text>
         </Group>
       </Paper>
@@ -1504,13 +1620,13 @@ export const Axonometric3DView: React.FC = () => {
           position: 'absolute',
           bottom: 20,
           right: 20,
-          backgroundColor: 'rgba(26, 27, 30, 0.95)',
+          backgroundColor: t.canvas3dPanelOverlay,
           backdropFilter: 'blur(12px)',
-          border: '1px solid #373A40',
+          border: `1px solid ${t.border}`,
           borderRadius: 8,
           zIndex: 10,
           width: 320,
-          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+          boxShadow: t.isDark ? '0 8px 24px rgba(0, 0, 0, 0.5)' : '0 8px 24px rgba(0, 0, 0, 0.08)',
         }}
       >
         <Stack gap="xs">
@@ -1635,7 +1751,7 @@ export const Axonometric3DView: React.FC = () => {
             </Group>
           </Box>
 
-          <Divider color="#2C2E33" />
+          <Divider color={t.border} />
 
           {/* Зум и Экспорт */}
           <Group justify="space-between">

@@ -117,7 +117,7 @@ export class LocalSQLiteRepository implements IProjectRepository {
   async importProjectFromJson(jsonString: string): Promise<Project> {
     const parsed = JSON.parse(jsonString) as Project;
     if (!parsed.walls || !Array.isArray(parsed.walls)) {
-      throw new Error('Некорректный формат файла проекта Planko');
+      throw new Error('Некорректный формат файла проекта AllWall CAD');
     }
 
     const imported: Project = {

@@ -8,11 +8,13 @@ import { Opening, ensureOpeningSlopes } from '../../../core/models/Opening';
 import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
 const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
 
 export const CadCanvas: React.FC = () => {
+  const t = useAppTheme();
   const { ref: containerRef, width: containerWidth, height: containerHeight } = useElementSize();
   const {
     project,
@@ -137,7 +139,7 @@ export const CadCanvas: React.FC = () => {
       style={{
         width: '100%',
         height: '100%',
-        backgroundColor: '#18191C',
+        backgroundColor: t.canvasBg,
         position: 'relative',
         overflow: 'hidden',
         cursor: activeTool === 'SELECT' ? 'default' : 'grab',
@@ -178,7 +180,7 @@ export const CadCanvas: React.FC = () => {
                 <Line
                   key={`grid-v-${i}`}
                   points={[(i - 20) * 500, -5000, (i - 20) * 500, 10000]}
-                  stroke="#222327"
+                  stroke={t.canvasGrid}
                   strokeWidth={1 / zoom}
                 />
               ))}
@@ -186,7 +188,7 @@ export const CadCanvas: React.FC = () => {
                 <Line
                   key={`grid-h-${i}`}
                   points={[-5000, (i - 10) * 500, 15000, (i - 10) * 500]}
-                  stroke="#222327"
+                  stroke={t.canvasGrid}
                   strokeWidth={1 / zoom}
                 />
               ))}
@@ -202,8 +204,8 @@ export const CadCanvas: React.FC = () => {
               y={0}
               width={wallW}
               height={wallH}
-              fill="#222327"
-              stroke="#373A40"
+              fill={t.canvasWallBg}
+              stroke={t.canvasWallStroke}
               strokeWidth={3 / zoom}
             />
 
@@ -979,8 +981,8 @@ export const CadCanvas: React.FC = () => {
                           <Rect
                             width={120}
                             height={22}
-                            fill="#1A1B1E"
-                            stroke="#339AF0"
+                            fill={t.canvasBadgeBg}
+                            stroke={t.isDark ? '#339AF0' : '#1971c2'}
                             strokeWidth={1}
                             cornerRadius={3}
                           />
@@ -989,7 +991,7 @@ export const CadCanvas: React.FC = () => {
                             y={5}
                             text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
                             fontSize={11}
-                            fill="#74C0FC"
+                            fill={t.canvasBadgeText}
                             fontFamily="JetBrains Mono"
                             fontStyle="bold"
                           />
@@ -1033,7 +1035,7 @@ export const CadCanvas: React.FC = () => {
                       width={jointW}
                       height={jointH}
                       fill={fillColor}
-                      stroke={isJointSelected ? '#FFFFFF' : isJointsMode ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
+                      stroke={isJointSelected ? (t.isDark ? '#FFFFFF' : '#1971c2') : isJointsMode ? '#74C0FC' : isLED ? '#FFF3BF' : undefined}
                       strokeWidth={isJointSelected ? 2 / zoom : isJointsMode ? 1 / zoom : isLED ? 1 / zoom : 0}
                     />
 
@@ -1046,8 +1048,8 @@ export const CadCanvas: React.FC = () => {
                         <Rect
                           width={120}
                           height={22}
-                          fill="#1A1B1E"
-                          stroke="#339AF0"
+                          fill={t.canvasBadgeBg}
+                          stroke={t.isDark ? '#339AF0' : '#1971c2'}
                           strokeWidth={1}
                           cornerRadius={3}
                         />
@@ -1056,7 +1058,7 @@ export const CadCanvas: React.FC = () => {
                           y={5}
                           text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
                           fontSize={11}
-                          fill="#74C0FC"
+                          fill={t.canvasBadgeText}
                           fontFamily="JetBrains Mono"
                           fontStyle="bold"
                         />
@@ -1117,7 +1119,7 @@ export const CadCanvas: React.FC = () => {
                         <Rect
                           width={160}
                           height={24}
-                          fill="#141517"
+                          fill={t.canvasBadgeBg}
                           stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
                           strokeWidth={1.5}
                           cornerRadius={4}
@@ -1129,7 +1131,7 @@ export const CadCanvas: React.FC = () => {
                           fontSize={9.5}
                           fontFamily="JetBrains Mono"
                           fontStyle="bold"
-                          fill="#74C0FC"
+                          fill={t.canvasBadgeText}
                         />
                       </Group>
                     </>
@@ -1150,7 +1152,7 @@ export const CadCanvas: React.FC = () => {
                         <Rect
                           width={Math.min(arcLen - 8, 170)}
                           height={24}
-                          fill="#141517"
+                          fill={t.canvasBadgeBg}
                           stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
                           strokeWidth={1.5}
                           cornerRadius={4}
@@ -1162,7 +1164,7 @@ export const CadCanvas: React.FC = () => {
                           fontSize={10}
                           fontFamily="JetBrains Mono"
                           fontStyle="bold"
-                          fill="#74C0FC"
+                          fill={t.canvasBadgeText}
                         />
                       </Group>
                     </>
@@ -1177,17 +1179,17 @@ export const CadCanvas: React.FC = () => {
                 {/* Верхний горизонтальный размер */}
                 <Line
                   points={[0, -60, wallW, -60]}
-                  stroke="#909296"
+                  stroke={t.isDark ? '#909296' : '#64748B'}
                   strokeWidth={2 / zoom}
                 />
                 <Line
                   points={[0, -40, 0, -80]}
-                  stroke="#909296"
+                  stroke={t.isDark ? '#909296' : '#64748B'}
                   strokeWidth={2 / zoom}
                 />
                 <Line
                   points={[wallW, -40, wallW, -80]}
-                  stroke="#909296"
+                  stroke={t.isDark ? '#909296' : '#64748B'}
                   strokeWidth={2 / zoom}
                 />
                 <Text
@@ -1195,7 +1197,7 @@ export const CadCanvas: React.FC = () => {
                   y={-100}
                   text={`◄  ${wallW} мм  ►`}
                   fontSize={Math.max(16, 24 / Math.max(0.5, zoom))}
-                  fill="#E9ECEF"
+                  fill={t.isDark ? '#E9ECEF' : '#1E293B'}
                   fontFamily="JetBrains Mono"
                   fontStyle="bold"
                 />
@@ -1203,17 +1205,17 @@ export const CadCanvas: React.FC = () => {
                 {/* Левый вертикальный размер */}
                 <Line
                   points={[-60, 0, -60, wallH]}
-                  stroke="#909296"
+                  stroke={t.isDark ? '#909296' : '#64748B'}
                   strokeWidth={2 / zoom}
                 />
                 <Line
                   points={[-40, 0, -80, 0]}
-                  stroke="#909296"
+                  stroke={t.isDark ? '#909296' : '#64748B'}
                   strokeWidth={2 / zoom}
                 />
                 <Line
                   points={[-40, wallH, -80, wallH]}
-                  stroke="#909296"
+                  stroke={t.isDark ? '#909296' : '#64748B'}
                   strokeWidth={2 / zoom}
                 />
                 <Text
@@ -1221,7 +1223,7 @@ export const CadCanvas: React.FC = () => {
                   y={wallH / 2 - 12}
                   text={`${wallH} мм`}
                   fontSize={Math.max(16, 24 / Math.max(0.5, zoom))}
-                  fill="#E9ECEF"
+                  fill={t.isDark ? '#E9ECEF' : '#1E293B'}
                   fontFamily="JetBrains Mono"
                   fontStyle="bold"
                 />

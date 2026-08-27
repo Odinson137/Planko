@@ -11,6 +11,7 @@ import {
   Divider,
 } from '@mantine/core';
 import { Plus } from 'lucide-react';
+import { useAppTheme } from '../../theme/useAppTheme';
 
 interface NewProjectModalProps {
   opened: boolean;
@@ -19,6 +20,7 @@ interface NewProjectModalProps {
 }
 
 export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClose, onCreate }) => {
+  const t = useAppTheme();
   const [name, setName] = useState('');
   const [width, setWidth] = useState<number>(3600);
   const [height, setHeight] = useState<number>(2750);
@@ -40,7 +42,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClos
           <ThemeIcon size="sm" variant="light" color="blue">
             <Plus size={14} />
           </ThemeIcon>
-          <Text fw={700} size="sm">
+          <Text fw={700} size="sm" c={t.textPrimary}>
             Создание нового проекта
           </Text>
         </Group>
@@ -49,8 +51,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClos
       centered
       overlayProps={{ backgroundOpacity: 0.65, blur: 3 }}
       styles={{
-        header: { backgroundColor: '#1E1F22', borderBottom: '1px solid #2B2D30' },
-        content: { backgroundColor: '#1E1F22', border: '1px solid #383A42', borderRadius: 8 },
+        header: { backgroundColor: t.bgHeader, borderBottom: `1px solid ${t.border}` },
+        content: { backgroundColor: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 8 },
         body: { padding: 20 },
       }}
     >
@@ -63,12 +65,12 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClos
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
           data-autofocus
           styles={{
-            input: { backgroundColor: '#2B2D30', borderColor: '#3E4249', color: '#FFF' },
-            label: { color: '#C0C4CC', fontSize: 13, marginBottom: 4 },
+            input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary },
+            label: { color: t.textDimmed, fontSize: 13, marginBottom: 4 },
           }}
         />
 
-        <Divider label="Размеры стены" labelPosition="left" color="#2B2D30" />
+        <Divider label="Размеры стены" labelPosition="left" color={t.border} />
 
         <Group grow>
           <NumberInput
@@ -79,8 +81,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClos
             max={12000}
             step={100}
             styles={{
-              input: { backgroundColor: '#2B2D30', borderColor: '#3E4249', color: '#FFF' },
-              label: { color: '#C0C4CC', fontSize: 12 },
+              input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary },
+              label: { color: t.textDimmed, fontSize: 12 },
             }}
           />
           <NumberInput
@@ -91,8 +93,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({ opened, onClos
             max={6000}
             step={50}
             styles={{
-              input: { backgroundColor: '#2B2D30', borderColor: '#3E4249', color: '#FFF' },
-              label: { color: '#C0C4CC', fontSize: 12 },
+              input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary },
+              label: { color: t.textDimmed, fontSize: 12 },
             }}
           />
         </Group>

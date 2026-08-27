@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
+import { useAppTheme } from '../../theme/useAppTheme';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { findDecorByCode } from '../../../core/models/AllWallCatalog';
@@ -51,7 +52,6 @@ import {
   ensureOpeningSlopes,
   SlopeConfig,
   SlopeSideConfig,
-  SlopeJointProfileType,
 } from '../../../core/models/Opening';
 
 const ALL_PROFILE_WIDTH_OPTIONS = [
@@ -107,6 +107,7 @@ const POPULAR_ROOM_PRESETS = [
 ];
 
 export const RightSidebar: React.FC = () => {
+  const t = useAppTheme();
   const { editMode } = useEditorStore();
   const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
   const {
@@ -183,8 +184,8 @@ export const RightSidebar: React.FC = () => {
         justify="center"
         align="center"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -208,8 +209,8 @@ export const RightSidebar: React.FC = () => {
         gap="xs"
         p="xs"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -232,7 +233,7 @@ export const RightSidebar: React.FC = () => {
               </Tooltip>
             </Group>
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {/* Результат проверки условий объединения */}
             {validation.canMerge ? (
@@ -295,7 +296,7 @@ export const RightSidebar: React.FC = () => {
               </Button>
             )}
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва (для всех) */}
             <Select
@@ -419,8 +420,8 @@ export const RightSidebar: React.FC = () => {
         gap="xs"
         p="xs"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -448,7 +449,7 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </Group>
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва */}
             <Select
@@ -532,7 +533,7 @@ export const RightSidebar: React.FC = () => {
                             style={{
                               cursor: 'pointer',
                               border: isSel ? '2px solid #339af0' : '2px solid transparent',
-                              backgroundColor: '#25262B',
+                              backgroundColor: t.bgCardSubtle,
                               transform: isSel ? 'scale(1.15)' : 'scale(1)',
                               transition: 'all 0.15s ease',
                             }}
@@ -548,7 +549,7 @@ export const RightSidebar: React.FC = () => {
 
                 {/* Карточка привязанного профиля */}
                 {activeProfileObj && (
-                  <Paper p="xs" radius="sm" style={{ backgroundColor: '#1A1B1E', border: '1px solid #339af0' }}>
+                  <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCard, border: '1px solid #339af0' }}>
                     <Stack gap={4}>
                       <Group justify="space-between">
                         <Badge color="blue" size="xs">
@@ -580,7 +581,7 @@ export const RightSidebar: React.FC = () => {
 
             {/* Информация о стыке */}
             {selectedJoint && (
-              <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
+              <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
                 <Group justify="space-between" mb={4}>
                   <Text size="xs" c="dimmed">Положение {isHoriz ? 'от пола Y' : 'от края X'}:</Text>
                   <Text size="xs" fw={600} style={{ fontFamily: 'JetBrains Mono' }}>
@@ -611,8 +612,8 @@ export const RightSidebar: React.FC = () => {
         gap="xs"
         p="xs"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -640,7 +641,7 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </Group>
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {!currentOpening.isApplied ? (
               <Paper
@@ -885,8 +886,8 @@ export const RightSidebar: React.FC = () => {
                   p="xs"
                   withBorder
                   style={{
-                    backgroundColor: '#1A1B1E',
-                    borderColor: slopes.enabled ? '#1971c2' : '#2C2E33',
+                    backgroundColor: t.bgCard,
+                    borderColor: slopes.enabled ? '#1971c2' : t.border,
                   }}
                 >
                   <Stack gap="xs">
@@ -910,7 +911,7 @@ export const RightSidebar: React.FC = () => {
 
                     {slopes.enabled && (
                       <>
-                        <Divider color="#2C2E33" />
+                        <Divider color={t.border} />
 
                         {/* Активные грани откоса */}
                         <div>
@@ -1187,23 +1188,34 @@ export const RightSidebar: React.FC = () => {
 
                         {/* Профиль внутренних стыков откосов */}
                         <div>
-                          <Select
-                            size="xs"
-                            label="Профиль между откосами"
-                            description="Стык планок во внутренних углах"
-                            value={slopes.jointProfileType || 'NONE'}
-                            onChange={(val) =>
-                              handleUpdateSlopes({
-                                jointProfileType: (val as SlopeJointProfileType) || 'NONE',
-                              })
-                            }
-                            data={[
-                              { value: 'NONE', label: '🔘 Без профиля (встык 0 мм)' },
-                              { value: 'CORNER', label: '📐 Внутренний угловой профиль (2 мм)' },
-                              { value: 'LED_10', label: '💡 LED-профиль (10 мм подсветка)' },
-                              { value: 'JOINT_8', label: '⬛ Шов 8 мм (стандартный зазор)' },
-                            ]}
-                          />
+                          <Tooltip
+                            label="Функция пока не реализована (в разработке)"
+                            withArrow
+                            multiline
+                            w={240}
+                          >
+                            <div style={{ cursor: 'not-allowed' }}>
+                              <Select
+                                size="xs"
+                                label="Профиль между откосами"
+                                description="Стык планок во внутренних углах"
+                                value={slopes.jointProfileType || 'NONE'}
+                                disabled
+                                styles={{
+                                  input: {
+                                    opacity: 0.6,
+                                    cursor: 'not-allowed',
+                                  },
+                                }}
+                                data={[
+                                  { value: 'NONE', label: '🔘 Без профиля (встык 0 мм)' },
+                                  { value: 'CORNER', label: '📐 Внутренний угловой профиль (2 мм)' },
+                                  { value: 'LED_10', label: '💡 LED-профиль (10 мм подсветка)' },
+                                  { value: 'JOINT_8', label: '⬛ Шов 8 мм (стандартный зазор)' },
+                                ]}
+                              />
+                            </div>
+                          </Tooltip>
                         </div>
 
                         {/* Развертка на 2D-чертеже */}
@@ -1226,7 +1238,7 @@ export const RightSidebar: React.FC = () => {
               );
             })()}
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             <Button
               size="xs"
@@ -1255,8 +1267,8 @@ export const RightSidebar: React.FC = () => {
         gap="xs"
         p="xs"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -1284,7 +1296,7 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </Group>
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {/* Тип изгиба */}
             <SegmentedControl
@@ -1359,7 +1371,7 @@ export const RightSidebar: React.FC = () => {
             </Group>
 
             {/* Интерактивная векторная мини-схема сечения сверху */}
-            <Paper p="xs" withBorder style={{ backgroundColor: '#141517', borderColor: '#2C2E33' }}>
+            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
               <Text size="xs" fw={600} mb={6} c="dimmed">
                 Схема сечения (Вид сверху):
               </Text>
@@ -1373,7 +1385,7 @@ export const RightSidebar: React.FC = () => {
                         <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
                           ╭ Внутр {currentWallBend.angleDeg || 90}°
                         </text>
-                        <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                        <text x="135" y="44" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
                           Острый (R = 0)
                         </text>
                       </g>
@@ -1383,7 +1395,7 @@ export const RightSidebar: React.FC = () => {
                         <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
                           ╭ Внутр R={currentWallBend.radius}
                         </text>
-                        <text x="135" y="44" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                        <text x="135" y="44" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
                           L = {arcLen} мм
                         </text>
                       </g>
@@ -1396,7 +1408,7 @@ export const RightSidebar: React.FC = () => {
                         <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
                           ⌒ Внешн {currentWallBend.angleDeg || 90}°
                         </text>
-                        <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                        <text x="125" y="56" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
                           Острый (R = 0)
                         </text>
                       </g>
@@ -1406,7 +1418,7 @@ export const RightSidebar: React.FC = () => {
                         <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
                           ⌒ Внешн R={currentWallBend.radius}
                         </text>
-                        <text x="125" y="56" fill="#ced4da" fontSize="10" fontFamily="JetBrains Mono">
+                        <text x="125" y="56" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
                           L = {arcLen} мм
                         </text>
                       </g>
@@ -1417,7 +1429,7 @@ export const RightSidebar: React.FC = () => {
             </Paper>
 
             {/* Информационная плашка с расчетом развертки дуги */}
-            <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
+            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
               <Stack gap={4}>
                 {currentWallBend.radius === 0 ? (
                   <>
@@ -1487,8 +1499,8 @@ export const RightSidebar: React.FC = () => {
         gap="xs"
         p="xs"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -1511,7 +1523,7 @@ export const RightSidebar: React.FC = () => {
               </Tooltip>
             </Group>
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {/* Кнопка объединения выбранных блоков */}
             <Button
@@ -1525,7 +1537,7 @@ export const RightSidebar: React.FC = () => {
               🔗 Объединить выбранные блоки
             </Button>
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {/* Быстрое назначение материала всем выбранным */}
             <div>
@@ -1569,7 +1581,7 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </div>
 
-            <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
+            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
               <Text size="xs" c="dimmed">
                 💡 Вы можете объединять соседние вертикальные сегменты или соседние колонки в одну цельную плиту без лишних швов.
               </Text>
@@ -1622,8 +1634,8 @@ export const RightSidebar: React.FC = () => {
         gap="xs"
         p="xs"
         style={{
-          borderLeft: '1px solid #2C2E33',
-          backgroundColor: '#141517',
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
         }}
@@ -1719,7 +1731,7 @@ export const RightSidebar: React.FC = () => {
                     </div>
                   )}
 
-                  <Divider color="#2C2E33" />
+                  <Divider color={t.border} />
 
                   {/* 1. Маркировка и комментарий детали */}
                   <Stack gap="xs">
@@ -1747,7 +1759,7 @@ export const RightSidebar: React.FC = () => {
                           });
                         }
                       }}
-                      styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
+                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
                     />
 
                     <TextInput
@@ -1775,7 +1787,7 @@ export const RightSidebar: React.FC = () => {
                           });
                         }
                       }}
-                      styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
+                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
                     />
 
                     <Group grow gap="xs">
@@ -1784,14 +1796,14 @@ export const RightSidebar: React.FC = () => {
                         label="Ширина"
                         value={`${activeW} мм`}
                         readOnly
-                        styles={{ input: { backgroundColor: '#141517', borderColor: '#2C2E33', color: '#C1C2C5' } }}
+                        styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
                       />
                       <TextInput
                         size="xs"
                         label="Высота"
                         value={`${activeH} мм`}
                         readOnly
-                        styles={{ input: { backgroundColor: '#141517', borderColor: '#2C2E33', color: '#C1C2C5' } }}
+                        styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
                       />
                     </Group>
                   </Stack>
@@ -1799,7 +1811,7 @@ export const RightSidebar: React.FC = () => {
               );
             })()}
 
-            <Divider color="#2C2E33" />
+            <Divider color={t.border} />
 
             {(() => {
               const activeSubPieces =
@@ -1878,7 +1890,7 @@ export const RightSidebar: React.FC = () => {
                         items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
                       },
                     ]}
-                    styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33' } }}
+                    styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
                   />
 
                   {!effectiveIsVoid && (
@@ -1905,7 +1917,7 @@ export const RightSidebar: React.FC = () => {
                           data={thicknessOpts.map((t) => ({ label: `${t} мм`, value: String(t) }))}
                         />
                       ) : (
-                        <Paper p={6} radius="sm" style={{ backgroundColor: '#1A1B1E', border: '1px solid #2C2E33' }}>
+                        <Paper p={6} radius="sm" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
                           <Text size="xs" c="dimmed">
                             Фиксированная глубина профиля: <strong style={{ color: '#74C0FC' }}>{thicknessOpts[0]} мм</strong>
                           </Text>
@@ -1938,7 +1950,7 @@ export const RightSidebar: React.FC = () => {
                             });
                           }}
                           leftSection={<Search size={14} />}
-                          styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' } }}
+                          styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
                         />
                         <ColorInput
                           size="xs"
@@ -1949,7 +1961,7 @@ export const RightSidebar: React.FC = () => {
                               customColor: colorVal,
                             });
                           }}
-                          styles={{ input: { backgroundColor: '#1A1B1E', borderColor: '#2C2E33', fontFamily: 'JetBrains Mono' } }}
+                          styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
                         />
                       </Group>
 
@@ -2026,7 +2038,7 @@ export const RightSidebar: React.FC = () => {
                     </Badge>
                   </Group>
 
-                  <Divider color="#2C2E33" />
+                  <Divider color={t.border} />
 
                   {actualPanelPiece.bendsInfo.map((bend, bIdx) => (
                     <Stack key={`bend-info-${bIdx}`} gap={4}>
@@ -2155,8 +2167,8 @@ export const RightSidebar: React.FC = () => {
       gap="xs"
       p="xs"
       style={{
-        borderLeft: '1px solid #2C2E33',
-        backgroundColor: '#141517',
+        borderLeft: `1px solid ${t.border}`,
+        backgroundColor: t.bgSidebar,
         width: 320,
         minWidth: 320,
       }}
@@ -2233,7 +2245,7 @@ export const RightSidebar: React.FC = () => {
             </Stack>
           </div>
 
-          <Divider color="#2C2E33" />
+          <Divider color={t.border} />
 
           {/* Габариты всей стены */}
           <Title order={6} size="xs" c="dimmed">
@@ -2278,7 +2290,7 @@ export const RightSidebar: React.FC = () => {
             />
           </Group>
 
-          <Divider color="#2C2E33" />
+          <Divider color={t.border} />
 
           {/* Предварительный расчет и баланс площадей */}
           <Title order={6} size="xs" c="dimmed">
@@ -2287,7 +2299,7 @@ export const RightSidebar: React.FC = () => {
 
           {layoutResult && (
             <Stack gap={6}>
-              <Paper p="xs" withBorder style={{ backgroundColor: '#1A1B1E', borderColor: '#2C2E33' }}>
+              <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
                 <Group justify="space-between" mb={4}>
                   <Text size="xs" c="dimmed">Общая площадь стены:</Text>
                   <Text size="xs" fw={600}>{layoutResult.summary.wallAreaSqM} м²</Text>
@@ -2320,7 +2332,7 @@ export const RightSidebar: React.FC = () => {
                     <Text size="xs" fw={600} c="gray.4">{layoutResult.summary.voidAreaSqM} м²</Text>
                   </Group>
                 )}
-                <Divider my={4} color="#2C2E33" />
+                <Divider my={4} color={t.border} />
                 <Group justify="space-between" mb={4}>
                   <Text size="xs" c="dimmed">Панелей в смете:</Text>
                   <Text size="xs" fw={600}>{layoutResult.summary.totalPanelsNeeded} шт</Text>
