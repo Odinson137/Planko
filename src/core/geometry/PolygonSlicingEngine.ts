@@ -1427,6 +1427,86 @@ export class PolygonSlicingEngine {
   }
 
   /**
+   * Корректирует геометрию полигонов панелей при переключении направления забора зазора (takeSide),
+   * сохраняя общую ширину стыка неизменной, но смещая границу панелей мгновенно.
+   * Например: при ширине 8 мм переход с BOTH в RIGHT смещает границу на +4 мм (левая панель получает +4 мм, правая теряет 4 мм).
+   */
+  public static adjustPanelsForJointTakeSideChange(
+    panels: WallPanelPiece[],
+    joint: WallJointLine,
+    jointWidth: number,
+    oldTakeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM',
+    newTakeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM',
+    wallWidth: number,
+    wallHeight: number
+  ): WallPanelPiece[] {
+    if (oldTakeSide === newTakeSide || jointWidth <= 0) return panels;
+
+    let p1 = joint.p1;
+    let p2 = joint.p2;
+    if (!p1 || !p2) return panels;
+
+    // Нормализуем направление отрезка: ориентируем вверх (dy > 0) или вправо (dx > 0)
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    if (dy < -1e-4 || (Math.abs(dy) <= 1e-4 && dx < -1e-4)) {
+      const temp = p1;
+      p1 = p2;
+      p2 = temp;
+      dx = p2.x - p1.x;
+      dy = p2.y - p1.y;
+    }
+
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-4) return panels;
+
+    const nx = -dy / len;
+    const ny = dx / len;
+    const isVert = Math.abs(dx) <= Math.abs(dy);
+
+    // Вычисляем смещение центра зазора вдоль нормали n
+    const getNormalOffset = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
+      const half = jointWidth / 2;
+      if (isVert) {
+        if (side === 'LEFT') return half;   // сдвиг шва влево (+n)
+        if (side === 'RIGHT') return -half; // сдвиг шва вправо (-n)
+        return 0;
+      } else {
+        if (side === 'TOP') return half;     // сдвиг шва вверх (+n)
+        if (side === 'BOTTOM') return -half; // сдвиг шва вниз (-n)
+        return 0;
+      }
+    };
+
+    const deltaOffset = getNormalOffset(newTakeSide) - getNormalOffset(oldTakeSide);
+    if (Math.abs(deltaOffset) < 1e-4) return panels;
+
+    const maxThreshold = Math.max(35, jointWidth + 15);
+
+    return panels.map((panel) => {
+      const nextPoints = panel.points.map((pt) => {
+        const t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / len;
+        const h = (pt.x - p1.x) * nx + (pt.y - p1.y) * ny;
+
+        if (t >= -5 && t <= len + 5 && Math.abs(h) <= maxThreshold) {
+          // Обе стороны стыка смещаются на один и тот же deltaOffset вдоль нормали
+          const newX = Math.max(0, Math.min(wallWidth, Math.round((pt.x + deltaOffset * nx) * 10) / 10));
+          const newY = Math.max(0, Math.min(wallHeight, Math.round((pt.y + deltaOffset * ny) * 10) / 10));
+
+          return { x: newX, y: newY };
+        }
+
+        return pt;
+      });
+
+      return {
+        ...panel,
+        points: nextPoints,
+      };
+    });
+  }
+
+  /**
    * Автоматически нарезает WallPanelPiece на вертикальные ламели заданной ширины
    */
   public static sliceWallPanelIntoStrips(

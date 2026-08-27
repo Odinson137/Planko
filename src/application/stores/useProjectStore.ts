@@ -1184,11 +1184,37 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         });
       }
 
+      let nextPanels = wall.panels;
+      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+        state.selectedJointIds.forEach((jId) => {
+          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const jointW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const oldTakeSide =
+            wall.customJoints[jId]?.takeSide ||
+            targetJoint?.takeSide ||
+            (targetJoint
+              ? PolygonSlicingEngine.getSmartJointTakeSide(targetJoint, wall.width, wall.height, wall.openings)
+              : 'BOTH');
+
+          if (targetJoint && oldTakeSide !== takeSide && jointW > 0) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointTakeSideChange(
+              nextPanels!,
+              targetJoint,
+              jointW,
+              oldTakeSide,
+              takeSide,
+              wall.width,
+              wall.height
+            );
+          }
+        });
+      }
+
       return {
         project: {
           ...state.project,
           walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints } : w
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints, panels: nextPanels } : w
           ),
         },
       };
@@ -2367,7 +2393,29 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             });
           }
 
-          return { ...w, customJoints: nextJoints, joints: nextWallJoints };
+          let nextPanels = w.panels;
+          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const jointW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const oldTakeSide =
+            w.customJoints[jointId]?.takeSide ||
+            targetJoint?.takeSide ||
+            (targetJoint
+              ? PolygonSlicingEngine.getSmartJointTakeSide(targetJoint, w.width, w.height, w.openings)
+              : 'BOTH');
+
+          if (nextPanels && nextPanels.length > 0 && targetJoint && oldTakeSide !== takeSide && jointW > 0) {
+            nextPanels = PolygonSlicingEngine.adjustPanelsForJointTakeSideChange(
+              nextPanels,
+              targetJoint,
+              jointW,
+              oldTakeSide,
+              takeSide,
+              w.width,
+              w.height
+            );
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
         }),
       },
     })),
