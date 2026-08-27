@@ -1325,8 +1325,538 @@ export class PolygonSlicingEngine {
   }
 
   /**
-   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними.
-   * Учитывает параметр takeSide (BOTH, LEFT, RIGHT, TOP, BOTTOM) или авто-определение примыканий.
+   * Выполняет физическое каскадное перемещение цепочки элементов в строке/столбце при изменении ширины стыка.
+   * Промежуточные элементы сохраняют свою точную ширину и физически сдвигаются.
+   * Крайний элемент цепочки у стены (или границы группы) подрезается или расширяется.
+   */
+  public static cascadeChainJointWidthChange(
+    panels: WallPanelPiece[],
+    joints: WallJointLine[],
+    targetJoint: WallJointLine,
+    oldWidth: number,
+    newWidth: number,
+    wallWidth: number,
+    wallHeight: number,
+    openings: Opening[] = [],
+    takeSideOverride?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'
+  ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
+    const delta = newWidth - oldWidth;
+    if (Math.abs(delta) < 1e-4) return { panels, joints };
+
+    const p1 = targetJoint.p1 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
+    const p2 = targetJoint.p2 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
+    const isVert = targetJoint.orientation === 'VERTICAL' || Math.abs(p1.x - p2.x) <= Math.abs(p1.y - p2.y);
+
+    const effTakeSide =
+      takeSideOverride ||
+      targetJoint.takeSide ||
+      this.getSmartJointTakeSide(targetJoint, wallWidth, wallHeight, openings);
+
+    let nextPanels = [...panels];
+    let nextJoints = [...joints];
+
+    if (isVert) {
+      const yMin = Math.min(p1.y, p2.y);
+      const yMax = Math.max(p1.y, p2.y);
+      const jX = (p1.x + p2.x) / 2;
+
+      // 1. Панели в той же горизонтальной полосе по высоте
+      const isPanelInBand = (p: WallPanelPiece) => {
+        const ys = p.points.map((pt) => pt.y);
+        const pMinY = Math.min(...ys);
+        const pMaxY = Math.max(...ys);
+        return Math.abs(pMinY - yMin) <= 15 && Math.abs(pMaxY - yMax) <= 15;
+      };
+
+      // 2. Вертикальные стыки в той же полосе
+      const isJointInBand = (j: WallJointLine) => {
+        const jyMin = Math.min(j.p1.y, j.p2.y);
+        const jyMax = Math.max(j.p1.y, j.p2.y);
+        const jIsVert = j.orientation === 'VERTICAL' || Math.abs(j.p1.x - j.p2.x) <= Math.abs(j.p1.y - j.p2.y);
+        return jIsVert && Math.abs(jyMin - yMin) <= 15 && Math.abs(jyMax - yMax) <= 15;
+      };
+
+      // Сдвиг цепочки вправо на shiftVal
+      const applyRightShift = (shiftVal: number) => {
+        if (Math.abs(shiftVal) < 1e-4) return;
+
+        const rightPanels = nextPanels
+          .filter(isPanelInBand)
+          .filter((p) => Math.min(...p.points.map((pt) => pt.x)) >= jX - 5)
+          .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
+
+        if (rightPanels.length === 0) return;
+
+        // Сдвигаем все последующие стыки правее targetJoint
+        nextJoints = nextJoints.map((j) => {
+          if (j.id === targetJoint.id) return j;
+          const currX = (j.p1.x + j.p2.x) / 2;
+          if (isJointInBand(j) && currX > jX + 5) {
+            return {
+              ...j,
+              p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + shiftVal) * 10) / 10)), y: j.p1.y },
+              p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + shiftVal) * 10) / 10)), y: j.p2.y },
+            };
+          }
+          return j;
+        });
+
+        // Сдвигаем промежуточные панели целиком, а последнюю у правой стены подрезаем
+        const lastPanelId = rightPanels[rightPanels.length - 1].id;
+        const rightPanelIds = new Set(rightPanels.map((p) => p.id));
+
+        nextPanels = nextPanels.map((p) => {
+          if (!rightPanelIds.has(p.id)) return p;
+
+          if (p.id === lastPanelId) {
+            const minX = Math.min(...p.points.map((pt) => pt.x));
+            const newPoints = p.points.map((pt) => {
+              if (pt.x <= minX + 15) {
+                return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
+              }
+              return pt;
+            });
+            return { ...p, points: newPoints };
+          } else {
+            // Промежуточная панель: физически сдвигается ЦЕЛИКОМ (все вершины)
+            const newPoints = p.points.map((pt) => ({
+              x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftVal) * 10) / 10)),
+              y: pt.y,
+            }));
+            return { ...p, points: newPoints };
+          }
+        });
+      };
+
+      // Сдвиг цепочки влево на shiftVal
+      const applyLeftShift = (shiftVal: number) => {
+        if (Math.abs(shiftVal) < 1e-4) return;
+
+        const leftPanels = nextPanels
+          .filter(isPanelInBand)
+          .filter((p) => Math.max(...p.points.map((pt) => pt.x)) <= jX + 5)
+          .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
+
+        if (leftPanels.length === 0) return;
+
+        // Сдвигаем стыки левее targetJoint
+        nextJoints = nextJoints.map((j) => {
+          if (j.id === targetJoint.id) return j;
+          const currX = (j.p1.x + j.p2.x) / 2;
+          if (isJointInBand(j) && currX < jX - 5) {
+            return {
+              ...j,
+              p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x - shiftVal) * 10) / 10)), y: j.p1.y },
+              p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x - shiftVal) * 10) / 10)), y: j.p2.y },
+            };
+          }
+          return j;
+        });
+
+        // Сдвигаем промежуточные панели целиком, а первую (крайнюю левую у стены) подрезаем
+        const firstPanelId = leftPanels[0].id;
+        const leftPanelIds = new Set(leftPanels.map((p) => p.id));
+
+        nextPanels = nextPanels.map((p) => {
+          if (!leftPanelIds.has(p.id)) return p;
+
+          if (p.id === firstPanelId) {
+            const maxX = Math.max(...p.points.map((pt) => pt.x));
+            const newPoints = p.points.map((pt) => {
+              if (pt.x >= maxX - 15) {
+                return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
+              }
+              return pt;
+            });
+            return { ...p, points: newPoints };
+          } else {
+            // Промежуточная панель: физически сдвигается ЦЕЛИКОМ
+            const newPoints = p.points.map((pt) => ({
+              x: Math.max(0, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)),
+              y: pt.y,
+            }));
+            return { ...p, points: newPoints };
+          }
+        });
+      };
+
+      if (effTakeSide === 'RIGHT') {
+        applyRightShift(delta);
+      } else if (effTakeSide === 'LEFT') {
+        applyLeftShift(delta);
+      } else {
+        applyRightShift(delta / 2);
+        applyLeftShift(delta / 2);
+      }
+    } else {
+      // Горизонтальный стык
+      const xMin = Math.min(p1.x, p2.x);
+      const xMax = Math.max(p1.x, p2.x);
+      const jY = (p1.y + p2.y) / 2;
+
+      const isPanelInCol = (p: WallPanelPiece) => {
+        const xs = p.points.map((pt) => pt.x);
+        const pMinX = Math.min(...xs);
+        const pMaxX = Math.max(...xs);
+        return Math.abs(pMinX - xMin) <= 15 && Math.abs(pMaxX - xMax) <= 15;
+      };
+
+      const isJointInCol = (j: WallJointLine) => {
+        const jxMin = Math.min(j.p1.x, j.p2.x);
+        const jxMax = Math.max(j.p1.x, j.p2.x);
+        const jIsHoriz = j.orientation === 'HORIZONTAL' || Math.abs(j.p1.y - j.p2.y) <= Math.abs(j.p1.x - j.p2.x);
+        return jIsHoriz && Math.abs(jxMin - xMin) <= 15 && Math.abs(jxMax - xMax) <= 15;
+      };
+
+      // Сдвиг вниз на shiftVal
+      const applyBottomShift = (shiftVal: number) => {
+        if (Math.abs(shiftVal) < 1e-4) return;
+
+        const bottomPanels = nextPanels
+          .filter(isPanelInCol)
+          .filter((p) => Math.max(...p.points.map((pt) => pt.y)) <= jY + 5)
+          .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
+
+        if (bottomPanels.length === 0) return;
+
+        // Сдвигаем стыки ниже targetJoint
+        nextJoints = nextJoints.map((j) => {
+          if (j.id === targetJoint.id) return j;
+          const currY = (j.p1.y + j.p2.y) / 2;
+          if (isJointInCol(j) && currY < jY - 5) {
+            return {
+              ...j,
+              p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y - shiftVal) * 10) / 10)) },
+              p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y - shiftVal) * 10) / 10)) },
+            };
+          }
+          return j;
+        });
+
+        // Первая панель снизу подрезается у пола (y=0)
+        const firstPanelId = bottomPanels[0].id;
+        const bottomPanelIds = new Set(bottomPanels.map((p) => p.id));
+
+        nextPanels = nextPanels.map((p) => {
+          if (!bottomPanelIds.has(p.id)) return p;
+
+          if (p.id === firstPanelId) {
+            const maxY = Math.max(...p.points.map((pt) => pt.y));
+            const newPoints = p.points.map((pt) => {
+              if (pt.y >= maxY - 15) {
+                return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
+              }
+              return pt;
+            });
+            return { ...p, points: newPoints };
+          } else {
+            const newPoints = p.points.map((pt) => ({
+              x: pt.x,
+              y: Math.max(0, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)),
+            }));
+            return { ...p, points: newPoints };
+          }
+        });
+      };
+
+      // Сдвиг вверх на shiftVal
+      const applyTopShift = (shiftVal: number) => {
+        if (Math.abs(shiftVal) < 1e-4) return;
+
+        const topPanels = nextPanels
+          .filter(isPanelInCol)
+          .filter((p) => Math.min(...p.points.map((pt) => pt.y)) >= jY - 5)
+          .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
+
+        if (topPanels.length === 0) return;
+
+        // Сдвигаем стыки выше targetJoint
+        nextJoints = nextJoints.map((j) => {
+          if (j.id === targetJoint.id) return j;
+          const currY = (j.p1.y + j.p2.y) / 2;
+          if (isJointInCol(j) && currY > jY + 5) {
+            return {
+              ...j,
+              p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + shiftVal) * 10) / 10)) },
+              p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + shiftVal) * 10) / 10)) },
+            };
+          }
+          return j;
+        });
+
+        // Последняя панель сверху подрезается у потолка (y=wallHeight)
+        const lastPanelId = topPanels[topPanels.length - 1].id;
+        const topPanelIds = new Set(topPanels.map((p) => p.id));
+
+        nextPanels = nextPanels.map((p) => {
+          if (!topPanelIds.has(p.id)) return p;
+
+          if (p.id === lastPanelId) {
+            const minY = Math.min(...p.points.map((pt) => pt.y));
+            const newPoints = p.points.map((pt) => {
+              if (pt.y <= minY + 15) {
+                return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftVal) * 10) / 10)) };
+              }
+              return pt;
+            });
+            return { ...p, points: newPoints };
+          } else {
+            const newPoints = p.points.map((pt) => ({
+              x: pt.x,
+              y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftVal) * 10) / 10)),
+            }));
+            return { ...p, points: newPoints };
+          }
+        });
+      };
+
+      if (effTakeSide === 'BOTTOM') {
+        applyBottomShift(delta);
+      } else if (effTakeSide === 'TOP') {
+        applyTopShift(delta);
+      } else {
+        applyTopShift(delta / 2);
+        applyBottomShift(delta / 2);
+      }
+    }
+
+    return { panels: nextPanels, joints: nextJoints };
+  }
+
+  /**
+   * Выполняет физическое каскадное перемещение цепочки при смене активной стрелки направления зазора (takeSide).
+   * Промежуточные панели сохраняют свою точную ширину, крайние подгоняются по стенам.
+   */
+  public static cascadeChainJointTakeSideChange(
+    panels: WallPanelPiece[],
+    joints: WallJointLine[],
+    targetJoint: WallJointLine,
+    jointWidth: number,
+    oldTakeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM',
+    newTakeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM',
+    wallWidth: number,
+    wallHeight: number
+  ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
+    if (oldTakeSide === newTakeSide || jointWidth <= 0) return { panels, joints };
+
+    const p1 = targetJoint.p1 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
+    const p2 = targetJoint.p2 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
+    const isVert = targetJoint.orientation === 'VERTICAL' || Math.abs(p1.x - p2.x) <= Math.abs(p1.y - p2.y);
+
+    const half = jointWidth / 2;
+
+    if (isVert) {
+      const getSideShift = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
+        if (side === 'RIGHT') return half; // сдвиг правой стороны вправо
+        if (side === 'LEFT') return -half; // сдвиг правой стороны влево
+        return 0;
+      };
+
+      const shiftDelta = getSideShift(newTakeSide) - getSideShift(oldTakeSide);
+      if (Math.abs(shiftDelta) < 1e-4) return { panels, joints };
+
+      const yMin = Math.min(p1.y, p2.y);
+      const yMax = Math.max(p1.y, p2.y);
+      const jX = (p1.x + p2.x) / 2;
+
+      const isPanelInBand = (p: WallPanelPiece) => {
+        const ys = p.points.map((pt) => pt.y);
+        return Math.abs(Math.min(...ys) - yMin) <= 15 && Math.abs(Math.max(...ys) - yMax) <= 15;
+      };
+
+      const isJointInBand = (j: WallJointLine) => {
+        const jyMin = Math.min(j.p1.y, j.p2.y);
+        const jyMax = Math.max(j.p1.y, j.p2.y);
+        const jIsVert = j.orientation === 'VERTICAL' || Math.abs(j.p1.x - j.p2.x) <= Math.abs(j.p1.y - j.p2.y);
+        return jIsVert && Math.abs(jyMin - yMin) <= 15 && Math.abs(jyMax - yMax) <= 15;
+      };
+
+      let nextPanels = [...panels];
+      let nextJoints = [...joints];
+
+      const rightPanels = nextPanels
+        .filter(isPanelInBand)
+        .filter((p) => Math.min(...p.points.map((pt) => pt.x)) >= jX - 5)
+        .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
+
+      const leftPanels = nextPanels
+        .filter(isPanelInBand)
+        .filter((p) => Math.max(...p.points.map((pt) => pt.x)) <= jX + 5)
+        .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
+
+      // Сдвигаем все правые стыки
+      nextJoints = nextJoints.map((j) => {
+        if (j.id === targetJoint.id) return j;
+        const currX = (j.p1.x + j.p2.x) / 2;
+        if (isJointInBand(j) && currX > jX + 5) {
+          return {
+            ...j,
+            p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + shiftDelta) * 10) / 10)), y: j.p1.y },
+            p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + shiftDelta) * 10) / 10)), y: j.p2.y },
+          };
+        }
+        return j;
+      });
+
+      // Смежная левая панель: её правый край смещается на shiftDelta
+      const immediateLeftPanel = leftPanels.length > 0 ? leftPanels[leftPanels.length - 1] : null;
+      if (immediateLeftPanel) {
+        const maxX = Math.max(...immediateLeftPanel.points.map((pt) => pt.x));
+        nextPanels = nextPanels.map((p) => {
+          if (p.id !== immediateLeftPanel.id) return p;
+          return {
+            ...p,
+            points: p.points.map((pt) => {
+              if (pt.x >= maxX - 15) {
+                return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftDelta) * 10) / 10)), y: pt.y };
+              }
+              return pt;
+            }),
+          };
+        });
+      }
+
+      // Правые панели: промежуточные сдвигаются целиком, последняя у стены подрезается
+      if (rightPanels.length > 0) {
+        const lastPanelId = rightPanels[rightPanels.length - 1].id;
+        const rightPanelIds = new Set(rightPanels.map((p) => p.id));
+
+        nextPanels = nextPanels.map((p) => {
+          if (!rightPanelIds.has(p.id)) return p;
+
+          if (p.id === lastPanelId) {
+            const minX = Math.min(...p.points.map((pt) => pt.x));
+            return {
+              ...p,
+              points: p.points.map((pt) => {
+                if (pt.x <= minX + 15) {
+                  return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftDelta) * 10) / 10)), y: pt.y };
+                }
+                return pt;
+              }),
+            };
+          } else {
+            return {
+              ...p,
+              points: p.points.map((pt) => ({
+                x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftDelta) * 10) / 10)),
+                y: pt.y,
+              })),
+            };
+          }
+        });
+      }
+
+      return { panels: nextPanels, joints: nextJoints };
+    } else {
+      // Горизонтальный стык
+      const getSideShift = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
+        if (side === 'TOP') return half;    // сдвиг верхней стороны вверх
+        if (side === 'BOTTOM') return -half; // сдвиг нижней стороны вниз
+        return 0;
+      };
+
+      const shiftDelta = getSideShift(newTakeSide) - getSideShift(oldTakeSide);
+      if (Math.abs(shiftDelta) < 1e-4) return { panels, joints };
+
+      const xMin = Math.min(p1.x, p2.x);
+      const xMax = Math.max(p1.x, p2.x);
+      const jY = (p1.y + p2.y) / 2;
+
+      const isPanelInCol = (p: WallPanelPiece) => {
+        const xs = p.points.map((pt) => pt.x);
+        return Math.abs(Math.min(...xs) - xMin) <= 15 && Math.abs(Math.max(...xs) - xMax) <= 15;
+      };
+
+      const isJointInCol = (j: WallJointLine) => {
+        const jxMin = Math.min(j.p1.x, j.p2.x);
+        const jxMax = Math.max(j.p1.x, j.p2.x);
+        const jIsHoriz = j.orientation === 'HORIZONTAL' || Math.abs(j.p1.y - j.p2.y) <= Math.abs(j.p1.x - j.p2.x);
+        return jIsHoriz && Math.abs(jxMin - xMin) <= 15 && Math.abs(jxMax - xMax) <= 15;
+      };
+
+      let nextPanels = [...panels];
+      let nextJoints = [...joints];
+
+      const topPanels = nextPanels
+        .filter(isPanelInCol)
+        .filter((p) => Math.min(...p.points.map((pt) => pt.y)) >= jY - 5)
+        .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
+
+      const bottomPanels = nextPanels
+        .filter(isPanelInCol)
+        .filter((p) => Math.max(...p.points.map((pt) => pt.y)) <= jY + 5)
+        .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
+
+      // Сдвигаем стыки сверху
+      nextJoints = nextJoints.map((j) => {
+        if (j.id === targetJoint.id) return j;
+        const currY = (j.p1.y + j.p2.y) / 2;
+        if (isJointInCol(j) && currY > jY + 5) {
+          return {
+            ...j,
+            p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + shiftDelta) * 10) / 10)) },
+            p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + shiftDelta) * 10) / 10)) },
+          };
+        }
+        return j;
+      });
+
+      // Смежная нижняя панель: её верхний край смещается на shiftDelta
+      const immediateBottomPanel = bottomPanels.length > 0 ? bottomPanels[bottomPanels.length - 1] : null;
+      if (immediateBottomPanel) {
+        const maxY = Math.max(...immediateBottomPanel.points.map((pt) => pt.y));
+        nextPanels = nextPanels.map((p) => {
+          if (p.id !== immediateBottomPanel.id) return p;
+          return {
+            ...p,
+            points: p.points.map((pt) => {
+              if (pt.y >= maxY - 15) {
+                return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)) };
+              }
+              return pt;
+            }),
+          };
+        });
+      }
+
+      // Верхние панели: промежуточные сдвигаются целиком, верхняя у потолка подрезается
+      if (topPanels.length > 0) {
+        const lastPanelId = topPanels[topPanels.length - 1].id;
+        const topPanelIds = new Set(topPanels.map((p) => p.id));
+
+        nextPanels = nextPanels.map((p) => {
+          if (!topPanelIds.has(p.id)) return p;
+
+          if (p.id === lastPanelId) {
+            const minY = Math.min(...p.points.map((pt) => pt.y));
+            return {
+              ...p,
+              points: p.points.map((pt) => {
+                if (pt.y <= minY + 15) {
+                  return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)) };
+                }
+                return pt;
+              }),
+            };
+          } else {
+            return {
+              ...p,
+              points: p.points.map((pt) => ({
+                x: pt.x,
+                y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)),
+              })),
+            };
+          }
+        });
+      }
+
+      return { panels: nextPanels, joints: nextJoints };
+    }
+  }
+
+  /**
+   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними (обертка для совместимости).
    */
   public static adjustPanelsForJointWidthChange(
     panels: WallPanelPiece[],
@@ -1338,103 +1868,22 @@ export class PolygonSlicingEngine {
     openings: Opening[] = [],
     takeSideOverride?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'
   ): WallPanelPiece[] {
-    const delta = newWidth - oldWidth;
-    if (Math.abs(delta) < 1e-4) return panels;
-
-    let p1 = joint.p1;
-    let p2 = joint.p2;
-    if (!p1 || !p2) return panels;
-
-    // Нормализуем направление отрезка: ориентируем вверх (dy > 0) или вправо (dx > 0)
-    let dx = p2.x - p1.x;
-    let dy = p2.y - p1.y;
-    if (dy < -1e-4 || (Math.abs(dy) <= 1e-4 && dx < -1e-4)) {
-      const temp = p1;
-      p1 = p2;
-      p2 = temp;
-      dx = p2.x - p1.x;
-      dy = p2.y - p1.y;
-    }
-
-    const len = Math.hypot(dx, dy);
-    if (len < 1e-4) return panels;
-
-    const halfDelta = delta / 2;
-    const nx = -dy / len;
-    const ny = dx / len;
-
-    // Определяем эффективную сторону взятия зазора
-    const effTakeSide =
-      takeSideOverride ||
-      joint.takeSide ||
-      this.getSmartJointTakeSide(joint, wallWidth, wallHeight, openings);
-
-    const isVert = Math.abs(dx) <= Math.abs(dy);
-
-    // Максимальное расстояние от линии шва, на котором точка считается принадлежащей стыку
-    const maxThreshold = Math.max(35, Math.max(oldWidth, newWidth) / 2 + 15);
-
-    return panels.map((panel) => {
-      const centroid = this.calculateCentroid(panel.points);
-      const hCentroid = (centroid.x - p1.x) * nx + (centroid.y - p1.y) * ny;
-
-      const nextPoints = panel.points.map((pt) => {
-        // Проекция на отрезок шва
-        const t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / len;
-        // Расстояние со знаком от линии шва
-        const h = (pt.x - p1.x) * nx + (pt.y - p1.y) * ny;
-
-        // Точка лежит вдоль отрезка шва и прилегает к зазору
-        if (t >= -5 && t <= len + 5 && Math.abs(h) <= maxThreshold) {
-          const isPosSide = Math.abs(h) > 1e-3 ? h > 0 : hCentroid >= 0;
-
-          let shift = 0;
-          if (isVert) {
-            // Для вертикального шва: PosSide (nx=-1) это СЛЕВА, NegSide это СПРАВА
-            if (effTakeSide === 'LEFT') {
-              // Берем только с левой панели (левая сдвигается на полный delta, правая на месте)
-              shift = isPosSide ? delta : 0;
-            } else if (effTakeSide === 'RIGHT') {
-              // Берем только с правой панели (правая сдвигается на полный delta, левая на месте)
-              shift = isPosSide ? 0 : -delta;
-            } else {
-              // Симметрично
-              shift = isPosSide ? halfDelta : -halfDelta;
-            }
-          } else {
-            // Для горизонтального шва: PosSide (ny=1) это СВЕРХУ, NegSide это СНИЗУ
-            if (effTakeSide === 'TOP') {
-              // Берем только с верхней панели
-              shift = isPosSide ? delta : 0;
-            } else if (effTakeSide === 'BOTTOM') {
-              // Берем только с нижней панели
-              shift = isPosSide ? 0 : -delta;
-            } else {
-              // Симметрично
-              shift = isPosSide ? halfDelta : -halfDelta;
-            }
-          }
-
-          const newX = Math.max(0, Math.min(wallWidth, Math.round((pt.x + shift * nx) * 10) / 10));
-          const newY = Math.max(0, Math.min(wallHeight, Math.round((pt.y + shift * ny) * 10) / 10));
-
-          return { x: newX, y: newY };
-        }
-
-        return pt;
-      });
-
-      return {
-        ...panel,
-        points: nextPoints,
-      };
-    });
+    const res = this.cascadeChainJointWidthChange(
+      panels,
+      [],
+      joint,
+      oldWidth,
+      newWidth,
+      wallWidth,
+      wallHeight,
+      openings,
+      takeSideOverride
+    );
+    return res.panels;
   }
 
   /**
-   * Корректирует геометрию полигонов панелей при переключении направления забора зазора (takeSide),
-   * сохраняя общую ширину стыка неизменной, но смещая границу панелей мгновенно.
-   * Например: при ширине 8 мм переход с BOTH в RIGHT смещает границу на +4 мм (левая панель получает +4 мм, правая теряет 4 мм).
+   * Корректирует геометрию полигонов панелей при переключении направления забора зазора (обертка для совместимости).
    */
   public static adjustPanelsForJointTakeSideChange(
     panels: WallPanelPiece[],
@@ -1445,70 +1894,17 @@ export class PolygonSlicingEngine {
     wallWidth: number,
     wallHeight: number
   ): WallPanelPiece[] {
-    if (oldTakeSide === newTakeSide || jointWidth <= 0) return panels;
-
-    let p1 = joint.p1;
-    let p2 = joint.p2;
-    if (!p1 || !p2) return panels;
-
-    // Нормализуем направление отрезка: ориентируем вверх (dy > 0) или вправо (dx > 0)
-    let dx = p2.x - p1.x;
-    let dy = p2.y - p1.y;
-    if (dy < -1e-4 || (Math.abs(dy) <= 1e-4 && dx < -1e-4)) {
-      const temp = p1;
-      p1 = p2;
-      p2 = temp;
-      dx = p2.x - p1.x;
-      dy = p2.y - p1.y;
-    }
-
-    const len = Math.hypot(dx, dy);
-    if (len < 1e-4) return panels;
-
-    const nx = -dy / len;
-    const ny = dx / len;
-    const isVert = Math.abs(dx) <= Math.abs(dy);
-
-    // Вычисляем смещение центра зазора вдоль нормали n
-    const getNormalOffset = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
-      const half = jointWidth / 2;
-      if (isVert) {
-        if (side === 'LEFT') return half;   // сдвиг шва влево (+n)
-        if (side === 'RIGHT') return -half; // сдвиг шва вправо (-n)
-        return 0;
-      } else {
-        if (side === 'TOP') return half;     // сдвиг шва вверх (+n)
-        if (side === 'BOTTOM') return -half; // сдвиг шва вниз (-n)
-        return 0;
-      }
-    };
-
-    const deltaOffset = getNormalOffset(newTakeSide) - getNormalOffset(oldTakeSide);
-    if (Math.abs(deltaOffset) < 1e-4) return panels;
-
-    const maxThreshold = Math.max(35, jointWidth + 15);
-
-    return panels.map((panel) => {
-      const nextPoints = panel.points.map((pt) => {
-        const t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / len;
-        const h = (pt.x - p1.x) * nx + (pt.y - p1.y) * ny;
-
-        if (t >= -5 && t <= len + 5 && Math.abs(h) <= maxThreshold) {
-          // Обе стороны стыка смещаются на один и тот же deltaOffset вдоль нормали
-          const newX = Math.max(0, Math.min(wallWidth, Math.round((pt.x + deltaOffset * nx) * 10) / 10));
-          const newY = Math.max(0, Math.min(wallHeight, Math.round((pt.y + deltaOffset * ny) * 10) / 10));
-
-          return { x: newX, y: newY };
-        }
-
-        return pt;
-      });
-
-      return {
-        ...panel,
-        points: nextPoints,
-      };
-    });
+    const res = this.cascadeChainJointTakeSideChange(
+      panels,
+      [],
+      joint,
+      jointWidth,
+      oldTakeSide,
+      newTakeSide,
+      wallWidth,
+      wallHeight
+    );
+    return res.panels;
   }
 
   /**
