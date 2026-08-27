@@ -388,13 +388,10 @@ function splitOversizedSegment(
  * Находит существующий стык в wall.joints или синтезирует его для краевых стыков (edge-v-left/right, edge-h-bot/top) и стыков проемов.
  */
 function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined {
-  const existing = w.joints?.find((j) => j.id === jId);
-  if (existing) return existing;
-
   const baseId = jId.split('-part-')[0].split('-merged-')[0];
   const customConfig = w.customJoints[jId] || w.customJoints[baseId];
 
-  // 1. Краевые стыки периметра стены
+  // 1. Краевые стыки периметра стены - всегда проверяем первыми с точными координатами по всей стене
   if (jId === 'edge-v-left') {
     return {
       id: 'edge-v-left',
@@ -449,6 +446,20 @@ function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined 
       takeSide: customConfig?.takeSide ?? 'BOTTOM',
       profileArticle: customConfig?.profileArticle,
       profileColor: customConfig?.profileColor,
+    };
+  }
+
+  const existing = w.joints?.find((j) => j.id === jId);
+  if (existing) {
+    const isVert = existing.orientation === 'VERTICAL' || (existing.orientation !== 'HORIZONTAL' && Math.abs((existing.p1?.x ?? 0) - (existing.p2?.x ?? 0)) < Math.abs((existing.p1?.y ?? 0) - (existing.p2?.y ?? 0)));
+    return {
+      ...existing,
+      orientation: existing.orientation || (isVert ? 'VERTICAL' : 'HORIZONTAL'),
+      p1: existing.p1 || { x: (existing as any).x || 0, y: (existing as any).y || 0 },
+      p2: existing.p2 || {
+        x: (existing as any).x + (isVert ? 0 : ((existing as any).length || w.width)),
+        y: (existing as any).y + (isVert ? ((existing as any).length || w.height) : 0),
+      },
     };
   }
 

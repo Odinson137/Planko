@@ -1278,7 +1278,12 @@ export class PolygonSlicingEngine {
   ): 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM' {
     const p1 = joint.p1 || { x: (joint as any).x || 0, y: (joint as any).y || 0 };
     const p2 = joint.p2 || { x: (joint as any).x || 0, y: (joint as any).y || 0 };
-    const isVert = joint.orientation === 'VERTICAL' || Math.abs(p1.x - p2.x) <= Math.abs(p1.y - p2.y);
+    const isVert =
+      joint.orientation === 'VERTICAL'
+        ? true
+        : joint.orientation === 'HORIZONTAL'
+        ? false
+        : Math.abs(p1.x - p2.x) < Math.abs(p1.y - p2.y);
 
     const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
     const isInsideOpening = (pt: Point2D) =>
@@ -1346,7 +1351,12 @@ export class PolygonSlicingEngine {
 
     const p1 = targetJoint.p1 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
     const p2 = targetJoint.p2 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
-    const isVert = targetJoint.orientation === 'VERTICAL' || Math.abs(p1.x - p2.x) <= Math.abs(p1.y - p2.y);
+    const isVert =
+      targetJoint.orientation === 'VERTICAL'
+        ? true
+        : targetJoint.orientation === 'HORIZONTAL'
+        ? false
+        : Math.abs(p1.x - p2.x) < Math.abs(p1.y - p2.y);
 
     const effTakeSide =
       takeSideOverride ||
@@ -1360,8 +1370,8 @@ export class PolygonSlicingEngine {
       const yMin = Math.min(p1.y, p2.y);
       const yMax = Math.max(p1.y, p2.y);
       const jX = (p1.x + p2.x) / 2;
-      const isLeftEdge = targetJoint.isOuterEdge || targetJoint.id === 'edge-v-left' || jX <= 5;
-      const isRightEdge = targetJoint.isOuterEdge || targetJoint.id === 'edge-v-right' || targetJoint.id === 'edge-v-end' || jX >= wallWidth - 5;
+      const isLeftEdge = targetJoint.id === 'edge-v-left' || (targetJoint.isOuterEdge && jX <= 5) || jX <= 5;
+      const isRightEdge = targetJoint.id === 'edge-v-right' || targetJoint.id === 'edge-v-end' || (targetJoint.isOuterEdge && jX >= wallWidth - 5) || jX >= wallWidth - 5;
 
       // Находим все горизонтальные полосы по высоте
       const bands: { yMin: number; yMax: number }[] = [];
@@ -1386,7 +1396,7 @@ export class PolygonSlicingEngine {
           const currX = (j.p1.x + j.p2.x) / 2;
           const jyMin = Math.min(j.p1.y, j.p2.y);
           const jyMax = Math.max(j.p1.y, j.p2.y);
-          const jIsVert = j.orientation === 'VERTICAL' || Math.abs(j.p1.x - j.p2.x) <= Math.abs(j.p1.y - j.p2.y);
+          const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
           const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
 
           if (jIsVert && overlapsJoint && currX > jX + 5) {
@@ -1444,7 +1454,6 @@ export class PolygonSlicingEngine {
                 }),
               };
             } else if (p.id === firstPanelId && isLeftEdge) {
-              // Краевой стык слева: первая панель целиком сдвигается вправо
               return {
                 ...p,
                 points: p.points.map((pt) => ({
@@ -1453,7 +1462,6 @@ export class PolygonSlicingEngine {
                 })),
               };
             } else {
-              // Промежуточная панель: физически сдвигается ЦЕЛИКОМ
               return {
                 ...p,
                 points: p.points.map((pt) => ({
@@ -1469,23 +1477,25 @@ export class PolygonSlicingEngine {
       const applyLeftShift = (shiftVal: number) => {
         if (Math.abs(shiftVal) < 1e-4) return;
 
-        nextJoints = nextJoints.map((j) => {
-          if (j.id === targetJoint.id) return j;
-          const currX = (j.p1.x + j.p2.x) / 2;
-          const jyMin = Math.min(j.p1.y, j.p2.y);
-          const jyMax = Math.max(j.p1.y, j.p2.y);
-          const jIsVert = j.orientation === 'VERTICAL' || Math.abs(j.p1.x - j.p2.x) <= Math.abs(j.p1.y - j.p2.y);
-          const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
+        if (!isRightEdge) {
+          nextJoints = nextJoints.map((j) => {
+            if (j.id === targetJoint.id) return j;
+            const currX = (j.p1.x + j.p2.x) / 2;
+            const jyMin = Math.min(j.p1.y, j.p2.y);
+            const jyMax = Math.max(j.p1.y, j.p2.y);
+            const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
+            const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
 
-          if (jIsVert && overlapsJoint && currX < jX - 5) {
-            return {
-              ...j,
-              p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x - shiftVal) * 10) / 10)), y: j.p1.y },
-              p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x - shiftVal) * 10) / 10)), y: j.p2.y },
-            };
-          }
-          return j;
-        });
+            if (jIsVert && overlapsJoint && currX < jX - 5) {
+              return {
+                ...j,
+                p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x - shiftVal) * 10) / 10)), y: j.p1.y },
+                p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x - shiftVal) * 10) / 10)), y: j.p2.y },
+              };
+            }
+            return j;
+          });
+        }
 
         bandsToProcess.forEach((b) => {
           const isPanelInBand = (p: WallPanelPiece) => {
@@ -1521,7 +1531,7 @@ export class PolygonSlicingEngine {
               };
             }
 
-            if (p.id === firstPanelId) {
+            if (p.id === firstPanelId && !isRightEdge) {
               const maxX = Math.max(...p.points.map((pt) => pt.x));
               return {
                 ...p,
@@ -1532,7 +1542,7 @@ export class PolygonSlicingEngine {
                   return pt;
                 }),
               };
-            } else {
+            } else if (!isRightEdge) {
               return {
                 ...p,
                 points: p.points.map((pt) => ({
@@ -1541,6 +1551,7 @@ export class PolygonSlicingEngine {
                 })),
               };
             }
+            return p;
           });
         });
       };
@@ -1575,8 +1586,8 @@ export class PolygonSlicingEngine {
       const xMin = Math.min(p1.x, p2.x);
       const xMax = Math.max(p1.x, p2.x);
       const jY = (p1.y + p2.y) / 2;
-      const isBotEdge = targetJoint.isOuterEdge || targetJoint.id === 'edge-h-bot' || jY <= 5;
-      const isTopEdge = targetJoint.isOuterEdge || targetJoint.id === 'edge-h-top' || jY >= wallHeight - 5;
+      const isBotEdge = targetJoint.id === 'edge-h-bot' || (targetJoint.isOuterEdge && jY <= 5) || jY <= 5;
+      const isTopEdge = targetJoint.id === 'edge-h-top' || (targetJoint.isOuterEdge && jY >= wallHeight - 5) || jY >= wallHeight - 5;
 
       // Находим все вертикальные колонки по ширине
       const cols: { xMin: number; xMax: number }[] = [];
@@ -1595,23 +1606,26 @@ export class PolygonSlicingEngine {
       const applyBottomShift = (shiftVal: number) => {
         if (Math.abs(shiftVal) < 1e-4) return;
 
-        nextJoints = nextJoints.map((j) => {
-          if (j.id === targetJoint.id) return j;
-          const currY = (j.p1.y + j.p2.y) / 2;
-          const jxMin = Math.min(j.p1.x, j.p2.x);
-          const jxMax = Math.max(j.p1.x, j.p2.x);
-          const jIsHoriz = j.orientation === 'HORIZONTAL' || Math.abs(j.p1.y - j.p2.y) <= Math.abs(j.p1.x - j.p2.x);
-          const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
+        // Если это верхний край стены (isTopEdge), промежуточные швы стены не сдвигаются вниз
+        if (!isTopEdge) {
+          nextJoints = nextJoints.map((j) => {
+            if (j.id === targetJoint.id) return j;
+            const currY = (j.p1.y + j.p2.y) / 2;
+            const jxMin = Math.min(j.p1.x, j.p2.x);
+            const jxMax = Math.max(j.p1.x, j.p2.x);
+            const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
+            const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
 
-          if (jIsHoriz && overlapsJoint && currY < jY - 5) {
-            return {
-              ...j,
-              p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y - shiftVal) * 10) / 10)) },
-              p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y - shiftVal) * 10) / 10)) },
-            };
-          }
-          return j;
-        });
+            if (jIsHoriz && overlapsJoint && currY < jY - 5) {
+              return {
+                ...j,
+                p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y - shiftVal) * 10) / 10)) },
+                p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y - shiftVal) * 10) / 10)) },
+              };
+            }
+            return j;
+          });
+        }
 
         colsToProcess.forEach((c) => {
           const isPanelInCol = (p: WallPanelPiece) => {
@@ -1634,7 +1648,7 @@ export class PolygonSlicingEngine {
             if (!bottomPanelIds.has(p.id)) return p;
 
             if (isTopEdge && p.id === lastPanelId) {
-              // Верхний краевой шов (edge-h-top): подрезаем верхний край последней панели
+              // Верхний краевой шов (edge-h-top): подрезаем верхний край последней панели у потолка
               const maxY = Math.max(...p.points.map((pt) => pt.y));
               return {
                 ...p,
@@ -1647,7 +1661,7 @@ export class PolygonSlicingEngine {
               };
             }
 
-            if (p.id === firstPanelId) {
+            if (p.id === firstPanelId && !isTopEdge) {
               const maxY = Math.max(...p.points.map((pt) => pt.y));
               return {
                 ...p,
@@ -1658,7 +1672,7 @@ export class PolygonSlicingEngine {
                   return pt;
                 }),
               };
-            } else {
+            } else if (!isTopEdge) {
               return {
                 ...p,
                 points: p.points.map((pt) => ({
@@ -1667,6 +1681,7 @@ export class PolygonSlicingEngine {
                 })),
               };
             }
+            return p;
           });
         });
       };
@@ -1679,7 +1694,7 @@ export class PolygonSlicingEngine {
           const currY = (j.p1.y + j.p2.y) / 2;
           const jxMin = Math.min(j.p1.x, j.p2.x);
           const jxMax = Math.max(j.p1.x, j.p2.x);
-          const jIsHoriz = j.orientation === 'HORIZONTAL' || Math.abs(j.p1.y - j.p2.y) <= Math.abs(j.p1.x - j.p2.x);
+          const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
           const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
 
           if (jIsHoriz && overlapsJoint && currY > jY + 5) {
@@ -1737,7 +1752,7 @@ export class PolygonSlicingEngine {
                 }),
               };
             } else if (p.id === firstPanelId && isBotEdge) {
-              // Краевой шов снизу (edge-h-bot): первая панель снизу сдвигается вверх
+              // Краевой шов снизу (edge-h-bot): первая панель снизу сдвигается вверх целиком
               return {
                 ...p,
                 points: p.points.map((pt) => ({
@@ -1806,7 +1821,12 @@ export class PolygonSlicingEngine {
 
     const p1 = targetJoint.p1 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
     const p2 = targetJoint.p2 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
-    const isVert = targetJoint.orientation === 'VERTICAL' || Math.abs(p1.x - p2.x) <= Math.abs(p1.y - p2.y);
+    const isVert =
+      targetJoint.orientation === 'VERTICAL'
+        ? true
+        : targetJoint.orientation === 'HORIZONTAL'
+        ? false
+        : Math.abs(p1.x - p2.x) < Math.abs(p1.y - p2.y);
 
     const half = jointWidth / 2;
 
@@ -1853,7 +1873,7 @@ export class PolygonSlicingEngine {
         const currX = (j.p1.x + j.p2.x) / 2;
         const jyMin = Math.min(j.p1.y, j.p2.y);
         const jyMax = Math.max(j.p1.y, j.p2.y);
-        const jIsVert = j.orientation === 'VERTICAL' || Math.abs(j.p1.x - j.p2.x) <= Math.abs(j.p1.y - j.p2.y);
+        const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
         const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
 
         if (jIsVert && overlapsJoint && currX > jX + 5) {
@@ -1975,7 +1995,7 @@ export class PolygonSlicingEngine {
         const currY = (j.p1.y + j.p2.y) / 2;
         const jxMin = Math.min(j.p1.x, j.p2.x);
         const jxMax = Math.max(j.p1.x, j.p2.x);
-        const jIsHoriz = j.orientation === 'HORIZONTAL' || Math.abs(j.p1.y - j.p2.y) <= Math.abs(j.p1.x - j.p2.x);
+        const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
         const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
 
         if (jIsHoriz && overlapsJoint && currY > jY + 5) {
