@@ -188,6 +188,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <Text size="sm" c="dimmed">
@@ -213,6 +214,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <ScrollArea style={{ flex: 1 }}>
@@ -424,6 +426,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <ScrollArea style={{ flex: 1 }}>
@@ -616,6 +619,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <ScrollArea style={{ flex: 1 }}>
@@ -1271,6 +1275,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <ScrollArea style={{ flex: 1 }}>
@@ -1503,6 +1508,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <ScrollArea style={{ flex: 1 }}>
@@ -1638,6 +1644,7 @@ export const RightSidebar: React.FC = () => {
           backgroundColor: t.bgSidebar,
           width: 320,
           minWidth: 320,
+          flexShrink: 0,
         }}
       >
         <ScrollArea style={{ flex: 1 }}>
@@ -2171,6 +2178,7 @@ export const RightSidebar: React.FC = () => {
         backgroundColor: t.bgSidebar,
         width: 320,
         minWidth: 320,
+        flexShrink: 0,
       }}
     >
       <ScrollArea style={{ flex: 1 }}>

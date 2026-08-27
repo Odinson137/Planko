@@ -12,13 +12,15 @@ import {
   ActionIcon,
   Tooltip,
 } from '@mantine/core';
-import { Plus, Layout, DoorOpen, AppWindow, Tv, Square, Trash2 } from 'lucide-react';
+import { Plus, Layout, DoorOpen, AppWindow, Tv, Square, Trash2, PanelLeftClose } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
+import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { OpeningType } from '../../../core/models/Opening';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 export const LeftSidebar: React.FC = () => {
   const t = useAppTheme();
+  const { toggleLeftSidebar } = useEditorStore();
   const { project, selectedWallBendId, selectWall, selectOpening, selectWallBend, addWall, removeOpening, deleteWallBend } = useProjectStore();
   const selectedWallId = project.selectedWallId;
   const selectedOpeningId = project.selectedOpeningId;
@@ -48,20 +50,33 @@ export const LeftSidebar: React.FC = () => {
         backgroundColor: t.bgSidebar,
         width: 260,
         minWidth: 260,
+        flexShrink: 0,
       }}
     >
-      <Group justify="space-between" px="xs" pt="xs">
-        <Title order={6} c={t.textDimmed} style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: 11 }}>
+      <Group justify="space-between" px="xs" pt="xs" wrap="nowrap">
+        <Title order={6} c={t.textDimmed} style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: 11, whiteSpace: 'nowrap' }}>
           Стены ({project.walls.length})
         </Title>
-        <Button
-          size="compact-xs"
-          variant="light"
-          leftSection={<Plus size={12} />}
-          onClick={() => addWall()}
-        >
-          Стена
-        </Button>
+        <Group gap={4} wrap="nowrap">
+          <Button
+            size="compact-xs"
+            variant="light"
+            leftSection={<Plus size={12} />}
+            onClick={() => addWall()}
+          >
+            Стена
+          </Button>
+          <Tooltip label="Скрыть меню стен" position="right" withArrow>
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              color="gray"
+              onClick={toggleLeftSidebar}
+            >
+              <PanelLeftClose size={15} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
       </Group>
 
       <ScrollArea style={{ flex: 1 }}>

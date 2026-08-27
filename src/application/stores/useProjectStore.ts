@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType } from '../../core/models/Opening';
-import { ProfileType, findProfileByArticle } from '../../core/models/Profile';
+import { ProfileType, findProfileByArticle, DEFAULT_PROFILES } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
@@ -1724,11 +1724,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
             const xs = updated.points.map((pt) => pt.x);
             const w = Math.max(...xs) - Math.min(...xs);
-            if (w > targetMaterial.width + 10) {
+            if (w > targetMaterial.width + 2) {
+              const isSlat =
+                targetMaterial.type === 'SLAT' ||
+                (targetMaterial as any)?.category === 'SLAT' ||
+                (targetMaterial.reliefType && targetMaterial.reliefType !== 'FLAT');
+              const seamGap = isSlat ? 0 : 8;
               const { newPanels, joints } = PolygonSlicingEngine.sliceWallPanelIntoStrips(
                 updated,
                 targetMaterial.width,
-                8
+                seamGap
               );
               nextJoints.push(...joints);
               return newPanels;
@@ -2097,40 +2102,134 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             if (w.id !== wallId) return w;
 
             let nextPanels = w.panels;
-            if (nextPanels && nextPanels.length > 0) {
+            let nextJoints = w.joints ? [...w.joints] : [];
+            const isSlat =
+              targetMat?.type === 'SLAT' ||
+              (targetMat as any)?.category === 'SLAT' ||
+              (targetMat?.reliefType && targetMat.reliefType !== 'FLAT');
+            const seamGap = isSlat ? 0 : (DEFAULT_PROFILES[w.zone.jointProfileType]?.width ?? 8);
+            const stripWidth = isVoid ? w.width : (targetMat?.width && targetMat.width > 0 ? targetMat.width : 1220);
+
+            if (isVoid) {
+              nextPanels = [
+                {
+                  id: `panel-${w.id}-0`,
+                  points: [
+                    { x: 0, y: 0 },
+                    { x: w.width, y: 0 },
+                    { x: w.width, y: w.height },
+                    { x: 0, y: w.height },
+                  ],
+                  materialId: MATERIAL_NONE_ID,
+                  isVoid: true,
+                  partLabel: 'ПУСТО',
+                },
+              ];
+              nextJoints = [];
+            } else if (nextPanels && nextPanels.length > 0) {
               if (nextPanels.length === 1) {
-                nextPanels = [
-                  {
-                    ...nextPanels[0],
-                    points: [
-                      { x: 0, y: 0 },
-                      { x: w.width, y: 0 },
-                      { x: w.width, y: w.height },
-                      { x: 0, y: w.height },
-                    ],
-                    materialId,
-                    decorCode: chosenDecor?.code || targetMat?.decorCode,
-                    decorName: chosenDecor?.name || targetMat?.decorName,
-                    color: chosenDecor?.color || targetMat?.color,
-                    thickness: isVoid ? 0 : (targetMat?.thickness || 5),
-                    reliefType: targetMat?.reliefType || 'FLAT',
-                    textureCategory: chosenDecor?.category || targetMat?.textureCategory || 'WOOD',
-                    isVoid,
-                    partLabel: isVoid ? 'ПУСТО' : '1.1',
-                  },
-                ];
-              } else {
-                nextPanels = nextPanels.map((p) => ({
-                  ...p,
+                const basePanel: WallPanelPiece = {
+                  ...nextPanels[0],
+                  points: [
+                    { x: 0, y: 0 },
+                    { x: w.width, y: 0 },
+                    { x: w.width, y: w.height },
+                    { x: 0, y: w.height },
+                  ],
                   materialId,
                   decorCode: chosenDecor?.code || targetMat?.decorCode,
                   decorName: chosenDecor?.name || targetMat?.decorName,
                   color: chosenDecor?.color || targetMat?.color,
-                  thickness: isVoid ? 0 : (targetMat?.thickness || 5),
+                  thickness: targetMat?.thickness || 5,
                   reliefType: targetMat?.reliefType || 'FLAT',
                   textureCategory: chosenDecor?.category || targetMat?.textureCategory || 'WOOD',
-                  isVoid,
-                }));
+                  isVoid: false,
+                  partLabel: '1.1',
+                };
+
+                if (stripWidth > 0 && w.width > stripWidth + 2) {
+                  const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(
+                    basePanel,
+                    stripWidth,
+                    seamGap
+                  );
+                  nextPanels = sliced.newPanels;
+                  nextJoints = sliced.joints;
+                } else {
+                  nextPanels = [basePanel];
+                  nextJoints = [];
+                }
+              } else {
+                const collectedPanels: WallPanelPiece[] = [];
+                const collectedJoints: WallJointLine[] = [];
+
+                nextPanels.forEach((p, pIdx) => {
+                  let points = p.points;
+                  const updated: WallPanelPiece = {
+                    ...p,
+                    points,
+                    materialId,
+                    decorCode: chosenDecor?.code || targetMat?.decorCode,
+                    decorName: chosenDecor?.name || targetMat?.decorName,
+                    color: chosenDecor?.color || targetMat?.color,
+                    thickness: targetMat?.thickness || 5,
+                    reliefType: targetMat?.reliefType || 'FLAT',
+                    textureCategory: chosenDecor?.category || targetMat?.textureCategory || 'WOOD',
+                    isVoid: false,
+                    partLabel: p.partLabel === 'ПУСТО' ? `1.${pIdx + 1}` : p.partLabel,
+                  };
+
+                  if (stripWidth > 0) {
+                    const xs = updated.points.map((pt) => pt.x);
+                    const pieceW = Math.max(...xs) - Math.min(...xs);
+                    if (pieceW > stripWidth + 2) {
+                      const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(
+                        updated,
+                        stripWidth,
+                        seamGap
+                      );
+                      collectedPanels.push(...sliced.newPanels);
+                      collectedJoints.push(...sliced.joints);
+                      return;
+                    }
+                  }
+                  collectedPanels.push(updated);
+                });
+
+                nextPanels = collectedPanels;
+                nextJoints = [...(w.joints || []), ...collectedJoints];
+              }
+            } else {
+              const basePanel: WallPanelPiece = {
+                id: `panel-${w.id}-0`,
+                points: [
+                  { x: 0, y: 0 },
+                  { x: w.width, y: 0 },
+                  { x: w.width, y: w.height },
+                  { x: 0, y: w.height },
+                ],
+                materialId,
+                decorCode: chosenDecor?.code || targetMat?.decorCode,
+                decorName: chosenDecor?.name || targetMat?.decorName,
+                color: chosenDecor?.color || targetMat?.color,
+                thickness: targetMat?.thickness || 5,
+                reliefType: targetMat?.reliefType || 'FLAT',
+                textureCategory: chosenDecor?.category || targetMat?.textureCategory || 'WOOD',
+                isVoid: false,
+                partLabel: '1.1',
+              };
+
+              if (stripWidth > 0 && w.width > stripWidth + 2) {
+                const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(
+                  basePanel,
+                  stripWidth,
+                  seamGap
+                );
+                nextPanels = sliced.newPanels;
+                nextJoints = sliced.joints;
+              } else {
+                nextPanels = [basePanel];
+                nextJoints = [];
               }
             }
 
@@ -2139,6 +2238,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               customPanels: {},
               customJoints: {},
               panels: nextPanels,
+              joints: nextJoints,
               zone: { ...w.zone, materialId },
             };
           }),
@@ -2581,11 +2681,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
             const xs = updated.points.map((pt) => pt.x);
             const w = Math.max(...xs) - Math.min(...xs);
-            if (w > targetMaterial.width + 10) {
+            if (w > targetMaterial.width + 2) {
+              const isSlat =
+                targetMaterial.type === 'SLAT' ||
+                (targetMaterial as any)?.category === 'SLAT' ||
+                (targetMaterial.reliefType && targetMaterial.reliefType !== 'FLAT');
+              const seamGap = isSlat ? 0 : 8;
               const { newPanels, joints } = PolygonSlicingEngine.sliceWallPanelIntoStrips(
                 updated,
                 targetMaterial.width,
-                8
+                seamGap
               );
               nextPanels.splice(pIdx, 1, ...newPanels);
               nextJoints.push(...joints);
@@ -2924,11 +3029,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           if (targetMaterial && !targetMaterial.isVoid && targetMaterial.width > 0) {
             const xs = updated.points.map((pt) => pt.x);
             const w = Math.max(...xs) - Math.min(...xs);
-            if (w > targetMaterial.width + 10) {
+            if (w > targetMaterial.width + 2) {
+              const isSlat =
+                targetMaterial.type === 'SLAT' ||
+                (targetMaterial as any)?.category === 'SLAT' ||
+                (targetMaterial.reliefType && targetMaterial.reliefType !== 'FLAT');
+              const seamGap = isSlat ? 0 : 8;
               const { newPanels, joints } = PolygonSlicingEngine.sliceWallPanelIntoStrips(
                 updated,
                 targetMaterial.width,
-                8
+                seamGap
               );
               nextPanels.splice(pIdx, 1, ...newPanels);
               nextJoints.push(...joints);
@@ -5189,21 +5299,67 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const customJoints: Record<string, JointEdgeConfig> = {};
 
           switch (preset) {
-            case 'STANDARD_1220':
+            case 'STANDARD_1220': {
+              const mat = state.project.materials.find((m) => m.id === 'mat-sheet-1220') || DEFAULT_MATERIALS[0];
+              const basePanel: WallPanelPiece = {
+                id: `panel-${w.id}-0`,
+                points: [
+                  { x: 0, y: 0 },
+                  { x: w.width, y: 0 },
+                  { x: w.width, y: w.height },
+                  { x: 0, y: w.height },
+                ],
+                materialId: 'mat-sheet-1220',
+                color: mat.color,
+                decorCode: mat.decorCode,
+                decorName: mat.decorName,
+                thickness: mat.thickness || 5,
+                reliefType: 'FLAT',
+                textureCategory: mat.textureCategory || 'WOOD',
+                isVoid: false,
+                partLabel: '1.1',
+              };
+              const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(basePanel, 1220, 8);
               return {
                 ...w,
                 customPanels: {},
                 customJoints: {},
+                panels: sliced.newPanels,
+                joints: sliced.joints,
                 zone: { ...w.zone, materialId: 'mat-sheet-1220', jointProfileType: 'JOINT_8' },
               };
+            }
 
-            case 'SLATS_145':
+            case 'SLATS_145': {
+              const mat = state.project.materials.find((m) => m.id === 'mat-slat-16') || DEFAULT_MATERIALS[1];
+              const basePanel: WallPanelPiece = {
+                id: `panel-${w.id}-0`,
+                points: [
+                  { x: 0, y: 0 },
+                  { x: w.width, y: 0 },
+                  { x: w.width, y: w.height },
+                  { x: 0, y: w.height },
+                ],
+                materialId: 'mat-slat-16',
+                color: mat.color,
+                decorCode: mat.decorCode,
+                decorName: mat.decorName,
+                thickness: mat.thickness || 16,
+                reliefType: 'STEP_SLAT',
+                textureCategory: mat.textureCategory || 'WOOD',
+                isVoid: false,
+                partLabel: '1.1',
+              };
+              const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(basePanel, 145, 0);
               return {
                 ...w,
                 customPanels: {},
                 customJoints: {},
+                panels: sliced.newPanels,
+                joints: sliced.joints,
                 zone: { ...w.zone, materialId: 'mat-slat-16', jointProfileType: 'JOINT_8' },
               };
+            }
 
             case 'TIERS_900_1800': {
               const totalCols = Math.ceil(w.width / 1228) + 2;

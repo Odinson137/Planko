@@ -29,6 +29,8 @@ import {
   Boxes,
   Wrench,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
@@ -52,6 +54,8 @@ export const TopToolbar: React.FC = () => {
     toggleDimensions,
     showTextures,
     toggleTextures,
+    showLeftSidebar,
+    toggleLeftSidebar,
     setCurrentScreen,
   } = useEditorStore();
 
@@ -129,6 +133,24 @@ export const TopToolbar: React.FC = () => {
       <Group justify="space-between" px="md" py={6} style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.bgHeader }}>
         {/* Меню проектов, Сохранение и Экспорт */}
         <Group gap="xs">
+          {/* Кнопка скрытия / показа списка стен */}
+          <Tooltip label={showLeftSidebar ? "Скрыть меню стен" : "Показать меню стен"} position="bottom">
+            <ActionIcon
+              size="sm"
+              variant={showLeftSidebar ? "light" : "default"}
+              color={showLeftSidebar ? "blue" : "gray"}
+              onClick={toggleLeftSidebar}
+              styles={{
+                root: {
+                  border: `1px solid ${t.border}`,
+                  backgroundColor: t.isDark ? (showLeftSidebar ? undefined : '#26282D') : (showLeftSidebar ? undefined : '#F1F5F9'),
+                },
+              }}
+            >
+              {showLeftSidebar ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+            </ActionIcon>
+          </Tooltip>
+
           {/* Кнопка возврата в меню проектов */}
           <Tooltip label="Меню проектов" position="bottom">
             <Button

@@ -496,17 +496,17 @@ export class PolygonSlicingEngine {
         }
 
         const split = this.splitPolygonByLine(piece, p1, p2, seamGap);
-        if (split) {
-          if (split.piecesB) {
-            split.piecesB.forEach((p) => {
-              if (this.calculatePolygonArea(p) >= 10) finalPolys.push(p);
-            });
-          }
-          if (split.piecesA) {
-            split.piecesA.forEach((p) => {
-              if (this.calculatePolygonArea(p) >= 10) nextRemaining.push(p);
-            });
-          }
+        if (split && split.allPieces && split.allPieces.length > 0) {
+          split.allPieces.forEach((p) => {
+            if (this.calculatePolygonArea(p) < 10) return;
+            const pXs = p.map((pt) => pt.x);
+            const pMidX = (Math.min(...pXs) + Math.max(...pXs)) / 2;
+            if (pMidX < curX) {
+              finalPolys.push(p);
+            } else {
+              nextRemaining.push(p);
+            }
+          });
         } else {
           nextRemaining.push(piece);
         }
@@ -1360,9 +1360,15 @@ export class PolygonSlicingEngine {
     const maxY = Math.max(...ys);
     const totalW = maxX - minX;
 
-    if (totalW <= stripWidth + 5) {
+    if (totalW <= stripWidth + 2 || stripWidth <= 0) {
       return { newPanels: [panel], joints: [] };
     }
+
+    const isSlat =
+      panel.reliefType !== 'FLAT' ||
+      panel.materialId?.includes('slat') ||
+      panel.decorName?.toLowerCase().includes('рейка');
+    const effSeamGap = isSlat ? 0 : seamGap;
 
     const dummySubPiece: PolygonSubPiece = {
       ...panel,
@@ -1374,7 +1380,7 @@ export class PolygonSlicingEngine {
       stripWidth,
       dummySubPiece,
       panel.partLabel || '1.1',
-      seamGap
+      effSeamGap
     );
 
     const newPanels: WallPanelPiece[] = strips.map((sp, idx) => ({
@@ -1406,7 +1412,7 @@ export class PolygonSlicingEngine {
             id: `joint-${Date.now()}-${joints.length + 1}-${sIdx}`,
             p1: seg.p1,
             p2: seg.p2,
-            width: seamGap,
+            width: effSeamGap,
             isLED: false,
             orientation: 'VERTICAL',
           });
@@ -1416,7 +1422,7 @@ export class PolygonSlicingEngine {
           id: `joint-${Date.now()}-${joints.length + 1}`,
           p1: { x: curX, y: minY },
           p2: { x: curX, y: maxY },
-          width: seamGap,
+          width: effSeamGap,
           isLED: false,
           orientation: 'VERTICAL',
         });

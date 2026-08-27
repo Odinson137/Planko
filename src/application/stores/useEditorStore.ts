@@ -18,6 +18,7 @@ interface EditorState {
   showDimensions: boolean;
   showProfiles: boolean;
   showTextures: boolean;
+  showLeftSidebar: boolean;
   saveNotification: string | null;
 
   setCurrentScreen: (screen: AppScreen) => void;
@@ -32,6 +33,8 @@ interface EditorState {
   toggleDimensions: () => void;
   toggleProfiles: () => void;
   toggleTextures: () => void;
+  setShowLeftSidebar: (show: boolean) => void;
+  toggleLeftSidebar: () => void;
   resetView: () => void;
   setSaveNotification: (message: string | null) => void;
 }
@@ -48,6 +51,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showDimensions: true,
   showProfiles: true,
   showTextures: false,
+  showLeftSidebar: true,
   saveNotification: null,
 
   setCurrentScreen: (screen: AppScreen) => set({ currentScreen: screen }),
@@ -62,6 +66,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
   toggleProfiles: () => set((state) => ({ showProfiles: !state.showProfiles })),
   toggleTextures: () => set((state) => ({ showTextures: !state.showTextures })),
+  setShowLeftSidebar: (show: boolean) => set({ showLeftSidebar: show }),
+  toggleLeftSidebar: () => set((state) => ({ showLeftSidebar: !state.showLeftSidebar })),
   resetView: () => set({ zoom: 1, panX: 0, panY: 0 }),
   setSaveNotification: (saveNotification: string | null) => set({ saveNotification }),
 }));
