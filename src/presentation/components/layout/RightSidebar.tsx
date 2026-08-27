@@ -55,6 +55,7 @@ import {
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import {
   ensureOpeningSlopes,
+  ensureOpeningFraming,
   SlopeConfig,
   SlopeSideConfig,
 } from '../../../core/models/Opening';
@@ -115,6 +116,7 @@ export const RightSidebar: React.FC = () => {
   const t = useAppTheme();
   const { editMode } = useEditorStore();
   const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
+  const [selectedOpeningSide, setSelectedOpeningSide] = useState<'left' | 'top' | 'right' | 'bottom'>('top');
   const {
     project,
     selectedColumnIndex,
@@ -125,6 +127,12 @@ export const RightSidebar: React.FC = () => {
     selectedJointIds,
     selectedWallBendId,
     selectedSubPieceId,
+    selectedPanelEdge,
+    setSelectedPanelEdge,
+    setPanelEdgeWidth,
+    setPanelEdgeProfile,
+    setPanelEdgeColor,
+    setPanelEdgeJoint,
     selectOpening,
     selectPanel,
     selectSubPiece,
@@ -137,6 +145,8 @@ export const RightSidebar: React.FC = () => {
     updateOpening,
     applyOpening,
     removeOpening,
+    setOpeningFramingSide,
+    splitPanelAroundOpening,
     updateWallBend,
     deleteWallBend,
     mergeSelectedCells,
@@ -201,6 +211,450 @@ export const RightSidebar: React.FC = () => {
         <Text size="sm" c="dimmed">
           Выберите стену для редактирования
         </Text>
+      </Stack>
+    );
+  }
+
+  // =========================================================================
+  // РЕЖИМ 1.0a: Выбран ПРОЕМ в режиме 'JOINTS' (Обрамление и стыки проема)
+  // =========================================================================
+  if (editMode === 'JOINTS' && currentOpening && currentWall) {
+    const framing = ensureOpeningFraming(currentOpening);
+    const side = selectedOpeningSide;
+    const sideConfig = framing[side] || { width: 0, isLED: false };
+    const currentWidth = sideConfig.width ?? 0;
+    const isLED = sideConfig.isLED ?? false;
+    const profileArticle = sideConfig.profileArticle;
+    const profileColor = sideConfig.profileColor || '#212529';
+
+    const sideLabels: Record<string, { label: string; arrow: string }> = {
+      left: { label: 'Левая грань', arrow: '⬅' },
+      top: { label: 'Верхняя грань', arrow: '⬆' },
+      right: { label: 'Правая грань', arrow: '➡' },
+      bottom: { label: 'Нижняя грань', arrow: '⬇' },
+    };
+    const currentSideInfo = sideLabels[side] || { label: `Грань ${side}`, arrow: '📐' };
+
+    return (
+      <Stack
+        h="100%"
+        gap="xs"
+        p="xs"
+        style={{
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
+          width: 320,
+          minWidth: 320,
+          flexShrink: 0,
+        }}
+      >
+        <ScrollArea style={{ flex: 1 }}>
+          <Stack gap="md" p="xs">
+            <Group justify="space-between" align="center">
+              <div>
+                <Title order={6} c={isLED ? 'yellow.4' : 'blue.4'}>
+                  {currentOpening.type === 'DOOR' ? '🚪' : currentOpening.type === 'WINDOW' ? '🪟' : '📦'} {currentOpening.name.toUpperCase()}
+                </Title>
+                <Text size="xs" c="dimmed">
+                  Обрамление проема ({currentOpening.width} × {currentOpening.height} мм)
+                </Text>
+              </div>
+              <Group gap={6}>
+                <Badge size="xs" color={isLED ? 'yellow' : currentWidth > 0 ? 'blue' : 'gray'}>
+                  {isLED ? '⚡ LED' : currentWidth > 0 ? `${currentWidth} мм` : 'Встык (0 мм)'}
+                </Badge>
+                <Tooltip label="Снять выделение">
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => selectOpening(null)}
+                  >
+                    <X size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
+            </Group>
+
+
+            {/* Выбор конкретной грани проема */}
+            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
+              <Text size="xs" fw={500} mb={6} c="dimmed">
+                Выберите грань проема для настройки:
+              </Text>
+              <Group grow gap={4}>
+                {(['left', 'top', 'right', 'bottom'] as const)
+                  .filter((s) => currentOpening.type !== 'DOOR' || s !== 'bottom')
+                  .map((s) => {
+                    const sInf = sideLabels[s];
+                    const sConf = framing[s];
+                    const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED;
+                    const isCur = side === s;
+                    return (
+                      <Button
+                        key={s}
+                        size="xs"
+                        variant={isCur ? 'filled' : hasS ? 'light' : 'default'}
+                        color={isCur ? 'blue' : hasS ? 'cyan' : 'gray'}
+                        onClick={() => setSelectedOpeningSide(s)}
+                        style={{ padding: '0 4px', fontSize: 11 }}
+                      >
+                        {sInf.arrow} {sInf.label.replace(' грань', '')}
+                      </Button>
+                    );
+                  })}
+              </Group>
+            </Paper>
+
+            <Divider color={t.border} />
+
+            {/* Настройка выбранной грани */}
+            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
+              <Text size="xs" fw={600} mb={8} c="blue.4">
+                {currentSideInfo.arrow} {currentSideInfo.label}:
+              </Text>
+              <Stack gap="xs">
+                {/* Выбор ширины зазора / профиля */}
+                <Select
+                  size="xs"
+                  label="Ширина зазора / профиля"
+                  placeholder="Выберите ширину..."
+                  value={String(currentWidth)}
+                  data={ALL_PROFILE_WIDTH_OPTIONS}
+                  allowDeselect={false}
+                  onChange={(val) => {
+                    const w = val ? Number(val) : 0;
+                    setOpeningFramingSide(currentWall.id, currentOpening.id, side, {
+                      width: w,
+                      isLED: false,
+                      profileArticle: w === 0 ? undefined : profileArticle,
+                    });
+                  }}
+                />
+
+                <NumberInput
+                  size="xs"
+                  label="Точная ширина зазора (мм)"
+                  value={currentWidth}
+                  min={0}
+                  max={50}
+                  step={1}
+                  onChange={(v) =>
+                    setOpeningFramingSide(currentWall.id, currentOpening.id, side, { width: Number(v) || 0 })
+                  }
+                />
+
+                {currentWidth !== 0 && (
+                  <>
+                    <Select
+                      size="xs"
+                      label="Тип профиля AllWall"
+                      value={selectedProfileType}
+                      data={PROFILE_TYPE_OPTIONS}
+                      onChange={(val) => {
+                        const newType = val || 'ALL';
+                        setSelectedProfileType(newType);
+                      }}
+                      allowDeselect={false}
+                    />
+
+                    <Select
+                      size="xs"
+                      label="Модель профиля AllWall"
+                      placeholder="Выберите артикул из каталога..."
+                      searchable
+                      clearable
+                      value={profileArticle || null}
+                      data={getFilteredProfilesStrict(currentWidth, selectedProfileType).map((p) => ({
+                        value: p.article,
+                        label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
+                      }))}
+                      onChange={(val) =>
+                        setOpeningFramingSide(currentWall.id, currentOpening.id, side, {
+                          profileArticle: val || undefined,
+                          width: val ? (findProfileByArticle(val)?.visibleWidth ?? currentWidth) : currentWidth,
+                        })
+                      }
+                    />
+
+                    <div>
+                      <Text size="xs" fw={500} mb={4}>
+                        Цвет профиля AllWall:
+                      </Text>
+                      <Group gap="xs">
+                        {[
+                          { code: 'BLACK', name: 'Чёрный', hex: '#212529' },
+                          { code: 'GOLD', name: 'Золото', hex: '#c9a25b' },
+                          { code: 'ROSE_GOLD', name: 'Розовое золото', hex: '#b76e79' },
+                          { code: 'SILVER', name: 'Серебро', hex: '#adb5bd' },
+                        ].map((c) => {
+                          const isSel = profileColor.toLowerCase() === c.hex.toLowerCase();
+                          return (
+                            <Tooltip key={c.code} label={c.name} withArrow>
+                              <Paper
+                                p={2}
+                                radius="xl"
+                                style={{
+                                  cursor: 'pointer',
+                                  border: isSel ? '2px solid #339af0' : '2px solid transparent',
+                                  backgroundColor: t.bgCardSubtle,
+                                  transform: isSel ? 'scale(1.15)' : 'scale(1)',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onClick={() =>
+                                  setOpeningFramingSide(currentWall.id, currentOpening.id, side, { profileColor: c.hex })
+                                }
+                              >
+                                <ColorSwatch color={c.hex} size={20} />
+                              </Paper>
+                            </Tooltip>
+                          );
+                        })}
+                      </Group>
+                    </div>
+                  </>
+                )}
+              </Stack>
+            </Paper>
+          </Stack>
+        </ScrollArea>
+      </Stack>
+    );
+  }
+
+  // =========================================================================
+  // РЕЖИМ 1.0: Выбран ТОРЕЦ (ГРАНЬ) ДЕТАЛИ (Edge-Centric Model)
+  // =========================================================================
+  const activePanelId =
+    selectedPanelEdge?.panelId ||
+    (selectedPieceIds.length > 0 ? selectedPieceIds[0] : null) ||
+    selectedSubPieceId;
+
+  if (editMode === 'JOINTS' && activePanelId && currentWall) {
+    const wallPanel = currentWall.panels?.find((p) => p.id === activePanelId || (p as any).subPieceId === activePanelId);
+    const targetPanelId = wallPanel?.id || activePanelId;
+    const side = (selectedPanelEdge?.edge || 'right') as 'left' | 'right' | 'top' | 'bottom';
+    const edgeConfig = wallPanel?.edges?.[side] || { width: 0, isLED: false };
+    const currentWidth = edgeConfig.width ?? 0;
+    const isLED = edgeConfig.isLED ?? false;
+    const profileArticle = edgeConfig.profileArticle;
+    const profileColor = edgeConfig.profileColor || '#212529';
+
+    const sideLabels: Record<string, { label: string; arrow: string }> = {
+      left: { label: 'Левый торец', arrow: '⬅' },
+      right: { label: 'Правый торец', arrow: '➡' },
+      top: { label: 'Верхний торец', arrow: '⬆' },
+      bottom: { label: 'Нижний торец', arrow: '⬇' },
+    };
+    const currentSideInfo = sideLabels[String(side)] || { label: `Грань #${side}`, arrow: '📐' };
+
+    return (
+      <Stack
+        h="100%"
+        gap="xs"
+        p="xs"
+        style={{
+          borderLeft: `1px solid ${t.border}`,
+          backgroundColor: t.bgSidebar,
+          width: 320,
+          minWidth: 320,
+          flexShrink: 0,
+        }}
+      >
+        <ScrollArea style={{ flex: 1 }}>
+          <Stack gap="md" p="xs">
+            <Group justify="space-between" align="center">
+              <div>
+                <Title order={6} c={isLED ? 'yellow.4' : 'blue.4'}>
+                  {currentSideInfo.arrow} {currentSideInfo.label.toUpperCase()}
+                </Title>
+                <Text size="xs" c="dimmed">
+                  Панель: {wallPanel?.partLabel || 'Деталь'}
+                </Text>
+              </div>
+              <Group gap={6}>
+                <Badge size="xs" color={isLED ? 'yellow' : currentWidth > 0 ? 'blue' : 'gray'}>
+                  {isLED ? '⚡ LED' : currentWidth > 0 ? `${currentWidth} мм` : 'Встык (0 мм)'}
+                </Badge>
+                <Tooltip label="Снять выделение">
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => {
+                      setSelectedPanelEdge(null);
+                      selectPanel(null, null, null, null);
+                    }}
+                  >
+                    <X size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </Group>
+            </Group>
+
+            {/* Быстрый переключатель между 4 сторонами этой же детали */}
+            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
+              <Text size="xs" fw={500} mb={6} c="dimmed">
+                Выберите грань детали для настройки:
+              </Text>
+              <Group grow gap={4}>
+                {(['left', 'right', 'top', 'bottom'] as const).map((s) => {
+                  const sInf = sideLabels[s];
+                  const sConf = wallPanel?.edges?.[s];
+                  const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED;
+                  const isCur = side === s;
+                  return (
+                    <Button
+                      key={s}
+                      size="xs"
+                      variant={isCur ? 'filled' : hasS ? 'light' : 'default'}
+                      color={isCur ? 'blue' : hasS ? 'cyan' : 'gray'}
+                      onClick={() =>
+                        setSelectedPanelEdge({
+                          wallId: currentWall.id,
+                          panelId: targetPanelId,
+                          edge: s,
+                        })
+                      }
+                      style={{ padding: '0 4px', fontSize: 11 }}
+                    >
+                      {sInf.arrow} {sInf.label.replace(' торец', '')}
+                    </Button>
+                  );
+                })}
+              </Group>
+            </Paper>
+
+            <Divider color={t.border} />
+
+            {/* Выбор ширины зазора / профиля */}
+            <Select
+              size="xs"
+              label="Ширина зазора / профиля"
+              placeholder="Выберите ширину..."
+              value={String(currentWidth)}
+              data={ALL_PROFILE_WIDTH_OPTIONS}
+              allowDeselect={false}
+              onChange={(val) => {
+                const w = val ? Number(val) : 0;
+                setPanelEdgeWidth(currentWall.id, targetPanelId, side, w);
+              }}
+            />
+
+            {/* Точный ввод ширины */}
+            <NumberInput
+              size="xs"
+              label="Точная ширина зазора / паза (мм)"
+              description="Ширина автоматически вычитается из размера панели"
+              min={0}
+              max={100}
+              step={1}
+              value={currentWidth}
+              onChange={(val) => {
+                const w = typeof val === 'number' ? val : 0;
+                setPanelEdgeWidth(currentWall.id, targetPanelId, side, w);
+              }}
+            />
+
+            {/* Фильтры и выбор профиля при width > 0 */}
+            {currentWidth !== 0 && (
+              <>
+                {/* Фильтр по типу профиля */}
+                <Select
+                  size="xs"
+                  label="Тип профиля AllWall"
+                  value={selectedProfileType}
+                  data={PROFILE_TYPE_OPTIONS}
+                  onChange={(val) => {
+                    const newType = val || 'ALL';
+                    setSelectedProfileType(newType);
+                    if (profileArticle) {
+                      const prof = findProfileByArticle(profileArticle);
+                      if (prof && newType !== 'ALL' && prof.functionalRole !== newType) {
+                        setPanelEdgeJoint(currentWall.id, targetPanelId, side, { profileArticle: undefined });
+                      }
+                    }
+                  }}
+                  allowDeselect={false}
+                />
+
+                {/* Выбор модели профиля AllWall */}
+                <Select
+                  size="xs"
+                  label="Модель профиля AllWall"
+                  placeholder="Выберите артикул из каталога..."
+                  searchable
+                  clearable
+                  value={profileArticle || null}
+                  data={getFilteredProfilesStrict(currentWidth, selectedProfileType).map((p) => ({
+                    value: p.article,
+                    label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
+                  }))}
+                  onChange={(val) => {
+                    if (val) {
+                      setPanelEdgeProfile(currentWall.id, targetPanelId, side, val, profileColor);
+                    } else {
+                      setPanelEdgeJoint(currentWall.id, targetPanelId, side, { profileArticle: undefined });
+                    }
+                  }}
+                />
+
+                {/* Выбор цвета профиля AllWall */}
+                <div>
+                  <Text size="xs" fw={500} mb={4}>
+                    Цвет профиля AllWall:
+                  </Text>
+                  <Group gap="xs">
+                    {[
+                      { code: 'BLACK', name: 'Чёрный', hex: '#212529' },
+                      { code: 'GOLD', name: 'Золото', hex: '#c9a25b' },
+                      { code: 'ROSE_GOLD', name: 'Розовое золото', hex: '#b76e79' },
+                      { code: 'SILVER', name: 'Серебро', hex: '#adb5bd' },
+                    ].map((c) => {
+                      const isSel = profileColor.toLowerCase() === c.hex.toLowerCase();
+                      return (
+                        <Tooltip key={c.code} label={c.name} withArrow>
+                          <Paper
+                            p={2}
+                            radius="xl"
+                            style={{
+                              cursor: 'pointer',
+                              border: isSel ? '2px solid #339af0' : '2px solid transparent',
+                              backgroundColor: t.bgCardSubtle,
+                              transform: isSel ? 'scale(1.15)' : 'scale(1)',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onClick={() => setPanelEdgeColor(currentWall.id, targetPanelId, side, c.hex)}
+                          >
+                            <ColorSwatch color={c.hex} size={20} />
+                          </Paper>
+                        </Tooltip>
+                      );
+                    })}
+                  </Group>
+                </div>
+              </>
+            )}
+
+            {/* Кнопка сброса */}
+            <Button
+              variant="subtle"
+              color="red"
+              size="xs"
+              leftSection={<Trash2 size={14} />}
+              onClick={() => {
+                setPanelEdgeJoint(currentWall.id, targetPanelId, side, {
+                  width: 0,
+                  isLED: false,
+                  profileArticle: undefined,
+                  profileColor: undefined,
+                });
+              }}
+            >
+              Убрать стык (сделать встык 0 мм)
+            </Button>
+          </Stack>
+        </ScrollArea>
       </Stack>
     );
   }
@@ -866,25 +1320,47 @@ export const RightSidebar: React.FC = () => {
                 </Stack>
               </Paper>
             ) : (
-              <Paper
-                p="xs"
-                radius="sm"
-                style={{
-                  backgroundColor: 'rgba(64, 192, 87, 0.08)',
-                  border: '1px solid #40C057',
-                }}
-              >
-                <Stack gap={4}>
-                  <Group gap={6}>
-                    <Badge color="green" size="xs">
-                      Зафиксирован в стене
-                    </Badge>
-                  </Group>
-                  <Text size="xs" c="dimmed">
-                    Проем физически вырезан из материала стены. Панели вокруг (фрамуга, простенки) независимы.
+              <Stack gap="xs">
+                <Paper
+                  p="xs"
+                  radius="sm"
+                  style={{
+                    backgroundColor: 'rgba(64, 192, 87, 0.08)',
+                    border: '1px solid #40C057',
+                  }}
+                >
+                  <Stack gap={4}>
+                    <Group gap={6}>
+                      <Badge color="green" size="xs">
+                        Зафиксирован в стене
+                      </Badge>
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      Проем физически вырезан из материала стены. Панели вокруг (фрамуга, простенки) независимы.
+                    </Text>
+                  </Stack>
+                </Paper>
+
+                {/* Кнопка разделения детали на фрамугу и боковины */}
+                <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
+                  <Text size="xs" fw={500} mb={4} c="dimmed">
+                    Разделение детали двери:
                   </Text>
-                </Stack>
-              </Paper>
+                  <Text size="xs" c="dimmed" mb={8}>
+                    Панель сейчас цельная с вырезом под дверь. При необходимости вы можете разрезать её на фрамугу и боковины:
+                  </Text>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="orange"
+                    fullWidth
+                    leftSection={<Scissors size={14} />}
+                    onClick={() => splitPanelAroundOpening(currentWall.id, currentOpening.id)}
+                  >
+                    ✂ Разрезать деталь на фрамугу и боковины
+                  </Button>
+                </Paper>
+              </Stack>
             )}
 
             <Group grow>

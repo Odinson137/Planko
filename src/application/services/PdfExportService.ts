@@ -98,7 +98,7 @@ export class PdfExportService {
     // Рассчитываем оптимальный раскрой
     const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allPartsForNesting);
 
-    // Генерируем страницу для каждой стены
+    // Генерируем страницу для каждой стены с умной адаптивной компоновкой
     for (let wIdx = 0; wIdx < project.walls.length; wIdx++) {
       const wall = project.walls[wIdx];
       if (wIdx > 0) {
@@ -110,8 +110,17 @@ export class PdfExportService {
       canvas.height = 2100;
       const ctx = canvas.getContext('2d')!;
 
-      // Рендерим страницу раскладки стены
-      this.renderPanelLayoutPage(ctx, canvas.width, canvas.height, project, wall, nestingResult, wIdx + 1, project.walls.length);
+      // Рендерим адаптивную страницу раскладки стены и карт раскроя
+      this.renderPanelLayoutPage(
+        ctx,
+        canvas.width,
+        canvas.height,
+        project,
+        wall,
+        nestingResult,
+        wIdx + 1,
+        project.walls.length
+      );
 
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
       pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210);
@@ -250,11 +259,11 @@ export class PdfExportService {
   }
 
   // ===========================================================================
-  // ГРАФИЧЕСКИЙ РЕНДЕРИНГ СТРАНИЦ (Clean Minimalist Engineering Style)
+  // ГРАФИЧЕСКИЙ РЕНДЕРИНГ СТРАНИЦ (Умная адаптивная компоновка для максимального размера)
   // ===========================================================================
 
   /**
-   * Отрисовка страницы плана раскладки панелей и карт раскроя на листах
+   * Отрисовка страницы плана раскладки стены и карт раскроя с умной адаптивной компоновкой
    */
   private static renderPanelLayoutPage(
     ctx: CanvasRenderingContext2D,
@@ -270,19 +279,24 @@ export class PdfExportService {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
 
-    const marginX = 90;
+    const marginX = 70;
+    const totalAvailW = w - marginX * 2; // 2830 px
 
-    // 2. Шапка чертежа
+    // 2. Шапка страницы
     ctx.save();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 44px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(`Раскладка панелей (${wall.name})`, marginX, 95);
+    ctx.font = 'bold 38px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(`Раскладка панелей (${wall.name})`, marginX, 68);
 
-    ctx.font = '24px "Segoe UI", Arial, sans-serif';
+    ctx.font = '22px "Segoe UI", Arial, sans-serif';
     ctx.fillStyle = '#475569';
-    ctx.fillText(`Проект: ${project.name || 'Без названия'}   •   Габариты стены: ${wall.width} × ${wall.height} мм`, marginX, 140);
+    ctx.fillText(
+      `Проект: ${project.name || 'Без названия'}   •   Габариты стены: ${wall.width} × ${wall.height} мм`,
+      marginX,
+      106
+    );
     ctx.restore();
 
     // 3. Расчет раскладки стены
@@ -291,23 +305,7 @@ export class PdfExportService {
     const defMat = project.materials.find((m) => m.id === wall.zone.materialId) || project.materials[0];
     const layout = LayoutEngine.calculateWallLayout(wall, defMat, project.materials, wallNumber);
 
-    // Зона чертежа стены (верхняя половина)
-    const wallAreaX = marginX;
-    const wallAreaY = 155;
-    const wallAreaW = w - marginX * 2;
-    const wallAreaH = 820;
-
-    this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true);
-
-    // Разделительная линия
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(marginX, 990);
-    ctx.lineTo(w - marginX, 990);
-    ctx.stroke();
-
-    // 4. Карты раскроя листов (нижняя половина)
+    // 4. Фильтруем листы раскроя для этой стены
     const sheetsForThisWall: { sheet: NestingSheet; otherWallNames: string[] }[] = [];
     const borrowedSheets: NestingSheet[] = [];
 
@@ -315,68 +313,156 @@ export class PdfExportService {
       const wallsOnSheet = Array.from(new Set(sheet.placedParts.map((p) => p.part.wallId)));
       if (!wallsOnSheet.includes(wall.id)) return;
 
-      // Находим первую стену в порядке проекта, которая использует этот лист
       const firstWallOnSheet = project.walls.find((w) => wallsOnSheet.includes(w.id));
-
       if (firstWallOnSheet?.id === wall.id) {
-        // Лист впервые появляется на этой стене!
         const otherWallNames = Array.from(
           new Set(sheet.placedParts.filter((p) => p.part.wallId !== wall.id).map((p) => p.part.wallName))
         );
         sheetsForThisWall.push({ sheet, otherWallNames });
       } else {
-        // Лист был впервые показан на предыдущей стене
         borrowedSheets.push(sheet);
       }
     });
 
+    // Определяем геометрию стены: если стена узкая/средняя (<= 2600 мм), размещаем Стену слева, а Листы справа во всю высоту!
+    const isNarrowWall = (wall.width / wall.height) <= 1.25 || wall.width <= 2600;
+
+    if (isNarrowWall) {
+      // =========================================================================
+      // АДАПТИВНЫЙ РЕЖИМ 1: СТЕНА СЛЕВА (ВЫСОТА ДО 1750px), ЛИСТЫ СПРАВА
+      // =========================================================================
+      const wallColW = Math.min(1250, Math.max(950, Math.round(totalAvailW * 0.40)));
+      const wallAreaX = marginX;
+      const wallAreaY = 130;
+      const wallAreaW = wallColW;
+      const wallAreaH = 1790;
+
+      // Отрисовка крупного 2D-чертежа стены
+      this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true);
+
+      // Вертикальная разделительная линия
+      const sepX = marginX + wallColW + 28;
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sepX, 135);
+      ctx.lineTo(sepX, 1920);
+      ctx.stroke();
+
+      // Зона карт раскроя справа
+      const sheetsAreaX = sepX + 28;
+      const sheetsAreaY = 175;
+      const sheetsAreaW = w - sheetsAreaX - marginX;
+      const sheetsAreaH = 1745;
+
+      // Заголовок блока раскроя
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+      ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', sheetsAreaX, 160);
+      ctx.restore();
+
+      this.drawNestingSheetsOnCanvas(
+        ctx,
+        sheetsForThisWall.length > 0 ? sheetsForThisWall : nesting.allSheets.map((s) => ({ sheet: s, otherWallNames: [] })),
+        borrowedSheets,
+        wall.id,
+        sheetsAreaX,
+        sheetsAreaY,
+        sheetsAreaW,
+        sheetsAreaH,
+        0
+      );
+    } else {
+      // =========================================================================
+      // АДАПТИВНЫЙ РЕЖИМ 2: ДЛЯ ШИРОКИХ СТЕН (> 2600 мм) - СТЕНА СВЕРХУ, ЛИСТЫ СНИЗУ
+      // =========================================================================
+      const wallAreaX = marginX;
+      const wallAreaY = 130;
+      const wallAreaW = totalAvailW;
+      const wallAreaH = 840;
+
+      this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true);
+
+      // Горизонтальная разделительная черта
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(marginX, 990);
+      ctx.lineTo(w - marginX, 990);
+      ctx.stroke();
+
+      // Зона карт раскроя снизу
+      const sheetsAreaX = marginX;
+      const sheetsAreaY = 1050;
+      const sheetsAreaW = totalAvailW;
+      const sheetsAreaH = 870;
+
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+      ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', marginX, 1038);
+      ctx.restore();
+
+      this.drawNestingSheetsOnCanvas(
+        ctx,
+        sheetsForThisWall.length > 0 ? sheetsForThisWall : nesting.allSheets.map((s) => ({ sheet: s, otherWallNames: [] })),
+        borrowedSheets,
+        wall.id,
+        sheetsAreaX,
+        sheetsAreaY,
+        sheetsAreaW,
+        sheetsAreaH,
+        0
+      );
+    }
+
+    // 5. ТЕХНИЧЕСКИЕ ПРИМЕЧАНИЯ ВНИЗУ (Сноски)
     ctx.save();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', marginX, 1030);
-    ctx.restore();
+    ctx.fillStyle = '#dc2626'; // Красный акцент для монтажных примечаний
+    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+    ctx.fillText('! Подрезку брать с запасом на 5 мм, перед началом монтажа сделать условную разметку для удобства монтажа панелей.', marginX, 1955);
+    ctx.fillText('! Высоту подсветки регулировать по месту монтажа профилей.', marginX, 1985);
 
-    const sheetsAreaX = marginX;
-    const sheetsAreaY = 1045;
-    const sheetsAreaW = w - marginX * 2;
-    const sheetsAreaH = 875;
+    // Спецификация откосов в сносках
+    if (layout.slopes && layout.slopes.length > 0) {
+      const slopeSpecs = layout.slopes
+        .map((sl) => `[${sl.partLabel}] ${sl.sideLabel.toLowerCase()} ${Math.round(sl.width)} × ${Math.round(sl.depth)} мм (${sl.materialName || 'AllWall'})`)
+        .join('; ');
+      ctx.fillStyle = '#0369a1';
+      ctx.fillText(`! Откосы проемов (деталировка): ${slopeSpecs}.`, marginX, 2015);
+    } else {
+      ctx.fillStyle = '#334155';
+      ctx.fillText('! Углы в ТВ зоне брать одного градуса иначе будет высокая вероятность смещения швов.', marginX, 2015);
+    }
 
-    this.drawNestingSheetsOnCanvas(
-      ctx,
-      sheetsForThisWall,
-      borrowedSheets,
-      wall.id,
-      sheetsAreaX,
-      sheetsAreaY,
-      sheetsAreaW,
-      sheetsAreaH
-    );
-
-    // 5. Технические примечания внизу
-    ctx.save();
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('! Подрезку брать с запасом на 5 мм, перед началом монтажа сделать условную разметку для удобства.', marginX, 1940);
-    ctx.fillText('! Высоту подсветки регулировать по месту монтажа профилей. Углы в ТВ-зоне брать одного градуса.', marginX, 1972);
-
-    // Динамические сноски об использовании остатков между стенами
+    // Спецификация стыков и зазоров в сносках
+    const wallJoints = layout.joints.filter((j) => (j.width > 0) || j.isLED || j.id.startsWith('joint-op-'));
     const sharedSheets = sheetsForThisWall.filter((item) => item.otherWallNames.length > 0);
-    if (sharedSheets.length > 0) {
+
+    if (wallJoints.length > 0) {
+      const meaningfulJoint = wallJoints.find((j) => j.width >= 6) || wallJoints.find((j) => j.width > 0) || { width: 8 };
+      const jointGap = Math.round(meaningfulJoint.width || 8);
+      ctx.fillStyle = '#334155';
+      ctx.fillText(`! Стыки и зазоры обрамления: ширина швов ${jointGap} мм (профиль AllWall / теневой открытый паз).`, marginX, 2045);
+    } else if (sharedSheets.length > 0) {
       const sharedLabels = sharedSheets.map((item) => item.sheet.sheetLabel).join(', ');
       const targetWalls = Array.from(new Set(sharedSheets.flatMap((item) => item.otherWallNames))).join(', ');
-      ctx.fillStyle = '#b45309'; // Темно-янтарный
-      ctx.fillText(`! Остатки от ${sharedLabels} использовать на других стенах: ${targetWalls} (указано на картах раскроя).`, marginX, 2004);
+      ctx.fillStyle = '#b45309';
+      ctx.fillText(`! Остатки от ${sharedLabels} использовать на других стенах: ${targetWalls} (указано на картах раскроя).`, marginX, 2045);
     } else if (borrowedSheets.length > 0) {
       const borrowedLabels = borrowedSheets.map((s) => s.sheetLabel).join(', ');
-      ctx.fillStyle = '#1d4ed8'; // Синий
-      ctx.fillText(`! Детали для этой стены берутся из остатков ${borrowedLabels} (см. предыдущие листы раскроя).`, marginX, 2004);
+      ctx.fillStyle = '#1d4ed8';
+      ctx.fillText(`! Детали для этой стены берутся из остатков ${borrowedLabels} (см. предыдущие листы раскроя).`, marginX, 2045);
     } else {
       ctx.fillStyle = '#475569';
-      ctx.fillText('! Перед монтажом панелей выполнить контрольные замеры уровней стен.', marginX, 2004);
+      ctx.fillText('! Перед монтажом панелей выполнить контрольные замеры уровней стен.', marginX, 2045);
     }
     ctx.restore();
 
@@ -385,9 +471,9 @@ export class PdfExportService {
     ctx.textAlign = 'right';
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#64748b';
-    ctx.font = '22px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(`Лист ${pageNumber} из ${totalPages}`, w - marginX, 2040);
-    ctx.fillText(`AllWall CAD Engine • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2004);
+    ctx.font = '20px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(`Лист ${pageNumber} из ${totalPages}`, w - marginX, 2045);
+    ctx.fillText(`AllWall CAD Engine • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2015);
     ctx.restore();
   }
 
@@ -488,36 +574,24 @@ export class PdfExportService {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        // Формируем маркировку 1.1, 1.2, 2.1...
+        // Формируем маркировку 1.1, 1.2, 6.2, 7.3...
         const label = p.partLabel && p.partLabel !== 'ПУСТО'
           ? p.partLabel
           : `${wall.name.match(/\d+/)?.[0] || '1'}.${pIdx + 1}`;
 
-        // Если у детали есть вырез снизу (например, дверь), её видимая высота меньше
-        let visibleHeight = p.height;
-        if (coveringOpening && p.y <= coveringOpening.y + 10) {
-          visibleHeight = Math.max(50, Math.round(p.y + p.height - (coveringOpening.y + coveringOpening.height)));
-        }
-        const dimText = `${Math.round(p.width)}×${Math.round(visibleHeight)}`;
+        ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+        const labelW = Math.max(54, ctx.measureText(label).width + 20);
+        const badgeH = 34;
 
-        ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
-        const labelW = Math.max(ctx.measureText(label).width, ctx.measureText(dimText).width) + 24;
-        const badgeH = 44;
-
-        // Белый бейдж
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        // Прямоугольная аккуратная рамка с белым фоном как на скрине 2
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
-        ctx.strokeStyle = '#94a3b8';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1.8;
         ctx.strokeRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
 
-        ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
-        ctx.fillStyle = '#0f172a';
-        ctx.fillText(label, midX, midY - 8);
-
-        ctx.font = '14px "Segoe UI", Arial, sans-serif';
-        ctx.fillStyle = '#64748b';
-        ctx.fillText(dimText, midX, midY + 12);
+        ctx.fillStyle = '#000000';
+        ctx.fillText(label, midX, midY);
         ctx.restore();
       }
     });
@@ -734,20 +808,30 @@ export class PdfExportService {
         ctx.setLineDash([]);
       }
 
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+      const typeLabel = op.type === 'DOOR' ? 'Дверь' : op.type === 'WINDOW' ? 'Окно' : op.type === 'TV_ZONE' ? 'ТВ-зона' : 'Ниша';
+      const opTitle = op.name || typeLabel;
+
+      ctx.save();
+      ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+      const opLabelW = Math.max(76, ctx.measureText(opTitle).width + 24);
+      const opBadgeH = 36;
+      const opMidX = opTopLeft.x + opW / 2;
+      const opMidY = opTopLeft.y + opH / 2;
+
+      // Белая плашка с четкой рамкой как на скрине 2
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(opMidX - opLabelW / 2, opMidY - opBadgeH / 2, opLabelW, opBadgeH);
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1.8;
+      ctx.strokeRect(opMidX - opLabelW / 2, opMidY - opBadgeH / 2, opLabelW, opBadgeH);
+
+      ctx.fillStyle = '#000000';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const typeLabel = op.type === 'DOOR' ? 'Дверь' : op.type === 'WINDOW' ? 'Окно' : op.type === 'TV_ZONE' ? 'ТВ-зона' : 'Ниша';
-      ctx.fillText(`${op.name || typeLabel}`, opTopLeft.x + opW / 2, opTopLeft.y + opH / 2 - 10);
-      ctx.font = '16px "Segoe UI", Arial, sans-serif';
-      ctx.fillStyle = '#475569';
-      ctx.fillText(`${op.width} × ${op.height} мм`, opTopLeft.x + opW / 2, opTopLeft.y + opH / 2 + 14);
+      ctx.fillText(opTitle, opMidX, opMidY);
       ctx.restore();
 
-
-
-      // ВЫНОСКИ ОТКОСОВ (Указатель со стрелкой + двухъярусная плашка [1.4] / [ОТКОС])
+      // ВЫНОСКИ ОТКОСОВ (Указатель со стрелкой + плашка [1.4] / [ОТКОС: 150 мм])
       if (op.isCutout !== false && layout.slopes && layout.slopes.length > 0) {
         const topSlope = layout.slopes.find((s) => s.openingId === op.id && s.side === 'TOP');
         const leftSlope = layout.slopes.find((s) => s.openingId === op.id && s.side === 'LEFT');
@@ -763,12 +847,14 @@ export class PdfExportService {
           targetEdgeY: number,
           dir: 'TOP' | 'LEFT' | 'RIGHT' | 'BOTTOM'
         ) => {
-          const bw = 70;
+          ctx.save();
+          ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
+          const subTextW = ctx.measureText(sideText).width;
+          const bw = Math.max(80, subTextW + 16);
           const bh = 44;
           const bx = boxCenterX - bw / 2;
           const by = boxCenterY - bh / 2;
 
-          ctx.save();
           // Фон плашки
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(bx, by, bw, bh);
@@ -789,7 +875,7 @@ export class PdfExportService {
           ctx.textBaseline = 'middle';
           ctx.fillText(partLabel, boxCenterX, by + 11);
 
-          // Нижний текст: ОТКОС
+          // Нижний текст: ОТКОС: 150 мм
           ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
           ctx.fillText(sideText, boxCenterX, by + 33);
 
@@ -825,7 +911,7 @@ export class PdfExportService {
         if (topSlope) {
           drawSlopeBadge(
             topSlope.partLabel,
-            'ОТКОС',
+            `ОТКОС: ${Math.round(topSlope.depth)} мм`,
             opTopLeft.x + opW / 2,
             opTopLeft.y + 60,
             opTopLeft.x + opW / 2,
@@ -838,7 +924,7 @@ export class PdfExportService {
           const targetY = opTopLeft.y + opH * 0.38;
           drawSlopeBadge(
             leftSlope.partLabel,
-            'ОТКОС',
+            `ОТКОС: ${Math.round(leftSlope.depth)} мм`,
             opTopLeft.x + 65,
             targetY,
             opTopLeft.x,
@@ -851,7 +937,7 @@ export class PdfExportService {
           const targetY = opTopLeft.y + opH * 0.62;
           drawSlopeBadge(
             rightSlope.partLabel,
-            'ОТКОС',
+            `ОТКОС: ${Math.round(rightSlope.depth)} мм`,
             opTopLeft.x + opW - 65,
             targetY,
             opTopLeft.x + opW,
@@ -863,7 +949,7 @@ export class PdfExportService {
         if (bottomSlope) {
           drawSlopeBadge(
             bottomSlope.partLabel,
-            op.type === 'WINDOW' ? 'ПОДОКОННИК' : 'ОТКОС',
+            op.type === 'WINDOW' ? `ПОДОК.: ${Math.round(bottomSlope.depth)} мм` : `ОТКОС: ${Math.round(bottomSlope.depth)} мм`,
             opTopLeft.x + opW / 2,
             opTopLeft.y + opH - 60,
             opTopLeft.x + opW / 2,
@@ -899,204 +985,170 @@ export class PdfExportService {
       ctx.restore();
     });
 
-    // 5. Архитектурные размерные цепочки (с засечками под 45°)
+    // 5. Архитектурные размерные цепочки (с четкими засечками под 45°)
     ctx.save();
 
-    // 5.1. Верхний ярус 1 (Общий габарит стены):
-    const topOverallY = originY - 70;
+    // 5.1. Левый габарит стены (Общая высота 2800):
+    const leftOverallX = originX - 65;
     this.drawArchitecturalDimLine(
       ctx,
       originX,
       originY,
-      originX + wall.width * scale,
-      originY,
-      topOverallY,
-      'HORIZONTAL',
-      `${wall.width} мм`
+      originX,
+      originY + wall.height * scale,
+      leftOverallX,
+      'VERTICAL',
+      `${Math.round(wall.height)}`
     );
 
-    // 5.2. Верхний ярус 2 (Попанельная детальная цепочка без наложений):
-    const xCuts = new Set<number>([0, wall.width]);
+    // 5.2. Нижний ярус: Детальная непрерывная размерная цепочка по низу (панели, проемы, швы)
+    interface BottomSegmentItem {
+      start: number;
+      end: number;
+      label: string;
+      isJoint?: boolean;
+    }
+
+    const rawIntervals: { start: number; end: number; isOpening?: boolean }[] = [];
+
+    // Панели в нижней части стены (Y <= 50)
     layout.panels
-      .filter((p) => !p.isVoid)
+      .filter((p) => !p.isVoid && p.y <= 50)
       .forEach((p) => {
-        xCuts.add(Math.round(p.x));
-        xCuts.add(Math.round(p.x + p.width));
+        const xs = (p.polygonPoints && p.polygonPoints.length >= 3 ? p.polygonPoints : [{ x: p.x, y: p.y }, { x: p.x + p.width, y: p.y }]).map((pt) => pt.x);
+        const minX = Math.round(Math.min(...xs));
+        const maxX = Math.round(Math.max(...xs));
+        if (maxX > minX + 5) {
+          rawIntervals.push({ start: minX, end: maxX, isOpening: false });
+        }
       });
+
+    // Проемы в нижней части стены (двери Y <= 50)
+    wall.openings
+      .filter((op) => op.isCutout !== false && op.y <= 50)
+      .forEach((op) => {
+        const opLeft = Math.round(op.x);
+        const opRight = Math.round(op.x + op.width);
+        rawIntervals.push({ start: opLeft, end: opRight, isOpening: true });
+      });
+
+    rawIntervals.sort((a, b) => a.start - b.start);
+
+    const bottomSegments: BottomSegmentItem[] = [];
+    let curX = 0;
+
+    rawIntervals.forEach((item) => {
+      // Если между предыдущей точкой и началом текущего элемента есть зазор шва (например 8 мм)
+      if (item.start > curX + 2) {
+        const gap = item.start - curX;
+        bottomSegments.push({
+          start: curX,
+          end: item.start,
+          label: `${Math.round(gap)}`,
+          isJoint: true,
+        });
+      }
+
+      // Сам элемент (панель или проем)
+      const w = item.end - item.start;
+      bottomSegments.push({
+        start: item.start,
+        end: item.end,
+        label: `${Math.round(w)}`,
+        isJoint: false,
+      });
+
+      curX = item.end;
+    });
+
+    // Зазор шва у правого края стены
+    if (wall.width > curX + 2) {
+      const gap = wall.width - curX;
+      bottomSegments.push({
+        start: curX,
+        end: wall.width,
+        label: `${Math.round(gap)}`,
+        isJoint: true,
+      });
+    }
+
+    if (bottomSegments.length > 0) {
+      const bottomChainY = originY + wall.height * scale + 45;
+      this.drawArchitecturalChain(
+        ctx,
+        originX,
+        originY,
+        scale,
+        wall.height,
+        bottomSegments,
+        'HORIZONTAL',
+        bottomChainY,
+        originY + wall.height * scale
+      );
+    }
+
+    // 5.3. Размеры у проемов (дверь, окно, фрамуга над дверью)
     wall.openings
       .filter((op) => op.isCutout !== false)
       .forEach((op) => {
-        xCuts.add(Math.round(op.x));
-        xCuts.add(Math.round(op.x + op.width));
-      });
-    if (wall.bends && wall.bends.length > 0) {
-      wall.bends.forEach((b) => {
-        const arcLen = Math.round((Math.PI * b.radius * (b.angleDeg || 90)) / 180);
-        xCuts.add(Math.round(b.x));
-        if (b.radius > 0 && arcLen > 0) {
-          xCuts.add(Math.round(b.x + arcLen));
-        }
-      });
-    }
+        // 1. Горизонтальный размер проема прямо над ним (как 900 на скрине 2)
+        const opTopY = originY + (wall.height - (op.y + op.height)) * scale;
+        const opLeftX = originX + op.x * scale;
+        const opRightX = originX + (op.x + op.width) * scale;
 
-    const sortedXCuts = Array.from(xCuts).sort((a, b) => a - b);
-    const cleanedXCuts: number[] = [sortedXCuts[0]];
-    for (let i = 1; i < sortedXCuts.length; i++) {
-      if (sortedXCuts[i] - cleanedXCuts[cleanedXCuts.length - 1] >= 15) {
-        cleanedXCuts.push(sortedXCuts[i]);
-      } else if (i === sortedXCuts.length - 1) {
-        cleanedXCuts[cleanedXCuts.length - 1] = sortedXCuts[i];
-      }
-    }
-
-    const topPanelSegments: { start: number; end: number; label: string }[] = [];
-    for (let i = 0; i < cleanedXCuts.length - 1; i++) {
-      const segW = cleanedXCuts[i + 1] - cleanedXCuts[i];
-      if (segW >= 15) {
-        topPanelSegments.push({
-          start: cleanedXCuts[i],
-          end: cleanedXCuts[i + 1],
-          label: `${Math.round(segW)}`,
-        });
-      }
-    }
-
-    if (topPanelSegments.length > 1) {
-      const topDetailY = originY - 30;
-      this.drawArchitecturalChain(
-        ctx,
-        originX,
-        originY,
-        scale,
-        wall.height,
-        topPanelSegments,
-        'HORIZONTAL',
-        topDetailY
-      );
-    }
-
-    // 5.3. Нижний ярус: Архитектурная цепочка привязки проемов к стенам (без микро-швов)
-    if (wall.openings && wall.openings.length > 0) {
-      const bottomOpeningSegments: { start: number; end: number; label: string; subLabel?: string }[] = [];
-      const cutoutOps = wall.openings.filter((op) => op.isCutout !== false).sort((a, b) => a.x - b.x);
-
-      let currX = 0;
-      cutoutOps.forEach((op) => {
-        if (op.x > currX + 15) {
-          bottomOpeningSegments.push({
-            start: currX,
-            end: op.x,
-            label: `${Math.round(op.x - currX)}`,
-          });
-        }
-        const opLabel = op.type === 'DOOR' ? 'Дверь' : op.type === 'WINDOW' ? 'Окно' : op.type === 'TV_ZONE' ? 'ТВ-зона' : 'Ниша';
-        bottomOpeningSegments.push({
-          start: op.x,
-          end: op.x + op.width,
-          label: `${Math.round(op.width)}`,
-          subLabel: opLabel,
-        });
-        currX = op.x + op.width;
-      });
-
-      if (currX < wall.width - 15) {
-        bottomOpeningSegments.push({
-          start: currX,
-          end: wall.width,
-          label: `${Math.round(wall.width - currX)}`,
-        });
-      }
-
-      if (bottomOpeningSegments.length > 0) {
-        const bottomChainY = originY + wall.height * scale + 45;
-        this.drawArchitecturalChain(
+        this.drawArchitecturalDimLine(
           ctx,
-          originX,
-          originY,
-          scale,
-          wall.height,
-          bottomOpeningSegments,
+          opLeftX,
+          opTopY,
+          opRightX,
+          opTopY,
+          opTopY - 14,
           'HORIZONTAL',
-          bottomChainY
+          `${Math.round(op.width)}`
         );
-      }
-    }
 
-    // 5.4. Правый габарит стены (Общая высота)
-    const rightOverallX = originX + wall.width * scale + 65;
-    this.drawArchitecturalDimLine(
-      ctx,
-      originX + wall.width * scale,
-      originY,
-      originX + wall.width * scale,
-      originY + wall.height * scale,
-      rightOverallX,
-      'VERTICAL',
-      `${wall.height} мм`
-    );
+        // 2. Вертикальные размеры фрамуги и зазора над дверью (как 506 и 8 на скрине 2)
+        const transomHeight = wall.height - (op.y + op.height);
+        if (transomHeight > 25) {
+          const topFramingGap = op.framing?.top?.width ?? 0;
+          const transomDimX = opLeftX - 18;
+          const transomSegments: { start: number; end: number; label: string; isJoint?: boolean }[] = [];
 
-    // 5.5. Левый ярус: Высотные отметки и уровни проемов / горизонтальных сегментов
-    const leftHeightSegments: { start: number; end: number; label: string }[] = [];
-    const mainOpening = wall.openings.find((op) => op.isCutout !== false);
-
-    if (mainOpening) {
-      if (mainOpening.y > 5) {
-        leftHeightSegments.push({
-          start: 0,
-          end: mainOpening.y,
-          label: `${Math.round(mainOpening.y)}`,
-        });
-      }
-      leftHeightSegments.push({
-        start: mainOpening.y,
-        end: mainOpening.y + mainOpening.height,
-        label: `${Math.round(mainOpening.height)}`,
-      });
-      if (wall.height - (mainOpening.y + mainOpening.height) > 5) {
-        leftHeightSegments.push({
-          start: mainOpening.y + mainOpening.height,
-          end: wall.height,
-          label: `${Math.round(wall.height - (mainOpening.y + mainOpening.height))}`,
-        });
-      }
-    } else {
-      const horizJoints = layout.joints.filter((j) => j.orientation === 'HORIZONTAL' && (j.width > 0 || j.isLED));
-      if (horizJoints.length > 0) {
-        let lastY = 0;
-        const sortedY = Array.from(new Set(horizJoints.map((j) => Math.round(j.y)))).sort((a, b) => a - b);
-        sortedY.forEach((hy) => {
-          if (hy > lastY + 5) {
-            leftHeightSegments.push({
-              start: lastY,
-              end: hy,
-              label: `${Math.round(hy - lastY)}`,
+          if (topFramingGap > 0) {
+            transomSegments.push({
+              start: op.y + op.height,
+              end: op.y + op.height + topFramingGap,
+              label: `${Math.round(topFramingGap)}`,
+              isJoint: true,
             });
-            lastY = hy;
+            transomSegments.push({
+              start: op.y + op.height + topFramingGap,
+              end: wall.height,
+              label: `${Math.round(wall.height - (op.y + op.height + topFramingGap))}`,
+              isJoint: false,
+            });
+          } else {
+            transomSegments.push({
+              start: op.y + op.height,
+              end: wall.height,
+              label: `${Math.round(transomHeight)}`,
+              isJoint: false,
+            });
           }
-        });
-        if (wall.height > lastY + 5) {
-          leftHeightSegments.push({
-            start: lastY,
-            end: wall.height,
-            label: `${Math.round(wall.height - lastY)}`,
-          });
-        }
-      }
-    }
 
-    if (leftHeightSegments.length > 1) {
-      const leftChainX = originX - 55;
-      this.drawArchitecturalChain(
-        ctx,
-        originX,
-        originY,
-        scale,
-        wall.height,
-        leftHeightSegments,
-        'VERTICAL',
-        leftChainX
-      );
-    }
+          this.drawArchitecturalChain(
+            ctx,
+            originX,
+            originY,
+            scale,
+            wall.height,
+            transomSegments,
+            'VERTICAL',
+            transomDimX,
+            opLeftX
+          );
+        }
+      });
 
     ctx.restore();
   }
@@ -1110,17 +1162,18 @@ export class PdfExportService {
     originY: number,
     scale: number,
     wallHeight: number,
-    segments: { start: number; end: number; label: string; subLabel?: string }[],
+    segments: { start: number; end: number; label: string; isJoint?: boolean }[],
     orientation: 'HORIZONTAL' | 'VERTICAL',
-    offsetCoord: number
+    offsetCoord: number,
+    refCoord?: number
   ): void {
     if (segments.length === 0) return;
 
     ctx.save();
-    ctx.strokeStyle = '#475569';
-    ctx.fillStyle = '#0f172a';
-    ctx.lineWidth = 1.6;
-    const tick = 8;
+    ctx.strokeStyle = '#000000';
+    ctx.fillStyle = '#000000';
+    ctx.lineWidth = 1.8;
+    const tick = 9;
 
     if (orientation === 'HORIZONTAL') {
       const dimY = offsetCoord;
@@ -1129,30 +1182,23 @@ export class PdfExportService {
 
       // Общая линия цепочки
       ctx.beginPath();
-      ctx.moveTo(originX + minVal * scale - 10, dimY);
-      ctx.lineTo(originX + maxVal * scale + 10, dimY);
+      ctx.moveTo(originX + minVal * scale - 8, dimY);
+      ctx.lineTo(originX + maxVal * scale + 8, dimY);
       ctx.stroke();
 
-      let lastLabelRight = -9999;
-      segments.forEach((seg, sIdx) => {
+      segments.forEach((seg) => {
         const sx = originX + seg.start * scale;
         const ex = originX + seg.end * scale;
         const midX = (sx + ex) / 2;
         const segW = ex - sx;
 
-        // Выносные линии
+        // Выносные линии к стене
+        const refY = refCoord !== undefined ? refCoord : (dimY < originY ? originY : originY + wallHeight * scale);
         ctx.beginPath();
-        if (dimY < originY) {
-          ctx.moveTo(sx, originY - 6);
-          ctx.lineTo(sx, dimY - 8);
-          ctx.moveTo(ex, originY - 6);
-          ctx.lineTo(ex, dimY - 8);
-        } else {
-          ctx.moveTo(sx, originY + wallHeight * scale + 6);
-          ctx.lineTo(sx, dimY + 8);
-          ctx.moveTo(ex, originY + wallHeight * scale + 6);
-          ctx.lineTo(ex, dimY + 8);
-        }
+        ctx.moveTo(sx, refY);
+        ctx.lineTo(sx, dimY + (dimY < refY ? -6 : 6));
+        ctx.moveTo(ex, refY);
+        ctx.lineTo(ex, dimY + (dimY < refY ? -6 : 6));
         ctx.stroke();
 
         // Засечки 45°
@@ -1163,35 +1209,23 @@ export class PdfExportService {
         ctx.lineTo(ex + tick, dimY - tick);
         ctx.stroke();
 
-        // Размерный текст с защитой от наложения
+        // Размерный текст
         ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
-        const textW = ctx.measureText(seg.label).width;
-        const isCollision = (midX - textW / 2 < lastLabelRight + 8) || (segW < textW + 6);
-        const yStagger = isCollision && sIdx % 2 === 1 ? 22 : 0;
+        const isJoint = seg.isJoint ?? (segW < 30);
 
         ctx.textAlign = 'center';
-        if (dimY < originY) {
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(seg.label, midX, dimY - 4 - yStagger);
-          if (seg.subLabel) {
-            ctx.font = '13px "Segoe UI", Arial, sans-serif';
-            ctx.fillStyle = '#64748b';
-            ctx.fillText(seg.subLabel, midX, dimY - 24 - yStagger);
-            ctx.fillStyle = '#0f172a';
-          }
-        } else {
+        if (isJoint) {
+          // Зазоры стыков (например 8 мм) выводим под засечками
           ctx.textBaseline = 'top';
-          ctx.fillText(seg.label, midX, dimY + 4 + yStagger);
-          if (seg.subLabel) {
-            ctx.font = '13px "Segoe UI", Arial, sans-serif';
-            ctx.fillStyle = '#64748b';
-            ctx.fillText(seg.subLabel, midX, dimY + 24 + yStagger);
-            ctx.fillStyle = '#0f172a';
-          }
+          ctx.fillText(seg.label, midX, dimY + 12);
+        } else {
+          // Размеры деталей и проемов выводим над линией
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(seg.label, midX, dimY - 4);
         }
-        lastLabelRight = midX + textW / 2;
       });
     } else {
+      // VERTICAL chain
       const dimX = offsetCoord;
       const minVal = Math.min(...segments.map((s) => s.start));
       const maxVal = Math.max(...segments.map((s) => s.end));
@@ -1199,28 +1233,25 @@ export class PdfExportService {
       const topY = originY + (wallHeight - maxVal) * scale;
       const botY = originY + (wallHeight - minVal) * scale;
 
+      // Общая линия цепочки
       ctx.beginPath();
-      ctx.moveTo(dimX, topY - 10);
-      ctx.lineTo(dimX, botY + 10);
+      ctx.moveTo(dimX, topY - 8);
+      ctx.lineTo(dimX, botY + 8);
       ctx.stroke();
+
+      const refX = refCoord !== undefined ? refCoord : (dimX < originX ? originX : originX + scale * 100);
 
       segments.forEach((seg) => {
         const sy = originY + (wallHeight - seg.start) * scale;
         const ey = originY + (wallHeight - seg.end) * scale;
+        const midY = (sy + ey) / 2;
 
-        // Выносные линии
+        // Выносные линии ТОЛЬКО от refX до dimX (без ухода в бесконечность!)
         ctx.beginPath();
-        if (dimX < originX) {
-          ctx.moveTo(originX - 6, sy);
-          ctx.lineTo(dimX - 8, sy);
-          ctx.moveTo(originX - 6, ey);
-          ctx.lineTo(dimX - 8, ey);
-        } else {
-          ctx.moveTo(originX + wallHeight * scale + 6, sy);
-          ctx.lineTo(dimX + 8, sy);
-          ctx.moveTo(originX + wallHeight * scale + 6, ey);
-          ctx.lineTo(dimX + 8, ey);
-        }
+        ctx.moveTo(refX, sy);
+        ctx.lineTo(dimX + (dimX < refX ? -4 : 4), sy);
+        ctx.moveTo(refX, ey);
+        ctx.lineTo(dimX + (dimX < refX ? -4 : 4), ey);
         ctx.stroke();
 
         // Засечки 45°
@@ -1231,9 +1262,9 @@ export class PdfExportService {
         ctx.lineTo(dimX + tick, ey - tick);
         ctx.stroke();
 
-        // Повернутый текст
+        // Текст
         ctx.save();
-        ctx.translate(dimX - 18, (sy + ey) / 2);
+        ctx.translate(dimX - 16, midY);
         ctx.rotate(-Math.PI / 2);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
@@ -1260,21 +1291,20 @@ export class PdfExportService {
     label: string
   ): void {
     ctx.save();
-    ctx.strokeStyle = '#475569';
-    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#000000';
+    ctx.fillStyle = '#000000';
     ctx.lineWidth = 1.8;
-
-    const tick = 10;
+    const tick = 9;
 
     if (orientation === 'HORIZONTAL') {
       const dimY = offsetCoord;
       ctx.beginPath();
-      ctx.moveTo(x1, y1 - 8);
-      ctx.lineTo(x1, dimY - 10);
-      ctx.moveTo(x2, y2 - 8);
-      ctx.lineTo(x2, dimY - 10);
-      ctx.moveTo(x1 - 10, dimY);
-      ctx.lineTo(x2 + 10, dimY);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1, dimY - 6);
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2, dimY - 6);
+      ctx.moveTo(x1 - 8, dimY);
+      ctx.lineTo(x2 + 8, dimY);
       ctx.moveTo(x1 - tick, dimY + tick);
       ctx.lineTo(x1 + tick, dimY - tick);
       ctx.moveTo(x2 - tick, dimY + tick);
@@ -1283,29 +1313,33 @@ export class PdfExportService {
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
-      ctx.fillText(label, (x1 + x2) / 2, dimY - 5);
+      ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+      ctx.fillText(label, (x1 + x2) / 2, dimY - 4);
     } else {
       const dimX = offsetCoord;
       ctx.beginPath();
-      ctx.moveTo(x1 + 8, y1);
-      ctx.lineTo(dimX + 10, y1);
-      ctx.moveTo(x2 + 8, y2);
-      ctx.lineTo(dimX + 10, y2);
-      ctx.moveTo(dimX, y1 - 10);
-      ctx.lineTo(dimX, y2 + 10);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(dimX + (dimX < x1 ? -6 : 6), y1);
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(dimX + (dimX < x2 ? -6 : 6), y2);
+      const minY = Math.min(y1, y2);
+      const maxY = Math.max(y1, y2);
+      ctx.moveTo(dimX, minY - 8);
+      ctx.lineTo(dimX, maxY + 8);
       ctx.moveTo(dimX - tick, y1 + tick);
       ctx.lineTo(dimX + tick, y1 - tick);
       ctx.moveTo(dimX - tick, y2 + tick);
       ctx.lineTo(dimX + tick, y2 - tick);
       ctx.stroke();
 
-      ctx.translate(dimX + 24, (y1 + y2) / 2);
-      ctx.rotate(Math.PI / 2);
+      ctx.save();
+      ctx.translate(dimX - 18, (y1 + y2) / 2);
+      ctx.rotate(-Math.PI / 2);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+      ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
       ctx.fillText(label, 0, 0);
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -1321,7 +1355,8 @@ export class PdfExportService {
     boxX: number,
     boxY: number,
     boxW: number,
-    boxH: number
+    boxH: number,
+    startIndex: number = 0
   ): void {
     if (sheetsWithNotes.length === 0) {
       // Информационная плашка, если на этой стене нет новых листов
@@ -1365,14 +1400,14 @@ export class PdfExportService {
     }
 
     const count = sheetsWithNotes.length;
-    // Всегда 1 ряд для листов (до 6 шт), чтобы листы были максимально крупными на всю ширину страницы
-    const cols = Math.min(count, 6);
+    // Количество колонок
+    const cols = Math.min(count, 8);
     const rows = Math.ceil(count / cols);
 
     const cellW = boxW / cols;
     const cellH = boxH / rows;
 
-    sheetsWithNotes.slice(0, 6).forEach((item, idx) => {
+    sheetsWithNotes.forEach((item, idx) => {
       const sheet = item.sheet;
       const otherWallNames = item.otherWallNames;
 
@@ -1383,18 +1418,18 @@ export class PdfExportService {
       const cellY = boxY + row * cellH;
 
       ctx.save();
-      // Получаем информацию о материале, декоре и параметрах листа
+      // 1. Заголовок листа: Лист N: [Арт. XXXX] Название материала
       const firstPart = sheet.placedParts[0]?.part;
       const decorCode = sheet.decorCode || firstPart?.decorCode || '';
       const matName = sheet.materialName || firstPart?.materialName || 'Панель AllWall';
       const thickness = sheet.thickness || firstPart?.thickness || 5;
 
-      // 1. Заголовок листа: Лист N • [Арт. XXXX] Название материала
+      const sheetNumber = startIndex + idx + 1;
       const decorBadge = decorCode ? `[${decorCode}] ` : '';
-      const titleText = `${sheet.sheetLabel}: ${decorBadge}${matName}`;
+      const titleText = `Лист ${sheetNumber}: ${decorBadge}${matName}`;
 
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
+      ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
 
@@ -1404,10 +1439,10 @@ export class PdfExportService {
         displayTitle = displayTitle.slice(0, -2);
       }
       if (displayTitle !== titleText) displayTitle += '…';
-      ctx.fillText(displayTitle, cellX + cellW / 2, cellY + 26);
+      ctx.fillText(displayTitle, cellX + cellW / 2, cellY + 24);
 
       // 2. Подзаголовок: Габариты листа (1220×2800×5 мм) + Код AllWall + Исп. %
-      ctx.font = '13px "Segoe UI", Arial, sans-serif';
+      ctx.font = '14px "Segoe UI", Arial, sans-serif';
       ctx.fillStyle = '#475569';
       const subText = `${sheet.sheetWidth} × ${sheet.sheetHeight} × ${thickness} мм${decorCode ? ` • Арт: ${decorCode}` : ''} • Исп: ${sheet.efficiencyPct}%`;
       let displaySub = subText;
@@ -1415,23 +1450,46 @@ export class PdfExportService {
         displaySub = displaySub.slice(0, -2);
       }
       if (displaySub !== subText) displaySub += '…';
-      ctx.fillText(displaySub, cellX + cellW / 2, cellY + 48);
+      ctx.fillText(displaySub, cellX + cellW / 2, cellY + 46);
 
-      // Масштабирование листа в ячейку
-      const pad = 16;
+      // Масштабирование листа в ячейку (отступ сверху 84px исключает любые наложения)
+      const pad = 18;
       const sAvailW = cellW - pad * 2;
-      const sAvailH = cellH - 120;
+      const sAvailH = cellH - 125;
 
-      const scale = Math.min(sAvailW / sheet.sheetWidth, sAvailH / sheet.sheetHeight, 0.28);
+      const scale = Math.min(sAvailW / sheet.sheetWidth, sAvailH / sheet.sheetHeight, 0.48);
       const sheetOriginX = cellX + (cellW - sheet.sheetWidth * scale) / 2;
-      const sheetOriginY = cellY + 62;
+      const sheetOriginY = cellY + 84;
 
       // Тело листа (чистый нейтральный фон листа)
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(sheetOriginX, sheetOriginY, sheet.sheetWidth * scale, sheet.sheetHeight * scale);
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1.6;
       ctx.strokeRect(sheetOriginX, sheetOriginY, sheet.sheetWidth * scale, sheet.sheetHeight * scale);
+
+      // Габаритные размеры листа (1220 сверху и 2800 слева с засечками)
+      this.drawArchitecturalDimLine(
+        ctx,
+        sheetOriginX,
+        sheetOriginY,
+        sheetOriginX + sheet.sheetWidth * scale,
+        sheetOriginY,
+        sheetOriginY - 14,
+        'HORIZONTAL',
+        `${sheet.sheetWidth}`
+      );
+
+      this.drawArchitecturalDimLine(
+        ctx,
+        sheetOriginX,
+        sheetOriginY,
+        sheetOriginX,
+        sheetOriginY + sheet.sheetHeight * scale,
+        sheetOriginX - 16,
+        'VERTICAL',
+        `${sheet.sheetHeight}`
+      );
 
       // Размещенные детали на листе
       sheet.placedParts.forEach((p) => {

@@ -4,7 +4,7 @@ import { useElementSize } from '@mantine/hooks';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
-import { Opening, ensureOpeningSlopes } from '../../../core/models/Opening';
+import { Opening, ensureOpeningSlopes, ensureOpeningFraming } from '../../../core/models/Opening';
 import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
@@ -25,6 +25,8 @@ export const CadCanvas: React.FC = () => {
     selectedJointIds,
     selectedWallBendId,
     selectedSubPieceId,
+    selectedPanelEdge,
+    setSelectedPanelEdge,
     selectOpening,
     selectPanel,
     toggleCellSelection,
@@ -246,20 +248,30 @@ export const CadCanvas: React.FC = () => {
                 : [];
 
               const isPanelsMode = editMode === 'PANELS';
+              const isJointsMode = editMode === 'JOINTS';
 
               return (
                 <Group
                   key={panel.id}
-                  opacity={isPanelsMode ? 1 : 0.4}
-                  listening={isPanelsMode}
+                  opacity={1}
+                  listening={isPanelsMode || isJointsMode}
                   onClick={(e) => {
                     e.cancelBubble = true;
-                    if (e.evt.shiftKey) {
-                      toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, true);
-                    } else if (panel.subPieceId) {
+                    if (isPanelsMode) {
+                      if (e.evt.shiftKey) {
+                        toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, true);
+                      } else if (panel.subPieceId) {
+                        selectPanel(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, panel.subPieceId);
+                      } else {
+                        toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, false);
+                      }
+                    } else if (isJointsMode) {
                       selectPanel(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, panel.subPieceId);
-                    } else {
-                      toggleCellSelection(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, false);
+                      setSelectedPanelEdge({
+                        wallId: selectedWall.id,
+                        panelId: panel.id,
+                        edge: selectedPanelEdge?.edge || 'right',
+                      });
                     }
                   }}
                 >
@@ -631,7 +643,7 @@ export const CadCanvas: React.FC = () => {
                   x={opX}
                   y={opY}
                   draggable={canDrag}
-                  listening={isPanelsMode}
+                  listening={isPanelsMode || editMode === 'JOINTS'}
                   onDragStart={(e) => {
                     e.cancelBubble = true;
                     selectOpening(op.id);
@@ -959,6 +971,24 @@ export const CadCanvas: React.FC = () => {
                       listening={showProfiles && isJointsMode}
                       onClick={(e) => {
                         e.cancelBubble = true;
+                        if (
+                          joint.id.startsWith('edge-') &&
+                          (joint.id.endsWith('-left') ||
+                            joint.id.endsWith('-right') ||
+                            joint.id.endsWith('-top') ||
+                            joint.id.endsWith('-bottom'))
+                        ) {
+                          const parts = joint.id.split('-');
+                          const side = parts[parts.length - 1] as 'left' | 'right' | 'top' | 'bottom';
+                          const panelId = joint.id.replace(/^edge-/, '').replace(new RegExp(`-${side}$`), '');
+                          setSelectedPanelEdge({
+                            wallId: selectedWall.id,
+                            panelId,
+                            edge: side,
+                          });
+                          selectPanel(panelId, null, null, null);
+                          return;
+                        }
                         selectJoint(joint.id, !!e.evt.shiftKey);
                       }}
                     >
@@ -976,7 +1006,7 @@ export const CadCanvas: React.FC = () => {
                         lineCap="square"
                       />
 
-                      {isJointSelected && (
+                      {isJointSelected && !joint.id.startsWith('edge-') && (
                         <Group x={midC.x + 10} y={midC.y - 12} listening={false}>
                           <Rect
                             width={120}
@@ -1019,6 +1049,24 @@ export const CadCanvas: React.FC = () => {
                     listening={showProfiles && isJointsMode}
                     onClick={(e) => {
                       e.cancelBubble = true;
+                      if (
+                        joint.id.startsWith('edge-') &&
+                        (joint.id.endsWith('-left') ||
+                          joint.id.endsWith('-right') ||
+                          joint.id.endsWith('-top') ||
+                          joint.id.endsWith('-bottom'))
+                      ) {
+                        const parts = joint.id.split('-');
+                        const side = parts[parts.length - 1] as 'left' | 'right' | 'top' | 'bottom';
+                        const panelId = joint.id.replace(/^edge-/, '').replace(new RegExp(`-${side}$`), '');
+                        setSelectedPanelEdge({
+                          wallId: selectedWall.id,
+                          panelId,
+                          edge: side,
+                        });
+                        selectPanel(panelId, null, null, null);
+                        return;
+                      }
                       selectJoint(joint.id, !!e.evt.shiftKey);
                     }}
                   >
@@ -1039,7 +1087,7 @@ export const CadCanvas: React.FC = () => {
                       strokeWidth={isJointSelected ? 2 / zoom : isJointsMode ? 1 / zoom : isLED ? 1 / zoom : 0}
                     />
 
-                    {isJointSelected && (
+                    {isJointSelected && !joint.id.startsWith('edge-') && (
                       <Group
                         x={jointX + (isHoriz ? 10 : 6)}
                         y={jointY + (isHoriz ? -26 : 20)}
@@ -1169,6 +1217,300 @@ export const CadCanvas: React.FC = () => {
                       </Group>
                     </>
                   )}
+                </Group>
+              );
+            })}
+
+            {/* СЛОЙ: ИНТЕРАКТИВНЫЙ ИНСПЕКТОР ТОРЦЕВ ВЫБРАННОЙ ПАНЕЛИ (В РЕЖИМЕ 'JOINTS') */}
+            {editMode === 'JOINTS' && layout?.panels && (() => {
+              const activePanelId =
+                selectedPanelEdge?.panelId ||
+                (selectedPieceIds.length > 0 ? selectedPieceIds[0] : null) ||
+                selectedSubPieceId;
+
+              if (!activePanelId) return null;
+
+              const panel = layout.panels.find(
+                (p) => p.id === activePanelId || p.subPieceId === activePanelId
+              );
+              if (!panel) return null;
+
+              const wallPanel = selectedWall.panels?.find((wp) => wp.id === panel.id);
+              const edges = wallPanel?.edges;
+
+              const pX = panel.x;
+              const pY = wallH - (panel.y + panel.height);
+              const pW = panel.width;
+              const pH = panel.height;
+
+              const sides: ('left' | 'right' | 'top' | 'bottom')[] = ['left', 'right', 'top', 'bottom'];
+              const currentSide = selectedPanelEdge?.edge || 'right';
+
+              return (
+                <Group name="active-panel-edge-overlay" listening={true}>
+                  {/* Рамка выделенной детали */}
+                  <Rect
+                    x={pX}
+                    y={pY}
+                    width={pW}
+                    height={pH}
+                    stroke="#339AF0"
+                    strokeWidth={2.5 / zoom}
+                    listening={false}
+                  />
+
+                  {sides.map((side) => {
+                    const edgeConf = edges?.[side];
+                    const w = edgeConf?.width ?? 0;
+                    const isLED = edgeConf?.isLED ?? false;
+                    const hasJoint = w > 0 || isLED || Boolean(edgeConf?.profileArticle);
+                    const isEdgeSelected = currentSide === side;
+
+                    const isLeft = side === 'left';
+                    const isRight = side === 'right';
+                    const isTop = side === 'top';
+                    const isBottom = side === 'bottom';
+
+                    // Линия грани с подсветкой
+                    const edgeLinePoints = isLeft
+                      ? [pX, pY, pX, pY + pH]
+                      : isRight
+                      ? [pX + pW, pY, pX + pW, pY + pH]
+                      : isTop
+                      ? [pX, pY, pX + pW, pY]
+                      : [pX, pY + pH, pX + pW, pY + pH];
+
+                    // Позиция аккуратного шильдика
+                    const badgeW = hasJoint ? 72 : 56;
+                    const badgeH = 24;
+
+                    const bX = isLeft
+                      ? pX + 8
+                      : isRight
+                      ? pX + pW - badgeW - 8
+                      : pX + (pW - badgeW) / 2;
+                    const bY = isTop
+                      ? pY + 8
+                      : isBottom
+                      ? pY + pH - badgeH - 8
+                      : pY + (pH - badgeH) / 2;
+
+                    const sideName = isLeft ? 'Лево' : isRight ? 'Право' : isTop ? 'Верх' : 'Низ';
+                    const arrowIcon = isLeft ? '◂' : isRight ? '▸' : isTop ? '▴' : '▾';
+
+                    const onClickSide = (e: any) => {
+                      e.cancelBubble = true;
+                      selectJoint(null);
+                      setSelectedPanelEdge({
+                        wallId: selectedWall.id,
+                        panelId: panel.id,
+                        edge: side,
+                      });
+                      selectPanel(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, panel.subPieceId);
+                    };
+
+                    return (
+                      <Group key={`active-edge-${side}`} listening={true}>
+                        {/* Кликабельная грань детали */}
+                        <Line
+                          points={edgeLinePoints}
+                          stroke={isEdgeSelected ? '#339AF0' : hasJoint ? '#FFD43B' : 'rgba(51, 154, 240, 0.45)'}
+                          strokeWidth={isEdgeSelected ? 3.5 / zoom : 2 / zoom}
+                          hitStrokeWidth={Math.max(26 / zoom, 20)}
+                          onClick={onClickSide}
+                          onMouseEnter={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'pointer';
+                          }}
+                          onMouseLeave={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'default';
+                          }}
+                        />
+
+                        {/* Минималистичный шильдик выбора грани */}
+                        <Group
+                          x={bX}
+                          y={bY}
+                          listening={true}
+                          onClick={onClickSide}
+                          onMouseEnter={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'pointer';
+                          }}
+                          onMouseLeave={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'default';
+                          }}
+                        >
+                          <Rect
+                            width={badgeW}
+                            height={badgeH}
+                            fill={isEdgeSelected ? '#1971C2' : hasJoint ? '#212529' : 'rgba(33, 37, 41, 0.88)'}
+                            stroke={isEdgeSelected ? '#FFFFFF' : hasJoint ? '#FAB005' : '#495057'}
+                            strokeWidth={isEdgeSelected ? 1.5 : 1}
+                            cornerRadius={3}
+                          />
+                          <Text
+                            x={3}
+                            y={5}
+                            text={
+                              hasJoint
+                                ? `${arrowIcon} ${isLED ? '⚡' : ''}${w}мм`
+                                : `${arrowIcon} ${sideName}`
+                            }
+                            fontSize={11}
+                            fill="#FFFFFF"
+                            fontFamily="JetBrains Mono"
+                            fontStyle="bold"
+                            align="center"
+                            width={badgeW - 6}
+                            listening={false}
+                          />
+                        </Group>
+                      </Group>
+                    );
+                  })}
+                </Group>
+              );
+            })()}
+
+            {/* СЛОЙ: ИНТЕРАКТИВНОЕ ОБРАМЛЕНИЕ ПРОЕМОВ (В РЕЖИМЕ 'JOINTS') */}
+            {editMode === 'JOINTS' && selectedWall.openings && selectedWall.openings.map((op) => {
+              if (op.isCutout === false) return null;
+              const isSelected = op.id === project.selectedOpeningId;
+              const opX = op.x;
+              const opY = wallH - (op.y + op.height);
+              const opW = op.width;
+              const opH = op.height;
+              const framing = ensureOpeningFraming(op);
+
+              const sides: ('left' | 'top' | 'right' | 'bottom')[] =
+                op.type === 'DOOR' ? ['left', 'top', 'right'] : ['left', 'top', 'right', 'bottom'];
+
+              return (
+                <Group key={`op-framing-overlay-${op.id}`} name="op-framing-overlay" listening={true}>
+                  {/* Рамка проема */}
+                  <Rect
+                    x={opX}
+                    y={opY}
+                    width={opW}
+                    height={opH}
+                    stroke={isSelected ? '#339AF0' : 'rgba(51, 154, 240, 0.45)'}
+                    strokeWidth={isSelected ? 2.5 / zoom : 1.5 / zoom}
+                    dash={[6 / zoom, 4 / zoom]}
+                    listening={true}
+                    onClick={(e) => {
+                      e.cancelBubble = true;
+                      selectOpening(op.id);
+                      setSelectedPanelEdge(null);
+                      selectJoint(null);
+                    }}
+                  />
+
+                  {sides.map((side) => {
+                    const edgeConf = framing[side];
+                    const w = edgeConf?.width ?? 0;
+                    const isLED = edgeConf?.isLED ?? false;
+                    const hasJoint = w > 0 || isLED || Boolean(edgeConf?.profileArticle);
+
+                    const isLeft = side === 'left';
+                    const isRight = side === 'right';
+                    const isTop = side === 'top';
+                    const isBottom = side === 'bottom';
+
+                    const edgeLinePoints = isLeft
+                      ? [opX, opY, opX, opY + opH]
+                      : isRight
+                      ? [opX + opW, opY, opX + opW, opY + opH]
+                      : isTop
+                      ? [opX, opY, opX + opW, opY]
+                      : [opX, opY + opH, opX + opW, opY + opH];
+
+                    const badgeW = hasJoint ? 76 : 58;
+                    const badgeH = 24;
+
+                    const bX = isLeft
+                      ? opX + 8
+                      : isRight
+                      ? opX + opW - badgeW - 8
+                      : opX + (opW - badgeW) / 2;
+                    const bY = isTop
+                      ? opY + 8
+                      : isBottom
+                      ? opY + opH - badgeH - 8
+                      : opY + (opH - badgeH) / 2;
+
+                    const sideName = isLeft ? 'Лево' : isRight ? 'Право' : isTop ? 'Верх' : 'Низ';
+                    const arrowIcon = isLeft ? '◂' : isRight ? '▸' : isTop ? '▴' : '▾';
+
+                    const onClickSide = (e: any) => {
+                      e.cancelBubble = true;
+                      selectOpening(op.id);
+                      setSelectedPanelEdge(null);
+                      selectJoint(null);
+                    };
+
+                    return (
+                      <Group key={`op-edge-${op.id}-${side}`} listening={true}>
+                        <Line
+                          points={edgeLinePoints}
+                          stroke={isSelected ? (hasJoint ? '#FAB005' : '#339AF0') : hasJoint ? '#FFD43B' : 'rgba(51, 154, 240, 0.45)'}
+                          strokeWidth={isSelected ? 3.5 / zoom : 2 / zoom}
+                          hitStrokeWidth={Math.max(26 / zoom, 20)}
+                          onClick={onClickSide}
+                          onMouseEnter={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'pointer';
+                          }}
+                          onMouseLeave={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'default';
+                          }}
+                        />
+
+                        <Group
+                          x={bX}
+                          y={bY}
+                          listening={true}
+                          onClick={onClickSide}
+                          onMouseEnter={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'pointer';
+                          }}
+                          onMouseLeave={(e) => {
+                            const stage = e.target.getStage();
+                            if (stage) stage.container().style.cursor = 'default';
+                          }}
+                        >
+                          <Rect
+                            width={badgeW}
+                            height={badgeH}
+                            fill={isSelected ? '#1971C2' : hasJoint ? '#212529' : 'rgba(33, 37, 41, 0.88)'}
+                            stroke={isSelected ? '#FFFFFF' : hasJoint ? '#FAB005' : '#495057'}
+                            strokeWidth={isSelected ? 1.5 : 1}
+                            cornerRadius={3}
+                          />
+                          <Text
+                            x={3}
+                            y={5}
+                            text={
+                              hasJoint
+                                ? `${arrowIcon} ${isLED ? '⚡' : ''}${w}мм`
+                                : `${arrowIcon} ${sideName}`
+                            }
+                            fontSize={11}
+                            fill="#FFFFFF"
+                            fontFamily="JetBrains Mono"
+                            fontStyle="bold"
+                            align="center"
+                            width={badgeW - 6}
+                            listening={false}
+                          />
+                        </Group>
+                      </Group>
+                    );
+                  })}
                 </Group>
               );
             })}

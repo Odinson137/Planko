@@ -299,15 +299,19 @@ export class LayoutEngine {
 
         const mat = (p.materialId && materialsMap.get(p.materialId)) || defaultMaterial;
         const isVoid = p.isVoid || mat.id === MATERIAL_NONE_ID || mat.isVoid === true;
-        const xs = points.map((pt) => pt.x);
-        const ys = points.map((pt) => pt.y);
+
+        // Применяем торцевые зазоры детали (Edge Insets)
+        const cleanPoints = PolygonSlicingEngine.applyPanelEdgesInsets(points, p.edges);
+
+        const xs = cleanPoints.map((pt) => pt.x);
+        const ys = cleanPoints.map((pt) => pt.y);
         const minX = Math.min(...xs);
         const maxXPt = Math.max(...xs);
         const minY = Math.min(...ys);
         const maxYPt = Math.max(...ys);
         const pieceW = Math.round((maxXPt - minX) * 10) / 10;
         const pieceH = Math.round((maxYPt - minY) * 10) / 10;
-        const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(points) / 1_000_000) * 1000) / 1000;
+        const areaSqM = Math.round((PolygonSlicingEngine.calculatePolygonArea(cleanPoints) / 1_000_000) * 1000) / 1000;
 
         const defaultLabel = isVoid ? 'ПУСТО' : (p.partLabel || `${wallNumber}.${pIdx + 1}`);
 
@@ -331,12 +335,97 @@ export class LayoutEngine {
           reliefType: p.reliefType || mat.reliefType || 'FLAT',
           textureCategory: p.textureCategory || mat.textureCategory || 'WOOD',
           partLabel: defaultLabel,
-          polygonPoints: points,
+          polygonPoints: cleanPoints,
           patternAngleDeg: p.patternAngleDeg || 0,
           patternFlipX: p.patternFlipX || false,
           areaSqM,
           note: p.note,
         });
+
+        // Генерируем видимые профили/подсветку для торцов детали
+        const rawXs = points.map((pt) => pt.x);
+        const rawYs = points.map((pt) => pt.y);
+        const rMinX = Math.min(...rawXs);
+        const rMaxX = Math.max(...rawXs);
+        const rMinY = Math.min(...rawYs);
+        const rMaxY = Math.max(...rawYs);
+
+        if (p.edges?.left && (p.edges.left.width > 0 || p.edges.left.profileArticle || p.edges.left.isLED)) {
+          const w = p.edges.left.width;
+          rawJoints.push({
+            id: `edge-${p.id}-left`,
+            name: `Стык слева (${p.partLabel || defaultLabel})`,
+            x: rMinX,
+            y: rMinY,
+            p1: { x: rMinX, y: rMinY },
+            p2: { x: rMinX, y: rMaxY },
+            width: w,
+            length: rMaxY - rMinY,
+            orientation: 'VERTICAL',
+            isLED: p.edges.left.isLED || false,
+            isOuterEdge: false,
+            profileArticle: p.edges.left.profileArticle,
+            profileColor: p.edges.left.profileColor,
+            takeSide: 'RIGHT',
+          });
+        }
+        if (p.edges?.right && (p.edges.right.width > 0 || p.edges.right.profileArticle || p.edges.right.isLED)) {
+          const w = p.edges.right.width;
+          rawJoints.push({
+            id: `edge-${p.id}-right`,
+            name: `Стык справа (${p.partLabel || defaultLabel})`,
+            x: rMaxX - w,
+            y: rMinY,
+            p1: { x: rMaxX, y: rMinY },
+            p2: { x: rMaxX, y: rMaxY },
+            width: w,
+            length: rMaxY - rMinY,
+            orientation: 'VERTICAL',
+            isLED: p.edges.right.isLED || false,
+            isOuterEdge: false,
+            profileArticle: p.edges.right.profileArticle,
+            profileColor: p.edges.right.profileColor,
+            takeSide: 'LEFT',
+          });
+        }
+        if (p.edges?.bottom && (p.edges.bottom.width > 0 || p.edges.bottom.profileArticle || p.edges.bottom.isLED)) {
+          const w = p.edges.bottom.width;
+          rawJoints.push({
+            id: `edge-${p.id}-bottom`,
+            name: `Стык снизу (${p.partLabel || defaultLabel})`,
+            x: rMinX,
+            y: rMinY,
+            p1: { x: rMinX, y: rMinY },
+            p2: { x: rMaxX, y: rMinY },
+            width: w,
+            length: rMaxX - rMinX,
+            orientation: 'HORIZONTAL',
+            isLED: p.edges.bottom.isLED || false,
+            isOuterEdge: false,
+            profileArticle: p.edges.bottom.profileArticle,
+            profileColor: p.edges.bottom.profileColor,
+            takeSide: 'TOP',
+          });
+        }
+        if (p.edges?.top && (p.edges.top.width > 0 || p.edges.top.profileArticle || p.edges.top.isLED)) {
+          const w = p.edges.top.width;
+          rawJoints.push({
+            id: `edge-${p.id}-top`,
+            name: `Стык сверху (${p.partLabel || defaultLabel})`,
+            x: rMinX,
+            y: rMaxY - w,
+            p1: { x: rMinX, y: rMaxY },
+            p2: { x: rMaxX, y: rMaxY },
+            width: w,
+            length: rMaxX - rMinX,
+            orientation: 'HORIZONTAL',
+            isLED: p.edges.top.isLED || false,
+            isOuterEdge: false,
+            profileArticle: p.edges.top.profileArticle,
+            profileColor: p.edges.top.profileColor,
+            takeSide: 'BOTTOM',
+          });
+        }
       });
 
       if (wall.joints && wall.joints.length > 0) {
@@ -365,6 +454,20 @@ export class LayoutEngine {
           const effColor = customConfig?.profileColor || j.profileColor;
           const effGroupId = customConfig?.groupId || j.groupId;
           const effTakeSide = customConfig?.takeSide || j.takeSide;
+
+          if (effWidth <= 0 && !effLED && !effArticle) return;
+
+          // Исключаем дублирование со швами торцов панелей
+          const isDup = rawJoints.some(
+            (rj) =>
+              rj.p1 &&
+              rj.p2 &&
+              Math.abs(rj.p1.x - p1.x) < 8 &&
+              Math.abs(rj.p1.y - p1.y) < 8 &&
+              Math.abs(rj.p2.x - p2.x) < 8 &&
+              Math.abs(rj.p2.y - p2.y) < 8
+          );
+          if (isDup) return;
 
           const defaultName =
             orientation === 'HORIZONTAL'
@@ -424,7 +527,7 @@ export class LayoutEngine {
         const customVertJoint = wall.customJoints?.[vertJointId];
         const isVertInner = currentX + panelWidth < maxX - 1;
         const vertJointWidth = isVertInner
-          ? (customVertJoint !== undefined ? customVertJoint.width : 8)
+          ? (customVertJoint !== undefined ? customVertJoint.width : 0)
           : rightEdgeWidth;
         const isVertLED = customVertJoint?.isLED ?? false;
 
@@ -463,7 +566,7 @@ export class LayoutEngine {
           const customHorizJoint = wall.customJoints?.[horizJointId];
           const isHorizInner = currentY + segmentHeight < maxY - 1;
           const horizJointWidth = isHorizInner
-            ? (customHorizJoint !== undefined ? customHorizJoint.width : 8)
+            ? (customHorizJoint !== undefined ? customHorizJoint.width : 0)
             : topEdgeWidth;
           const isHorizLED = customHorizJoint?.isLED ?? false;
 
@@ -618,7 +721,7 @@ export class LayoutEngine {
                       if (overlapLen > 10) {
                         const cutJointKey = `cut-joint-${columnIndex}-${segmentIndex}-${subA.id}-${subB.id}`;
                         const customCut = wall.customJoints?.[cutJointKey];
-                        const seamW = customCut !== undefined ? customCut.width : 8;
+                        const seamW = customCut !== undefined ? customCut.width : 0;
 
                         const seamP1 = {
                           x: currentX + b1.x + ux * overlapMin,
@@ -868,124 +971,6 @@ export class LayoutEngine {
       profileArticle: topEdgeConfig?.profileArticle,
       profileColor: topEdgeConfig?.profileColor,
       takeSide: topEdgeConfig?.takeSide ?? 'BOTTOM',
-    });
-
-    // 5.1 Интерактивные стыки по периметру проемов (двери, окна, ниши)
-    wall.openings.forEach((op) => {
-      if (op.isCutout === false) return;
-
-      // Левый вертикальный стык проема
-      const leftJointId = `joint-op-${op.id}-left`;
-      const leftCustom = wall.customJoints?.[leftJointId];
-      const leftWidth = leftCustom !== undefined && leftCustom.width !== undefined ? leftCustom.width : 8;
-      const leftLED = leftCustom !== undefined && leftCustom.isLED !== undefined ? leftCustom.isLED : false;
-
-      // Правый вертикальный стык проема
-      const rightJointId = `joint-op-${op.id}-right`;
-      const rightCustom = wall.customJoints?.[rightJointId];
-      const rightWidth = rightCustom !== undefined && rightCustom.width !== undefined ? rightCustom.width : 8;
-      const rightLED = rightCustom !== undefined && rightCustom.isLED !== undefined ? rightCustom.isLED : false;
-
-      // Верхний горизонтальный стык проема (фрамуга / верх двери)
-      const topJointId = `joint-op-${op.id}-top`;
-      const topCustom = wall.customJoints?.[topJointId];
-      const topWidth = topCustom !== undefined && topCustom.width !== undefined ? topCustom.width : 8;
-      const topLED = topCustom !== undefined && topCustom.isLED !== undefined ? topCustom.isLED : false;
-
-      const hasLeftOverlap = rawJoints.some(
-        (j) => j.orientation === 'VERTICAL' && Math.abs(j.x - op.x) < 2 && Math.max(j.y, op.y) < Math.min(j.y + j.length, op.y + op.height)
-      );
-      if (!hasLeftOverlap) {
-        rawJoints.push({
-          id: leftJointId,
-          name: `Левый стык (${op.name})`,
-          x: op.x,
-          y: op.y,
-          p1: { x: op.x, y: op.y },
-          p2: { x: op.x, y: op.y + op.height },
-          width: leftWidth,
-          length: op.height,
-          orientation: 'VERTICAL',
-          isLED: leftLED,
-          isOuterEdge: false,
-          profileArticle: leftCustom?.profileArticle,
-          profileColor: leftCustom?.profileColor,
-          groupId: leftCustom?.groupId,
-        });
-      }
-
-      const hasRightOverlap = rawJoints.some(
-        (j) => j.orientation === 'VERTICAL' && Math.abs(j.x - (op.x + op.width)) < 2 && Math.max(j.y, op.y) < Math.min(j.y + j.length, op.y + op.height)
-      );
-      if (!hasRightOverlap) {
-        rawJoints.push({
-          id: rightJointId,
-          name: `Правый стык (${op.name})`,
-          x: op.x + op.width,
-          y: op.y,
-          p1: { x: op.x + op.width, y: op.y },
-          p2: { x: op.x + op.width, y: op.y + op.height },
-          width: rightWidth,
-          length: op.height,
-          orientation: 'VERTICAL',
-          isLED: rightLED,
-          isOuterEdge: false,
-          profileArticle: rightCustom?.profileArticle,
-          profileColor: rightCustom?.profileColor,
-          groupId: rightCustom?.groupId,
-        });
-      }
-
-      const hasTopOverlap = rawJoints.some(
-        (j) => j.orientation === 'HORIZONTAL' && Math.abs(j.y - (op.y + op.height)) < 2 && Math.max(j.x, op.x) < Math.min(j.x + j.length, op.x + op.width)
-      );
-      if (!hasTopOverlap) {
-        rawJoints.push({
-          id: topJointId,
-          name: `Верхний стык (${op.name})`,
-          x: op.x,
-          y: op.y + op.height,
-          p1: { x: op.x, y: op.y + op.height },
-          p2: { x: op.x + op.width, y: op.y + op.height },
-          width: topWidth,
-          length: op.width,
-          orientation: 'HORIZONTAL',
-          isLED: topLED,
-          isOuterEdge: false,
-          profileArticle: topCustom?.profileArticle,
-          profileColor: topCustom?.profileColor,
-          groupId: topCustom?.groupId,
-        });
-      }
-
-      if (op.y > 5) {
-        const bottomJointId = `joint-op-${op.id}-bottom`;
-        const bottomCustom = wall.customJoints?.[bottomJointId];
-        const bottomWidth = bottomCustom !== undefined && bottomCustom.width !== undefined ? bottomCustom.width : 8;
-        const bottomLED = bottomCustom !== undefined && bottomCustom.isLED !== undefined ? bottomCustom.isLED : false;
-
-        const hasBottomOverlap = rawJoints.some(
-          (j) => j.orientation === 'HORIZONTAL' && Math.abs(j.y - op.y) < 2 && Math.max(j.x, op.x) < Math.min(j.x + j.length, op.x + op.width)
-        );
-        if (!hasBottomOverlap) {
-          rawJoints.push({
-            id: bottomJointId,
-            name: `Нижний стык (${op.name})`,
-            x: op.x,
-            y: op.y,
-            p1: { x: op.x, y: op.y },
-            p2: { x: op.x + op.width, y: op.y },
-            width: bottomWidth,
-            length: op.width,
-            orientation: 'HORIZONTAL',
-            isLED: bottomLED,
-            isOuterEdge: false,
-            profileArticle: bottomCustom?.profileArticle,
-            profileColor: bottomCustom?.profileColor,
-            groupId: bottomCustom?.groupId,
-          });
-        }
-      }
     });
 
     // 6. Слияние объединенных коллинеарных швов (groupId) в единые непрерывные линии
@@ -1481,6 +1466,18 @@ export class LayoutEngine {
       let currentPolys: Point2D[][] = [initialPoly];
 
       cutoutOpenings.forEach((op) => {
+        const dL = op.framing?.left?.width ?? 0;
+        const dR = op.framing?.right?.width ?? 0;
+        const dT = op.framing?.top?.width ?? 0;
+        const dB = op.framing?.bottom?.width ?? 0;
+
+        const rectWithFraming = {
+          x: op.x - dL,
+          y: op.y - dB,
+          width: op.width + dL + dR,
+          height: op.height + dB + dT,
+        };
+
         const nextPolys: Point2D[][] = [];
 
         currentPolys.forEach((poly) => {
@@ -1493,16 +1490,16 @@ export class LayoutEngine {
 
           // Если проем не пересекается с bounding box полигона
           if (
-            maxX <= op.x + 0.1 ||
-            minX >= op.x + op.width - 0.1 ||
-            maxY <= op.y + 0.1 ||
-            minY >= op.y + op.height - 0.1
+            maxX <= rectWithFraming.x + 0.1 ||
+            minX >= rectWithFraming.x + rectWithFraming.width - 0.1 ||
+            maxY <= rectWithFraming.y + 0.1 ||
+            minY >= rectWithFraming.y + rectWithFraming.height - 0.1
           ) {
             nextPolys.push(poly);
             return;
           }
 
-          const remaining = PolygonSlicingEngine.subtractRectangleFromPolygon(poly, op);
+          const remaining = PolygonSlicingEngine.subtractRectangleFromPolygon(poly, rectWithFraming);
           nextPolys.push(...remaining);
         });
 

@@ -6,6 +6,23 @@ import { Point2D, PolygonSubPiece } from '../geometry/PolygonSlicingEngine';
 
 export type LayoutOrientation = 'VERTICAL' | 'HORIZONTAL';
 
+export interface PanelEdgeJointConfig {
+  width: number;            // 0 (по умолчанию встык), 5, 8, 10, 16 мм...
+  profileArticle?: string;  // Артикул AllWall профиля (например 'MC-05')
+  profileColor?: string;    // HEX цвет профиля
+  isLED?: boolean;          // LED-подсветка
+}
+
+export type PanelEdgeSide = 'left' | 'right' | 'top' | 'bottom';
+
+export interface PanelEdgesConfig {
+  left?: PanelEdgeJointConfig;
+  right?: PanelEdgeJointConfig;
+  top?: PanelEdgeJointConfig;
+  bottom?: PanelEdgeJointConfig;
+  [edgeIndex: number]: PanelEdgeJointConfig | undefined;
+}
+
 export interface WallPanelPiece {
   id: string;                       // Уникальный идентификатор детали
   points: Point2D[];                // Абсолютные координаты вершин [ {x, y}, ... ] в мм от (0,0) стены
@@ -22,6 +39,7 @@ export interface WallPanelPiece {
   isVoid?: boolean;                 // true для пустоты
   radiusConfig?: RadiusConfig;      // Радиус изгиба (если попадает на угол)
   note?: string;                    // Комментарий/назначение детали (например, 'Для барной стойки')
+  edges?: PanelEdgesConfig;         // Конфигурация зазоров и профилей торцов детали
 }
 
 export interface WallJointLine {
@@ -52,6 +70,7 @@ export interface PanelSegmentConfig {
   patternAngleDeg?: number;    // угол поворота рисунка/волокон (0, 45, 90, etc.)
   patternFlipX?: boolean;      // зеркалирование текстуры по горизонтали
   subPieces?: PolygonSubPiece[]; // массив полигональных частей, если панель была фигурно разрезана
+  edges?: PanelEdgesConfig;    // конфигурация зазоров торцов детали
 }
 
 export type RadiusType = 'OUTER_CORNER' | 'INNER_CORNER';

@@ -24,6 +24,29 @@ export interface SlopeConfig {
   right: SlopeSideConfig;            // Правый откос
 }
 
+export interface OpeningEdgeConfig {
+  width: number;           // 0 = встык (без зазора), 5, 8, 10 мм и т.д.
+  isLED?: boolean;         // Светодиодная подсветка
+  profileArticle?: string; // Артикул профиля AllWall
+  profileColor?: string;   // Цвет покрытия профиля
+}
+
+export interface OpeningFramingConfig {
+  left?: OpeningEdgeConfig;
+  right?: OpeningEdgeConfig;
+  top?: OpeningEdgeConfig;
+  bottom?: OpeningEdgeConfig;
+}
+
+export function ensureOpeningFraming(op: Opening): OpeningFramingConfig {
+  return {
+    left: { width: op.framing?.left?.width ?? 0, isLED: !!op.framing?.left?.isLED, profileArticle: op.framing?.left?.profileArticle, profileColor: op.framing?.left?.profileColor },
+    right: { width: op.framing?.right?.width ?? 0, isLED: !!op.framing?.right?.isLED, profileArticle: op.framing?.right?.profileArticle, profileColor: op.framing?.right?.profileColor },
+    top: { width: op.framing?.top?.width ?? 0, isLED: !!op.framing?.top?.isLED, profileArticle: op.framing?.top?.profileArticle, profileColor: op.framing?.top?.profileColor },
+    bottom: { width: op.framing?.bottom?.width ?? 0, isLED: !!op.framing?.bottom?.isLED, profileArticle: op.framing?.bottom?.profileArticle, profileColor: op.framing?.bottom?.profileColor },
+  };
+}
+
 export interface Opening {
   id: string;
   name: string;
@@ -37,6 +60,7 @@ export interface Opening {
   isCutout: boolean;  // true - вырез в плитах (дверь/окно), false - декор поверх плит (ТВ/зеркало)
   isApplied?: boolean; // false - черновик (можно свободно двигать и менять размеры), true - встроено в панели стены
   slopes?: SlopeConfig;
+  framing?: OpeningFramingConfig; // Примыкание/стыки по контуру проема
 }
 
 export function ensureOpeningSlopes(op: Opening): SlopeConfig {
@@ -123,6 +147,12 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
           left: { enabled: true, depth: 150, materialId: null },
           right: { enabled: true, depth: 150, materialId: null },
         },
+        framing: {
+          left: { width: 0, isLED: false },
+          right: { width: 0, isLED: false },
+          top: { width: 0, isLED: false },
+          bottom: { width: 0, isLED: false },
+        },
       };
     case 'WINDOW':
       return {
@@ -150,6 +180,12 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
           bottom: { enabled: true, depth: 200, materialId: null },
           left: { enabled: true, depth: 200, materialId: null },
           right: { enabled: true, depth: 200, materialId: null },
+        },
+        framing: {
+          left: { width: 0, isLED: false },
+          right: { width: 0, isLED: false },
+          top: { width: 0, isLED: false },
+          bottom: { width: 0, isLED: false },
         },
       };
     case 'TV_ZONE':
@@ -179,6 +215,12 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
           left: { enabled: false, depth: 0, materialId: null },
           right: { enabled: false, depth: 0, materialId: null },
         },
+        framing: {
+          left: { width: 0, isLED: false },
+          right: { width: 0, isLED: false },
+          top: { width: 0, isLED: false },
+          bottom: { width: 0, isLED: false },
+        },
       };
     case 'NICHE':
       return {
@@ -206,6 +248,12 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
           bottom: { enabled: true, depth: 150, materialId: null },
           left: { enabled: true, depth: 150, materialId: null },
           right: { enabled: true, depth: 150, materialId: null },
+        },
+        framing: {
+          left: { width: 0, isLED: false },
+          right: { width: 0, isLED: false },
+          top: { width: 0, isLED: false },
+          bottom: { width: 0, isLED: false },
         },
       };
   }

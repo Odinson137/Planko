@@ -1,4 +1,4 @@
-import type { WallPanelPiece, WallJointLine, Wall } from '../models/Wall';
+import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
 import { MATERIAL_NONE_ID, Material } from '../models/Material';
@@ -46,6 +46,7 @@ export interface PolygonSubPiece {
   isVoid?: boolean;
   note?: string;
   areaSqM?: number;
+  edges?: PanelEdgesConfig;
 }
 
 /**
@@ -1241,8 +1242,8 @@ export class PolygonSlicingEngine {
     panel: WallPanelPiece,
     p1: Point2D,
     p2: Point2D,
-    seamGap: number = 8
-  ): { newPanels: WallPanelPiece[]; joint: WallJointLine } | null {
+    seamGap: number = 0
+  ): { newPanels: WallPanelPiece[]; joint?: WallJointLine } | null {
     const splitResult = this.splitPolygonByLine(panel.points, p1, p2, seamGap);
     if (!splitResult) return null;
 
@@ -1254,29 +1255,66 @@ export class PolygonSlicingEngine {
 
     if (allPolys.length < 2) return null;
 
-    const newPanels: WallPanelPiece[] = allPolys.map((poly, idx) => ({
-      ...panel,
-      id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
-      points: poly,
-      partLabel: `${panel.partLabel}.${idx + 1}`,
-    }));
-
     const isVert = Math.abs(p1.x - p2.x) < 1e-4;
     const isHoriz = Math.abs(p1.y - p2.y) < 1e-4;
-    const orientation = isVert ? 'VERTICAL' : (isHoriz ? 'HORIZONTAL' : 'DIAGONAL');
 
-    const cutSegments = splitResult.cutSegments || [];
-    const jointP1 = cutSegments[0]?.p1 || p1;
-    const jointP2 = cutSegments[0]?.p2 || p2;
+    // Сортируем полигоны: по X если вертикальный разрез, по Y если горизонтальный
+    const sortedPolys = [...allPolys].sort((a, b) => {
+      if (isVert) {
+        const minXa = Math.min(...a.map((p) => p.x));
+        const minXb = Math.min(...b.map((p) => p.x));
+        return minXa - minXb;
+      } else {
+        const minYa = Math.min(...a.map((p) => p.y));
+        const minYb = Math.min(...b.map((p) => p.y));
+        return minYa - minYb;
+      }
+    });
 
-    const joint: WallJointLine = {
-      id: `joint-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      p1: jointP1,
-      p2: jointP2,
-      width: seamGap,
-      isLED: false,
-      orientation,
-    };
+    const parentEdges = panel.edges || {};
+
+    const newPanels: WallPanelPiece[] = sortedPolys.map((poly, idx) => {
+      const isFirst = idx === 0;
+      const isLast = idx === sortedPolys.length - 1;
+
+      const pieceEdges: any = {};
+      if (isVert) {
+        if (parentEdges.top) pieceEdges.top = { ...parentEdges.top };
+        if (parentEdges.bottom) pieceEdges.bottom = { ...parentEdges.bottom };
+        if (isFirst && parentEdges.left) pieceEdges.left = { ...parentEdges.left };
+        if (isLast && parentEdges.right) pieceEdges.right = { ...parentEdges.right };
+      } else if (isHoriz) {
+        if (parentEdges.left) pieceEdges.left = { ...parentEdges.left };
+        if (parentEdges.right) pieceEdges.right = { ...parentEdges.right };
+        if (isFirst && parentEdges.bottom) pieceEdges.bottom = { ...parentEdges.bottom };
+        if (isLast && parentEdges.top) pieceEdges.top = { ...parentEdges.top };
+      }
+
+      return {
+        ...panel,
+        id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+        points: poly,
+        partLabel: `${panel.partLabel}.${idx + 1}`,
+        edges: pieceEdges,
+      };
+    });
+
+    let joint: WallJointLine | undefined = undefined;
+    if (seamGap > 0) {
+      const orientation = isVert ? 'VERTICAL' : (isHoriz ? 'HORIZONTAL' : 'DIAGONAL');
+      const cutSegments = splitResult.cutSegments || [];
+      const jointP1 = cutSegments[0]?.p1 || p1;
+      const jointP2 = cutSegments[0]?.p2 || p2;
+
+      joint = {
+        id: `joint-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        p1: jointP1,
+        p2: jointP2,
+        width: seamGap,
+        isLED: false,
+        orientation,
+      };
+    }
 
     return { newPanels, joint };
   }
@@ -1366,532 +1404,16 @@ export class PolygonSlicingEngine {
   public static cascadeChainJointWidthChange(
     panels: WallPanelPiece[],
     joints: WallJointLine[],
-    targetJoint: WallJointLine,
-    oldWidth: number,
-    newWidth: number,
-    wallWidth: number,
-    wallHeight: number,
-    openings: Opening[] = [],
-    takeSideOverride?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'
+    _targetJoint: WallJointLine,
+    _oldWidth: number,
+    _newWidth: number,
+    _wallWidth: number,
+    _wallHeight: number,
+    _openings: Opening[] = [],
+    _takeSideOverride?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'
   ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
-    const delta = newWidth - oldWidth;
-    if (Math.abs(delta) < 1e-4) return { panels, joints };
-
-    const p1 = targetJoint.p1 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
-    const p2 = targetJoint.p2 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
-    const isVert =
-      targetJoint.orientation === 'VERTICAL'
-        ? true
-        : targetJoint.orientation === 'HORIZONTAL'
-        ? false
-        : Math.abs(p1.x - p2.x) < Math.abs(p1.y - p2.y);
-
-    const effTakeSide =
-      takeSideOverride ||
-      targetJoint.takeSide ||
-      this.getSmartJointTakeSide(targetJoint, wallWidth, wallHeight, openings);
-
-    const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
-
-    let nextPanels = [...panels];
-    let nextJoints = [...joints];
-
-    if (isVert) {
-      const yMin = Math.min(p1.y, p2.y);
-      const yMax = Math.max(p1.y, p2.y);
-      const jX = (p1.x + p2.x) / 2;
-      const isLeftEdge = targetJoint.id === 'edge-v-left' || (targetJoint.isOuterEdge && jX <= 5) || jX <= 5;
-      const isRightEdge = targetJoint.id === 'edge-v-right' || targetJoint.id === 'edge-v-end' || (targetJoint.isOuterEdge && jX >= wallWidth - 5) || jX >= wallWidth - 5;
-
-      // Находим все горизонтальные полосы по высоте
-      const bands: { yMin: number; yMax: number }[] = [];
-      nextPanels.forEach((p) => {
-        const ys = p.points.map((pt) => pt.y);
-        const pMinY = Math.min(...ys);
-        const pMaxY = Math.max(...ys);
-        if (!bands.some((b) => Math.abs(b.yMin - pMinY) <= 15 && Math.abs(b.yMax - pMaxY) <= 15)) {
-          bands.push({ yMin: pMinY, yMax: pMaxY });
-        }
-      });
-
-      const affectedBands = bands.filter((b) => Math.max(b.yMin, yMin) < Math.min(b.yMax, yMax) - 5);
-      const bandsToProcess = affectedBands.length > 0 ? affectedBands : bands;
-
-      const applyRightShift = (shiftVal: number) => {
-        if (Math.abs(shiftVal) < 1e-4) return;
-
-        bandsToProcess.forEach((b) => {
-          const isPanelInBand = (p: WallPanelPiece) => {
-            const ys = p.points.map((pt) => pt.y);
-            return Math.max(...ys) > b.yMin + 5 && Math.min(...ys) < b.yMax - 5;
-          };
-
-          const openingsInBand = cutoutOpenings.filter(
-            (op) => Math.max(op.y, b.yMin) < Math.min(op.y + op.height, b.yMax) - 5
-          );
-
-          // Правая жесткая граница цепочки: левый косяк проема справа или правая стена
-          const rightObstacles = [
-            wallWidth,
-            ...openingsInBand.filter((op) => op.x > jX + 5).map((op) => op.x),
-          ];
-          const nextObstacleX = Math.min(...rightObstacles);
-
-          // Сдвигаем все вертикальные стыки строго между jX и nextObstacleX
-          nextJoints = nextJoints.map((j) => {
-            if (j.id === targetJoint.id) return j;
-            const currX = (j.p1.x + j.p2.x) / 2;
-            const jyMin = Math.min(j.p1.y, j.p2.y);
-            const jyMax = Math.max(j.p1.y, j.p2.y);
-            const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
-            const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
-
-            if (jIsVert && overlapsJoint && currX > jX + 5 && currX < nextObstacleX - 5) {
-              return {
-                ...j,
-                p1: { x: Math.max(0, Math.min(nextObstacleX, Math.round((j.p1.x + shiftVal) * 10) / 10)), y: j.p1.y },
-                p2: { x: Math.max(0, Math.min(nextObstacleX, Math.round((j.p2.x + shiftVal) * 10) / 10)), y: j.p2.y },
-              };
-            }
-            return j;
-          });
-
-          // Панели в цепочке от jX до препятствия
-          const rightPanels = nextPanels
-            .filter(isPanelInBand)
-            .filter((p) => {
-              const minX = Math.min(...p.points.map((pt) => pt.x));
-              const maxX = Math.max(...p.points.map((pt) => pt.x));
-              return minX >= jX - 5 && maxX <= nextObstacleX + 15;
-            })
-            .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
-
-          if (rightPanels.length === 0) return;
-
-          const lastPanelId = rightPanels[rightPanels.length - 1].id;
-          const firstPanelId = rightPanels[0].id;
-          const rightPanelIds = new Set(rightPanels.map((p) => p.id));
-
-          nextPanels = nextPanels.map((p) => {
-            if (!rightPanelIds.has(p.id)) return p;
-
-            if (rightPanels.length === 1) {
-              const minX = Math.min(...p.points.map((pt) => pt.x));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.x <= minX + 15) {
-                    return { x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
-                  }
-                  return pt;
-                }),
-              };
-            }
-
-            if (p.id === lastPanelId) {
-              // Крайняя панель цепочки перед стеной/проемом: сдвигается только левый край, правый примыкает к препятствию
-              const minX = Math.min(...p.points.map((pt) => pt.x));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.x <= minX + 15) {
-                    return { x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
-                  }
-                  return pt;
-                }),
-              };
-            } else if (p.id === firstPanelId && isLeftEdge) {
-              return {
-                ...p,
-                points: p.points.map((pt) => ({
-                  x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)),
-                  y: pt.y,
-                })),
-              };
-            } else {
-              return {
-                ...p,
-                points: p.points.map((pt) => ({
-                  x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)),
-                  y: pt.y,
-                })),
-              };
-            }
-          });
-        });
-      };
-
-      const applyLeftShift = (shiftVal: number) => {
-        if (Math.abs(shiftVal) < 1e-4) return;
-
-        bandsToProcess.forEach((b) => {
-          const isPanelInBand = (p: WallPanelPiece) => {
-            const ys = p.points.map((pt) => pt.y);
-            return Math.max(...ys) > b.yMin + 5 && Math.min(...ys) < b.yMax - 5;
-          };
-
-          const openingsInBand = cutoutOpenings.filter(
-            (op) => Math.max(op.y, b.yMin) < Math.min(op.y + op.height, b.yMax) - 5
-          );
-
-          // Левая жесткая граница цепочки: правый косяк проема слева или левая стена 0
-          const leftObstacles = [
-            0,
-            ...openingsInBand.filter((op) => op.x + op.width < jX - 5).map((op) => op.x + op.width),
-          ];
-          const prevObstacleX = Math.max(...leftObstacles);
-
-          if (!isRightEdge) {
-            nextJoints = nextJoints.map((j) => {
-              if (j.id === targetJoint.id) return j;
-              const currX = (j.p1.x + j.p2.x) / 2;
-              const jyMin = Math.min(j.p1.y, j.p2.y);
-              const jyMax = Math.max(j.p1.y, j.p2.y);
-              const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
-              const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
-
-              if (jIsVert && overlapsJoint && currX < jX - 5 && currX > prevObstacleX + 5) {
-                return {
-                  ...j,
-                  p1: { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((j.p1.x - shiftVal) * 10) / 10)), y: j.p1.y },
-                  p2: { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((j.p2.x - shiftVal) * 10) / 10)), y: j.p2.y },
-                };
-              }
-              return j;
-            });
-          }
-
-          const leftPanels = nextPanels
-            .filter(isPanelInBand)
-            .filter((p) => {
-              const minX = Math.min(...p.points.map((pt) => pt.x));
-              const maxX = Math.max(...p.points.map((pt) => pt.x));
-              return maxX <= jX + 5 && minX >= prevObstacleX - 15;
-            })
-            .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
-
-          if (leftPanels.length === 0) return;
-
-          const firstPanelId = leftPanels[0].id;
-          const lastPanelId = leftPanels[leftPanels.length - 1].id;
-          const leftPanelIds = new Set(leftPanels.map((p) => p.id));
-
-          nextPanels = nextPanels.map((p) => {
-            if (!leftPanelIds.has(p.id)) return p;
-
-            if (isRightEdge && p.id === lastPanelId) {
-              // Правый краевой шов (edge-v-right): подрезаем правый край последней панели
-              const maxX = Math.max(...p.points.map((pt) => pt.x));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.x >= maxX - 15) {
-                    return { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
-                  }
-                  return pt;
-                }),
-              };
-            }
-
-            if (p.id === firstPanelId && !isRightEdge) {
-              // Первая панель цепочки у стены/проема: подрезается только правый край
-              const maxX = Math.max(...p.points.map((pt) => pt.x));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.x >= maxX - 15) {
-                    return { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
-                  }
-                  return pt;
-                }),
-              };
-            } else if (!isRightEdge) {
-              return {
-                ...p,
-                points: p.points.map((pt) => ({
-                  x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)),
-                  y: pt.y,
-                })),
-              };
-            }
-            return p;
-          });
-        });
-      };
-
-      let centerShift = 0;
-      if (isLeftEdge || effTakeSide === 'RIGHT') {
-        applyRightShift(delta);
-        centerShift = isLeftEdge ? 0 : delta / 2;
-      } else if (isRightEdge || effTakeSide === 'LEFT') {
-        applyLeftShift(delta);
-        centerShift = isRightEdge ? 0 : -delta / 2;
-      } else {
-        applyRightShift(delta / 2);
-        applyLeftShift(delta / 2);
-        centerShift = 0;
-      }
-
-      // Обновляем сам targetJoint
-      nextJoints = nextJoints.map((j) => {
-        if (j.id === targetJoint.id) {
-          return {
-            ...j,
-            width: newWidth,
-            p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + centerShift) * 10) / 10)), y: j.p1.y },
-            p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + centerShift) * 10) / 10)), y: j.p2.y },
-          };
-        }
-        return j;
-      });
-    } else {
-      // Горизонтальный стык
-      const xMin = Math.min(p1.x, p2.x);
-      const xMax = Math.max(p1.x, p2.x);
-      const jY = (p1.y + p2.y) / 2;
-      const isBotEdge = targetJoint.id === 'edge-h-bot' || (targetJoint.isOuterEdge && jY <= 5) || jY <= 5;
-      const isTopEdge = targetJoint.id === 'edge-h-top' || (targetJoint.isOuterEdge && jY >= wallHeight - 5) || jY >= wallHeight - 5;
-
-      // Находим все вертикальные колонки по ширине
-      const cols: { xMin: number; xMax: number }[] = [];
-      nextPanels.forEach((p) => {
-        const xs = p.points.map((pt) => pt.x);
-        const pMinX = Math.min(...xs);
-        const pMaxX = Math.max(...xs);
-        if (!cols.some((c) => Math.abs(c.xMin - pMinX) <= 15 && Math.abs(c.xMax - pMaxX) <= 15)) {
-          cols.push({ xMin: pMinX, xMax: pMaxX });
-        }
-      });
-
-      const affectedCols = cols.filter((c) => Math.max(c.xMin, xMin) < Math.min(c.xMax, xMax) - 5);
-      const colsToProcess = affectedCols.length > 0 ? affectedCols : cols;
-
-      const applyBottomShift = (shiftVal: number) => {
-        if (Math.abs(shiftVal) < 1e-4) return;
-
-        colsToProcess.forEach((c) => {
-          const isPanelInCol = (p: WallPanelPiece) => {
-            const xs = p.points.map((pt) => pt.x);
-            return Math.max(...xs) > c.xMin + 5 && Math.min(...xs) < c.xMax - 5;
-          };
-
-          const openingsInCol = cutoutOpenings.filter(
-            (op) => Math.max(op.x, c.xMin) < Math.min(op.x + op.width, c.xMax) - 5
-          );
-
-          // Нижняя граница цепочки: верхний край проема снизу или пол 0
-          const bottomObstacles = [
-            0,
-            ...openingsInCol.filter((op) => op.y + op.height < jY - 5).map((op) => op.y + op.height),
-          ];
-          const prevObstacleY = Math.max(...bottomObstacles);
-
-          if (!isTopEdge) {
-            nextJoints = nextJoints.map((j) => {
-              if (j.id === targetJoint.id) return j;
-              const currY = (j.p1.y + j.p2.y) / 2;
-              const jxMin = Math.min(j.p1.x, j.p2.x);
-              const jxMax = Math.max(j.p1.x, j.p2.x);
-              const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
-              const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
-
-              if (jIsHoriz && overlapsJoint && currY < jY - 5 && currY > prevObstacleY + 5) {
-                return {
-                  ...j,
-                  p1: { x: j.p1.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((j.p1.y - shiftVal) * 10) / 10)) },
-                  p2: { x: j.p2.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((j.p2.y - shiftVal) * 10) / 10)) },
-                };
-              }
-              return j;
-            });
-          }
-
-          const bottomPanels = nextPanels
-            .filter(isPanelInCol)
-            .filter((p) => {
-              const minY = Math.min(...p.points.map((pt) => pt.y));
-              const maxY = Math.max(...p.points.map((pt) => pt.y));
-              return maxY <= jY + 5 && minY >= prevObstacleY - 15;
-            })
-            .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
-
-          if (bottomPanels.length === 0) return;
-
-          const firstPanelId = bottomPanels[0].id;
-          const lastPanelId = bottomPanels[bottomPanels.length - 1].id;
-          const bottomPanelIds = new Set(bottomPanels.map((p) => p.id));
-
-          nextPanels = nextPanels.map((p) => {
-            if (!bottomPanelIds.has(p.id)) return p;
-
-            if (isTopEdge && p.id === lastPanelId) {
-              // Верхний краевой шов (edge-h-top): подрезаем верхний край последней панели у потолка
-              const maxY = Math.max(...p.points.map((pt) => pt.y));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.y >= maxY - 15) {
-                    return { x: pt.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
-                  }
-                  return pt;
-                }),
-              };
-            }
-
-            if (p.id === firstPanelId && !isTopEdge) {
-              const maxY = Math.max(...p.points.map((pt) => pt.y));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.y >= maxY - 15) {
-                    return { x: pt.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
-                  }
-                  return pt;
-                }),
-              };
-            } else if (!isTopEdge) {
-              return {
-                ...p,
-                points: p.points.map((pt) => ({
-                  x: pt.x,
-                  y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)),
-                })),
-              };
-            }
-            return p;
-          });
-        });
-      };
-
-      const applyTopShift = (shiftVal: number) => {
-        if (Math.abs(shiftVal) < 1e-4) return;
-
-        colsToProcess.forEach((c) => {
-          const isPanelInCol = (p: WallPanelPiece) => {
-            const xs = p.points.map((pt) => pt.x);
-            return Math.max(...xs) > c.xMin + 5 && Math.min(...xs) < c.xMax - 5;
-          };
-
-          const openingsInCol = cutoutOpenings.filter(
-            (op) => Math.max(op.x, c.xMin) < Math.min(op.x + op.width, c.xMax) - 5
-          );
-
-          // Верхняя граница цепочки: нижний край проема сверху или потолок wallHeight
-          const topObstacles = [
-            wallHeight,
-            ...openingsInCol.filter((op) => op.y > jY + 5).map((op) => op.y),
-          ];
-          const nextObstacleY = Math.min(...topObstacles);
-
-          nextJoints = nextJoints.map((j) => {
-            if (j.id === targetJoint.id) return j;
-            const currY = (j.p1.y + j.p2.y) / 2;
-            const jxMin = Math.min(j.p1.x, j.p2.x);
-            const jxMax = Math.max(j.p1.x, j.p2.x);
-            const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
-            const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
-
-            if (jIsHoriz && overlapsJoint && currY > jY + 5 && currY < nextObstacleY - 5) {
-              return {
-                ...j,
-                p1: { x: j.p1.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((j.p1.y + shiftVal) * 10) / 10)) },
-                p2: { x: j.p2.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((j.p2.y + shiftVal) * 10) / 10)) },
-              };
-            }
-            return j;
-          });
-
-          const topPanels = nextPanels
-            .filter(isPanelInCol)
-            .filter((p) => {
-              const minY = Math.min(...p.points.map((pt) => pt.y));
-              const maxY = Math.max(...p.points.map((pt) => pt.y));
-              return minY >= jY - 5 && maxY <= nextObstacleY + 15;
-            })
-            .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
-
-          if (topPanels.length === 0) return;
-
-          const lastPanelId = topPanels[topPanels.length - 1].id;
-          const firstPanelId = topPanels[0].id;
-          const topPanelIds = new Set(topPanels.map((p) => p.id));
-
-          nextPanels = nextPanels.map((p) => {
-            if (!topPanelIds.has(p.id)) return p;
-
-            if (topPanels.length === 1) {
-              const minY = Math.min(...p.points.map((pt) => pt.y));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.y <= minY + 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)) };
-                  }
-                  return pt;
-                }),
-              };
-            }
-
-            if (p.id === lastPanelId) {
-              const minY = Math.min(...p.points.map((pt) => pt.y));
-              return {
-                ...p,
-                points: p.points.map((pt) => {
-                  if (pt.y <= minY + 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)) };
-                  }
-                  return pt;
-                }),
-              };
-            } else if (p.id === firstPanelId && isBotEdge) {
-              return {
-                ...p,
-                points: p.points.map((pt) => ({
-                  x: pt.x,
-                  y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)),
-                })),
-              };
-            } else {
-              return {
-                ...p,
-                points: p.points.map((pt) => ({
-                  x: pt.x,
-                  y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)),
-                })),
-              };
-            }
-          });
-        });
-      };
-
-      let centerShift = 0;
-      if (isBotEdge || effTakeSide === 'TOP') {
-        applyTopShift(delta);
-        centerShift = isBotEdge ? 0 : delta / 2;
-      } else if (isTopEdge || effTakeSide === 'BOTTOM') {
-        applyBottomShift(delta);
-        centerShift = isTopEdge ? 0 : -delta / 2;
-      } else {
-        applyTopShift(delta / 2);
-        applyBottomShift(delta / 2);
-        centerShift = 0;
-      }
-
-      // Обновляем сам targetJoint
-      nextJoints = nextJoints.map((j) => {
-        if (j.id === targetJoint.id) {
-          return {
-            ...j,
-            width: newWidth,
-            p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + centerShift) * 10) / 10)) },
-            p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + centerShift) * 10) / 10)) },
-          };
-        }
-        return j;
-      });
-    }
-
-    return this.subtractOpeningsFromWallPanels(nextPanels, nextJoints, openings);
+    // Временно отключено автоматическое смещение соседних панелей при смене ширины стыков
+    return { panels, joints };
   }
 
   /**
@@ -2232,11 +1754,24 @@ export class PolygonSlicingEngine {
     }
 
     const nextPanels: WallPanelPiece[] = [];
+    const openingFramingJoints: WallJointLine[] = [];
 
     panels.forEach((p) => {
       let currentPolys: Point2D[][] = [p.points];
 
       cutoutOpenings.forEach((op) => {
+        const dL = op.framing?.left?.width ?? 0;
+        const dR = op.framing?.right?.width ?? 0;
+        const dT = op.framing?.top?.width ?? 0;
+        const dB = op.framing?.bottom?.width ?? 0;
+
+        const rectWithFraming = {
+          x: op.x - dL,
+          y: op.y - dB,
+          width: op.width + dL + dR,
+          height: op.height + dB + dT,
+        };
+
         const nextPolys: Point2D[][] = [];
         currentPolys.forEach((poly) => {
           const polyXs = poly.map((pt) => pt.x);
@@ -2247,16 +1782,16 @@ export class PolygonSlicingEngine {
           const maxY = Math.max(...polyYs);
 
           if (
-            maxX <= op.x + 0.1 ||
-            minX >= op.x + op.width - 0.1 ||
-            maxY <= op.y + 0.1 ||
-            minY >= op.y + op.height - 0.1
+            maxX <= rectWithFraming.x + 0.1 ||
+            minX >= rectWithFraming.x + rectWithFraming.width - 0.1 ||
+            maxY <= rectWithFraming.y + 0.1 ||
+            minY >= rectWithFraming.y + rectWithFraming.height - 0.1
           ) {
             nextPolys.push(poly);
             return;
           }
 
-          const remaining = this.subtractRectangleFromPolygon(poly, op);
+          const remaining = this.subtractRectangleFromPolygon(poly, rectWithFraming);
           nextPolys.push(...remaining);
         });
         currentPolys = nextPolys;
@@ -2279,6 +1814,66 @@ export class PolygonSlicingEngine {
       }
     });
 
+    // Формируем швы обрамления проемов при наличии зазоров или подсветки
+    cutoutOpenings.forEach((op) => {
+      const dL = op.framing?.left?.width ?? 0;
+      const dR = op.framing?.right?.width ?? 0;
+      const dT = op.framing?.top?.width ?? 0;
+      const dB = op.framing?.bottom?.width ?? 0;
+
+      if (dL > 0 || op.framing?.left?.isLED || op.framing?.left?.profileArticle) {
+        openingFramingJoints.push({
+          id: `joint-op-${op.id}-left`,
+          p1: { x: op.x - dL / 2, y: op.y },
+          p2: { x: op.x - dL / 2, y: op.y + op.height },
+          width: dL > 0 ? dL : 8,
+          orientation: 'VERTICAL',
+          isLED: !!op.framing?.left?.isLED,
+          profileArticle: op.framing?.left?.profileArticle,
+          profileColor: op.framing?.left?.profileColor,
+        });
+      }
+
+      if (dT > 0 || op.framing?.top?.isLED || op.framing?.top?.profileArticle) {
+        openingFramingJoints.push({
+          id: `joint-op-${op.id}-top`,
+          p1: { x: op.x - dL, y: op.y + op.height + dT / 2 },
+          p2: { x: op.x + op.width + dR, y: op.y + op.height + dT / 2 },
+          width: dT > 0 ? dT : 8,
+          orientation: 'HORIZONTAL',
+          isLED: !!op.framing?.top?.isLED,
+          profileArticle: op.framing?.top?.profileArticle,
+          profileColor: op.framing?.top?.profileColor,
+        });
+      }
+
+      if (dR > 0 || op.framing?.right?.isLED || op.framing?.right?.profileArticle) {
+        openingFramingJoints.push({
+          id: `joint-op-${op.id}-right`,
+          p1: { x: op.x + op.width + dR / 2, y: op.y },
+          p2: { x: op.x + op.width + dR / 2, y: op.y + op.height },
+          width: dR > 0 ? dR : 8,
+          orientation: 'VERTICAL',
+          isLED: !!op.framing?.right?.isLED,
+          profileArticle: op.framing?.right?.profileArticle,
+          profileColor: op.framing?.right?.profileColor,
+        });
+      }
+
+      if (op.type !== 'DOOR' && (dB > 0 || op.framing?.bottom?.isLED || op.framing?.bottom?.profileArticle)) {
+        openingFramingJoints.push({
+          id: `joint-op-${op.id}-bottom`,
+          p1: { x: op.x - dL, y: op.y - dB / 2 },
+          p2: { x: op.x + op.width + dR, y: op.y - dB / 2 },
+          width: dB > 0 ? dB : 8,
+          orientation: 'HORIZONTAL',
+          isLED: !!op.framing?.bottom?.isLED,
+          profileArticle: op.framing?.bottom?.profileArticle,
+          profileColor: op.framing?.bottom?.profileColor,
+        });
+      }
+    });
+
     const isInsideOpening = (pt: Point2D) =>
       cutoutOpenings.some(
         (op) =>
@@ -2288,14 +1883,100 @@ export class PolygonSlicingEngine {
           pt.y <= op.y + op.height + 1
       );
 
-    const nextJoints = (joints || []).filter((j) => {
+    const filteredBaseJoints = (joints || []).filter((j) => {
+      if (j.id.startsWith('joint-op-')) return false;
       const p1 = j.p1 || { x: (j as any).x || 0, y: (j as any).y || 0 };
       const p2 = j.p2 || { x: (j as any).x || 0, y: (j as any).y || 0 };
       const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       return !isInsideOpening(mid);
     });
 
-    return { panels: nextPanels, joints: nextJoints };
+    return { panels: nextPanels, joints: [...filteredBaseJoints, ...openingFramingJoints] };
+  }
+
+  /**
+   * Разрезает панель вокруг проема на фрамугу и боковины (только по явной команде пользователя).
+   */
+  public static splitPanelAroundOpening(
+    panel: WallPanelPiece,
+    opening: Opening
+  ): WallPanelPiece[] {
+    const opLeft = opening.x;
+    const opRight = opening.x + opening.width;
+    const opTop = opening.y + opening.height;
+    const opBottom = opening.y;
+
+    const xs = panel.points.map((p) => p.x);
+    const ys = panel.points.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    if (maxX <= opLeft + 0.1 || minX >= opRight - 0.1 || maxY <= opBottom + 0.1 || minY >= opTop - 0.1) {
+      return [panel];
+    }
+
+    const pieces: WallPanelPiece[] = [];
+    let idx = 1;
+
+    if (opLeft > minX + 0.5) {
+      pieces.push({
+        ...panel,
+        id: `${panel.id}-split-left-${Date.now()}`,
+        points: [
+          { x: minX, y: minY },
+          { x: minX, y: maxY },
+          { x: opLeft, y: maxY },
+          { x: opLeft, y: minY },
+        ],
+        partLabel: `${panel.partLabel}.${idx++}`,
+      });
+    }
+
+    if (opTop < maxY - 0.5) {
+      pieces.push({
+        ...panel,
+        id: `${panel.id}-split-top-${Date.now()}`,
+        points: [
+          { x: Math.max(minX, opLeft), y: opTop },
+          { x: Math.max(minX, opLeft), y: maxY },
+          { x: Math.min(maxX, opRight), y: maxY },
+          { x: Math.min(maxX, opRight), y: opTop },
+        ],
+        partLabel: `${panel.partLabel}.${idx++}`,
+      });
+    }
+
+    if (opBottom > minY + 0.5 && opening.type !== 'DOOR') {
+      pieces.push({
+        ...panel,
+        id: `${panel.id}-split-bottom-${Date.now()}`,
+        points: [
+          { x: Math.max(minX, opLeft), y: minY },
+          { x: Math.max(minX, opLeft), y: opBottom },
+          { x: Math.min(maxX, opRight), y: opBottom },
+          { x: Math.min(maxX, opRight), y: minY },
+        ],
+        partLabel: `${panel.partLabel}.${idx++}`,
+      });
+    }
+
+    if (opRight < maxX - 0.5) {
+      pieces.push({
+        ...panel,
+        id: `${panel.id}-split-right-${Date.now()}`,
+        points: [
+          { x: opRight, y: minY },
+          { x: opRight, y: maxY },
+          { x: maxX, y: maxY },
+          { x: maxX, y: minY },
+        ],
+        partLabel: `${panel.partLabel}.${idx++}`,
+      });
+    }
+
+    return pieces.length > 0 ? pieces : [panel];
   }
 
   /**
@@ -2518,7 +2199,182 @@ export class PolygonSlicingEngine {
       return [];
     }
 
-    // 3. Отсекаем левую область (x <= opLeft) — она полностью вне проема
+    // 3. Быстрый и точный расчет для прямоугольных панелей (без нарезки на куски!)
+    const isAxisAlignedRect =
+      polygon.length === 4 &&
+      xs.every((x) => Math.abs(x - minX) < 1.5 || Math.abs(x - maxX) < 1.5) &&
+      ys.every((y) => Math.abs(y - minY) < 1.5 || Math.abs(y - maxY) < 1.5);
+
+    if (isAxisAlignedRect) {
+      const cL = Math.max(minX, opLeft);
+      const cR = Math.min(maxX, opRight);
+      const cB = Math.max(minY, opBottom);
+      const cT = Math.min(maxY, opTop);
+
+      const touchesLeft = cL <= minX + 0.5;
+      const touchesRight = cR >= maxX - 0.5;
+      const touchesBottom = cB <= minY + 0.5;
+      const touchesTop = cT >= maxY - 0.5;
+
+      // 3.1. Сквозной вырез по вертикали (рассекает панель на левую и правую части)
+      if (touchesBottom && touchesTop) {
+        const pieces: Point2D[][] = [];
+        if (!touchesLeft && cL > minX + 0.5) {
+          pieces.push([
+            { x: minX, y: minY },
+            { x: minX, y: maxY },
+            { x: cL, y: maxY },
+            { x: cL, y: minY },
+          ]);
+        }
+        if (!touchesRight && cR < maxX - 0.5) {
+          pieces.push([
+            { x: cR, y: minY },
+            { x: cR, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: minY },
+          ]);
+        }
+        return pieces;
+      }
+
+      // 3.2. Сквозной вырез по горизонтали (рассекает панель на нижнюю и верхнюю части)
+      if (touchesLeft && touchesRight) {
+        const pieces: Point2D[][] = [];
+        if (!touchesBottom && cB > minY + 0.5) {
+          pieces.push([
+            { x: minX, y: minY },
+            { x: minX, y: cB },
+            { x: maxX, y: cB },
+            { x: maxX, y: minY },
+          ]);
+        }
+        if (!touchesTop && cT < maxY - 0.5) {
+          pieces.push([
+            { x: minX, y: cT },
+            { x: minX, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: cT },
+          ]);
+        }
+        return pieces;
+      }
+
+      // 3.3. Дверной проем снизу (касается только низа) -> ЕДИНАЯ П-ОБРАЗНАЯ ПАНЕЛЬ!
+      if (touchesBottom && !touchesTop) {
+        if (!touchesLeft && !touchesRight) {
+          return [[
+            { x: minX, y: minY },
+            { x: minX, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: minY },
+            { x: cR, y: minY },
+            { x: cR, y: cT },
+            { x: cL, y: cT },
+            { x: cL, y: minY },
+          ]];
+        } else if (touchesLeft && !touchesRight) {
+          return [[
+            { x: minX, y: cT },
+            { x: minX, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: minY },
+            { x: cR, y: minY },
+            { x: cR, y: cT },
+          ]];
+        } else if (!touchesLeft && touchesRight) {
+          return [[
+            { x: minX, y: minY },
+            { x: minX, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: cT },
+            { x: cL, y: cT },
+            { x: cL, y: minY },
+          ]];
+        }
+      }
+
+      // 3.4. Вырез сверху (касается только верха) -> ЕДИНАЯ U-ОБРАЗНАЯ ПАНЕЛЬ!
+      if (touchesTop && !touchesBottom) {
+        if (!touchesLeft && !touchesRight) {
+          return [[
+            { x: minX, y: minY },
+            { x: minX, y: maxY },
+            { x: cL, y: maxY },
+            { x: cL, y: cB },
+            { x: cR, y: cB },
+            { x: cR, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: minY },
+          ]];
+        } else if (touchesLeft && !touchesRight) {
+          return [[
+            { x: minX, y: minY },
+            { x: minX, y: cB },
+            { x: cR, y: cB },
+            { x: cR, y: maxY },
+            { x: maxX, y: maxY },
+            { x: maxX, y: minY },
+          ]];
+        } else if (!touchesLeft && touchesRight) {
+          return [[
+            { x: minX, y: minY },
+            { x: minX, y: maxY },
+            { x: cL, y: maxY },
+            { x: cL, y: cB },
+            { x: maxX, y: cB },
+            { x: maxX, y: minY },
+          ]];
+        }
+      }
+
+      // 3.5. Вырез слева (боковой вырез) -> ЕДИНАЯ С-ОБРАЗНАЯ ПАНЕЛЬ!
+      if (touchesLeft && !touchesRight && !touchesTop && !touchesBottom) {
+        return [[
+          { x: minX, y: minY },
+          { x: minX, y: cB },
+          { x: cR, y: cB },
+          { x: cR, y: cT },
+          { x: minX, y: cT },
+          { x: minX, y: maxY },
+          { x: maxX, y: maxY },
+          { x: maxX, y: minY },
+        ]];
+      }
+
+      // 3.6. Вырез справа (боковой вырез) -> ЕДИНАЯ С-ОБРАЗНАЯ ПАНЕЛЬ!
+      if (touchesRight && !touchesLeft && !touchesTop && !touchesBottom) {
+        return [[
+          { x: minX, y: minY },
+          { x: minX, y: maxY },
+          { x: maxX, y: maxY },
+          { x: maxX, y: cT },
+          { x: cL, y: cT },
+          { x: cL, y: cB },
+          { x: maxX, y: cB },
+          { x: maxX, y: minY },
+        ]];
+      }
+
+      // 3.7. Вырез строго внутри (Окно / Ниша) -> цельная панель со щелевым мостиком 0-толщины
+      if (!touchesLeft && !touchesRight && !touchesTop && !touchesBottom) {
+        return [[
+          { x: minX, y: minY },
+          { x: minX, y: cB },
+          { x: cL, y: cB },
+          { x: cR, y: cB },
+          { x: cR, y: cT },
+          { x: cL, y: cT },
+          { x: cL, y: cB },
+          { x: minX, y: cB },
+          { x: minX, y: maxY },
+          { x: maxX, y: maxY },
+          { x: maxX, y: minY },
+        ]];
+      }
+    }
+
+    // 4. Для произвольных непрямоугольных полигонов — отсечение по линиям
     let leftPieces: Point2D[][] = [];
     let remAfterLeft: Point2D[][] = [polygon];
 
@@ -2532,7 +2388,6 @@ export class PolygonSlicingEngine {
       return [polygon];
     }
 
-    // 4. Из оставшейся части отсекаем правую область (x >= opRight) — она полностью вне проема
     let rightPieces: Point2D[][] = [];
     let centerColPieces: Point2D[][] = [];
 
@@ -2556,7 +2411,6 @@ export class PolygonSlicingEngine {
       }
     }
 
-    // 5. Только центральную колонку (opLeft <= x <= opRight) рассекаем по горизонтали (верх и низ проема)
     let centerTopPieces: Point2D[][] = [];
     let centerBottomPieces: Point2D[][] = [];
 
@@ -2567,7 +2421,6 @@ export class PolygonSlicingEngine {
       const polyMinY = Math.min(...polyYs);
       const polyMaxY = Math.max(...polyYs);
 
-      // Рез по верху проема opTop
       if (opTop > polyMinY + 0.1 && opTop < polyMaxY - 0.1) {
         const nextSub: Point2D[][] = [];
         for (const sp of currentSub) {
@@ -2581,7 +2434,6 @@ export class PolygonSlicingEngine {
         currentSub = nextSub;
       }
 
-      // Рез по низу проема opBottom
       if (opBottom > polyMinY + 0.1 && opBottom < polyMaxY - 0.1) {
         const nextSub: Point2D[][] = [];
         for (const sp of currentSub) {
@@ -2595,7 +2447,6 @@ export class PolygonSlicingEngine {
         currentSub = nextSub;
       }
 
-      // Удаляем кусок строго внутри выреза
       for (const sp of currentSub) {
         const c = this.calculateCentroid(sp);
         const isInsideCutout =
@@ -2614,7 +2465,6 @@ export class PolygonSlicingEngine {
       }
     }
 
-    // 6. Собираем все сохраненные детали: leftPieces, centerTopPieces, centerBottomPieces, rightPieces
     const allKept = [...leftPieces, ...centerTopPieces, ...centerBottomPieces, ...rightPieces].filter(
       (p) => this.calculatePolygonArea(p) >= 10
     );
@@ -2623,7 +2473,6 @@ export class PolygonSlicingEngine {
       return allKept;
     }
 
-    // 7. Объединяем смежные примыкающие детали одной панели
     let clusters: Point2D[][] = [...allKept];
     let merged = true;
     let iterations = 0;
@@ -2700,4 +2549,141 @@ export class PolygonSlicingEngine {
 
     return { newPanels: resultPanels, joints: [] };
   }
+
+    /**
+   * Применяет торцевые зазоры (Edge Insets / Откосы) к полигону детали.
+   * Работает для ЛЮБЫХ полигонов (прямоугольники, трапеции, треугольники, диагональные срезы).
+   */
+  public static applyPanelEdgesInsets(
+    polygon: Point2D[],
+    edges?: PanelEdgesConfig
+  ): Point2D[] {
+    if (!polygon || polygon.length < 3 || !edges) {
+      return polygon;
+    }
+
+    const dLeft = edges.left?.width ?? 0;
+    const dRight = edges.right?.width ?? 0;
+    const dTop = edges.top?.width ?? 0;
+    const dBottom = edges.bottom?.width ?? 0;
+
+    if (dLeft <= 0 && dRight <= 0 && dTop <= 0 && dBottom <= 0) {
+      return polygon;
+    }
+
+    const xs = polygon.map((p) => p.x);
+    const ys = polygon.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const targetMinX = minX + dLeft;
+    const targetMaxX = Math.max(targetMinX, maxX - dRight);
+    const targetMinY = minY + dBottom;
+    const targetMaxY = Math.max(targetMinY, maxY - dTop);
+
+    // 1. Быстрый путь для стандартных прямоугольников
+    const isAxisAlignedRect =
+      polygon.length === 4 &&
+      xs.every((x) => Math.abs(x - minX) < 1.5 || Math.abs(x - maxX) < 1.5) &&
+      ys.every((y) => Math.abs(y - minY) < 1.5 || Math.abs(y - maxY) < 1.5);
+
+    if (isAxisAlignedRect) {
+      return [
+        { x: Math.round(targetMinX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
+        { x: Math.round(targetMaxX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
+        { x: Math.round(targetMaxX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
+        { x: Math.round(targetMinX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
+      ];
+    }
+
+    // 2. Универсальное отсечение (Sutherland-Hodgman Clipping) для любых сложных полигонов
+    let currentPoly = [...polygon];
+
+    // Отсечение слева (x >= targetMinX)
+    if (dLeft > 0) {
+      currentPoly = this.clipPolygonHalfPlane(
+        currentPoly,
+        (p) => p.x >= targetMinX - 0.001,
+        (p1, p2) => {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (targetMinX - p1.x) / (p2.x - p1.x) : 0;
+          return { x: targetMinX, y: p1.y + t * (p2.y - p1.y) };
+        }
+      );
+    }
+
+    // Отсечение справа (x <= targetMaxX)
+    if (dRight > 0) {
+      currentPoly = this.clipPolygonHalfPlane(
+        currentPoly,
+        (p) => p.x <= targetMaxX + 0.001,
+        (p1, p2) => {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (targetMaxX - p1.x) / (p2.x - p1.x) : 0;
+          return { x: targetMaxX, y: p1.y + t * (p2.y - p1.y) };
+        }
+      );
+    }
+
+    // Отсечение снизу (y >= targetMinY)
+    if (dBottom > 0) {
+      currentPoly = this.clipPolygonHalfPlane(
+        currentPoly,
+        (p) => p.y >= targetMinY - 0.001,
+        (p1, p2) => {
+          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (targetMinY - p1.y) / (p2.x - p1.x) : 0;
+          return { x: p1.x + t * (p2.x - p1.x), y: targetMinY };
+        }
+      );
+    }
+
+    // Отсечение сверху (y <= targetMaxY)
+    if (dTop > 0) {
+      currentPoly = this.clipPolygonHalfPlane(
+        currentPoly,
+        (p) => p.y <= targetMaxY + 0.001,
+        (p1, p2) => {
+          const t = Math.abs(p2.y - p1.y) > 0.0001 ? (targetMaxY - p1.y) / (p2.y - p1.y) : 0;
+          return { x: p1.x + t * (p2.x - p1.x), y: targetMaxY };
+        }
+      );
+    }
+
+    if (currentPoly.length >= 3) {
+      return currentPoly.map((pt) => ({
+        x: Math.round(pt.x * 10) / 10,
+        y: Math.round(pt.y * 10) / 10,
+      }));
+    }
+
+    return polygon;
+  }
+
+  private static clipPolygonHalfPlane(
+    poly: Point2D[],
+    isInside: (p: Point2D) => boolean,
+    intersect: (p1: Point2D, p2: Point2D) => Point2D
+  ): Point2D[] {
+    if (poly.length === 0) return [];
+    const outputList: Point2D[] = [];
+    let s = poly[poly.length - 1];
+
+    for (let i = 0; i < poly.length; i++) {
+      const e = poly[i];
+      if (isInside(e)) {
+        if (isInside(s)) {
+          outputList.push(e);
+        } else {
+          outputList.push(intersect(s, e));
+          outputList.push(e);
+        }
+      } else if (isInside(s)) {
+        outputList.push(intersect(s, e));
+      }
+      s = e;
+    }
+
+    return outputList;
+  }
+
 }
