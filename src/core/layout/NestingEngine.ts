@@ -136,19 +136,20 @@ export class NestingEngine {
     // 2. Группировка по физическому материалу (декор / артикул / толщина)
     // Детали с одинаковым декором / названием / толщиной должны раскраиваться на одних и тех же листах
     const getMaterialGroupKey = (p: NestingPartInput): string => {
+      const thickness = p.thickness || 5;
       if (p.decorCode && p.decorCode.trim()) {
-        return `DECOR_${p.decorCode.trim()}_${p.thickness || 5}`;
-      }
-      if (p.materialName && p.materialName.trim() && p.materialName !== 'Панель AllWall') {
-        return `NAME_${p.materialName.trim()}_${p.thickness || 5}`;
-      }
-      if (p.color && p.color.trim()) {
-        return `COLOR_${p.color.trim()}_${p.thickness || 5}`;
+        return `DECOR_${p.decorCode.trim()}_${thickness}`;
       }
       if (p.materialId && p.materialId !== 'mat-none') {
-        return `MAT_${p.materialId}_${p.thickness || 5}`;
+        return `MAT_${p.materialId}_${thickness}`;
       }
-      return `DEFAULT_SHEET_${p.thickness || 5}`;
+      if (p.materialName && p.materialName.trim() && p.materialName !== 'Панель AllWall') {
+        return `NAME_${p.materialName.trim()}_${thickness}`;
+      }
+      if (p.color && p.color.trim()) {
+        return `COLOR_${p.color.trim()}_${thickness}`;
+      }
+      return `DEFAULT_SHEET_${thickness}`;
     };
 
     const groupsByMaterial = new Map<string, NestingPartInput[]>();
@@ -240,6 +241,9 @@ export class NestingEngine {
           const maxA = Math.max(a.width, a.height);
           const maxB = Math.max(b.width, b.height);
           if (Math.abs(maxB - maxA) > 1) return maxB - maxA;
+          const minA = Math.min(a.width, a.height);
+          const minB = Math.min(b.width, b.height);
+          if (Math.abs(minB - minA) > 1) return minB - minA;
           return b.width * b.height - a.width * a.height;
         },
       },
@@ -253,7 +257,19 @@ export class NestingEngine {
           return Math.max(b.width, b.height) - Math.max(a.width, a.height);
         },
       },
-      // 3. По периметру детали
+      // 3. Сначала крупные панели, узкие рейки/откосы в последнюю очередь (для заполнения остатков)
+      {
+        name: 'SLENDER_LAST',
+        fn: (a, b) => {
+          const ratioA = Math.max(a.width, a.height) / Math.max(1, Math.min(a.width, a.height));
+          const ratioB = Math.max(b.width, b.height) / Math.max(1, Math.min(b.width, b.height));
+          const isSlenderA = ratioA > 3.5 || Math.min(a.width, a.height) <= 250;
+          const isSlenderB = ratioB > 3.5 || Math.min(b.width, b.height) <= 250;
+          if (isSlenderA !== isSlenderB) return isSlenderA ? 1 : -1;
+          return (b.width * b.height) - (a.width * a.height);
+        },
+      },
+      // 4. По периметру детали
       {
         name: 'PERIMETER_DESC',
         fn: (a, b) => {
@@ -263,7 +279,7 @@ export class NestingEngine {
           return b.width * b.height - a.width * a.height;
         },
       },
-      // 4. По минимальной стороне (толщине/ширине)
+      // 5. По минимальной стороне (толщине/ширине)
       {
         name: 'MIN_SIDE_DESC',
         fn: (a, b) => {
@@ -273,7 +289,7 @@ export class NestingEngine {
           return b.width * b.height - a.width * a.height;
         },
       },
-      // 5. По стенам и габариту
+      // 6. По стенам и габариту
       {
         name: 'WALL_THEN_SIZE',
         fn: (a, b) => {

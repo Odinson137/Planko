@@ -16,6 +16,8 @@ export interface CalculatedSlopePiece {
   materialId: string;
   materialName: string;
   materialColor: string;
+  decorCode?: string;
+  thickness?: number;
   partLabel: string;
 }
 
@@ -1165,6 +1167,8 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
+            decorCode: mat.decorCode,
+            thickness: mat.thickness,
             partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }
@@ -1187,6 +1191,8 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
+            decorCode: mat.decorCode,
+            thickness: mat.thickness,
             partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }
@@ -1209,6 +1215,8 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
+            decorCode: mat.decorCode,
+            thickness: mat.thickness,
             partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }
@@ -1231,6 +1239,8 @@ export class LayoutEngine {
             materialId: mat.id,
             materialName: mat.name,
             materialColor: mat.color,
+            decorCode: mat.decorCode,
+            thickness: mat.thickness,
             partLabel: `${wallNumber}.${slopeSeq++}`,
           });
         }

@@ -184,9 +184,8 @@ export class ProfileSpecificationEngine {
       const sumMm = data.lengths.reduce((acc, l) => acc + l, 0);
       const meters = Math.round((sumMm / 1000) * 100) / 100;
       
-      // Расчет 3-метровых хлыстов с учетом 10% запаса на подрезку
-      const metersWithWaste = meters * 1.10;
-      const barsCount = Math.max(1, Math.ceil(metersWithWaste / 3.0));
+      // Расчет 3-метровых хлыстов без наценки
+      const barsCount = Math.max(1, Math.ceil(meters / 3.0));
 
       totalWallMeters += meters;
       totalWallBars += barsCount;
@@ -256,8 +255,7 @@ export class ProfileSpecificationEngine {
       const info = PROFILE_CATEGORIES_INFO[cat];
       const sumMm = data.lengths.reduce((acc, l) => acc + l, 0);
       const meters = Math.round((sumMm / 1000) * 100) / 100;
-      const metersWithWaste = meters * 1.10;
-      const barsCount = Math.max(1, Math.ceil(metersWithWaste / 3.0));
+      const barsCount = Math.max(1, Math.ceil(meters / 3.0));
 
       projectTotalMeters += meters;
       projectTotalBars += barsCount;

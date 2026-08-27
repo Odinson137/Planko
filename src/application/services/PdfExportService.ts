@@ -75,6 +75,7 @@ export class PdfExportService {
       // Добавляем детали откосов
       if (layout.slopes && layout.slopes.length > 0) {
         layout.slopes.forEach((sl) => {
+          const slMat = project.materials.find((m) => m.id === sl.materialId);
           allPartsForNesting.push({
             id: sl.id,
             wallId: wall.id,
@@ -84,8 +85,10 @@ export class PdfExportService {
             height: sl.depth,
             areaSqM: sl.areaSqM,
             materialId: sl.materialId,
-            materialName: sl.materialName,
-            color: sl.materialColor,
+            materialName: sl.materialName || slMat?.name,
+            decorCode: sl.decorCode || slMat?.decorCode,
+            color: sl.materialColor || slMat?.color,
+            thickness: sl.thickness || slMat?.thickness || 5,
             note: `${sl.openingName} (${sl.sideLabel})`,
           });
         });
@@ -184,13 +187,35 @@ export class PdfExportService {
             areaSqM: p.areaSqM,
             materialId: p.materialId,
             materialName: mat?.name || p.decorName || 'Панель AllWall',
-            decorCode: p.decorCode,
-            thickness: p.thickness,
+            decorCode: p.decorCode || mat?.decorCode,
+            thickness: p.thickness || mat?.thickness || 5,
+            color: p.materialColor || mat?.color,
             polygonPoints: p.polygonPoints,
             bendsInfo: p.bendsInfo,
           });
         }
       });
+
+      if (layout.slopes && layout.slopes.length > 0) {
+        layout.slopes.forEach((sl) => {
+          const slMat = project.materials.find((m) => m.id === sl.materialId);
+          allParts.push({
+            id: sl.id,
+            wallId: wall.id,
+            wallName: wall.name,
+            partLabel: sl.partLabel,
+            width: sl.width,
+            height: sl.depth,
+            areaSqM: sl.areaSqM,
+            materialId: sl.materialId,
+            materialName: sl.materialName || slMat?.name,
+            decorCode: sl.decorCode || slMat?.decorCode,
+            thickness: sl.thickness || slMat?.thickness || 5,
+            color: sl.materialColor || slMat?.color,
+            note: `${sl.openingName} (${sl.sideLabel})`,
+          });
+        });
+      }
     });
 
     const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allParts);
@@ -1516,7 +1541,7 @@ export class PdfExportService {
           ctx.strokeRect(px, py, pw, ph);
         }
 
-        // ВЫРЕЗЫ ВНУТРИ ДЕТАЛИ (двери, окна, ниши) с подробными размерными выносками
+        // Вырезы внутри детали (проемы: двери, окна, ниши) - чистое белое пустое пространство
         let hasBottomDoorCutout = false;
         let doorCutoutTopCanvasY = 0;
 
@@ -1527,104 +1552,14 @@ export class PdfExportService {
             const cutW = cut.width * scale;
             const cutH = cut.height * scale;
 
-            const leftStripW = cut.x;
-            const rightStripW = Math.max(0, p.width - (cut.x + cut.width));
-
             if (cut.y <= 10) {
               hasBottomDoorCutout = true;
               doorCutoutTopCanvasY = cutY;
             }
 
-            // 1. Отрисовка отверстия выреза (светлый фон + штриховка)
-            ctx.fillStyle = '#f8fafc';
+            // Очищаем область выреза белым фоном листа без линий, рамок, остатков и выносок
+            ctx.fillStyle = '#ffffff';
             ctx.fillRect(cutX, cutY, cutW, cutH);
-            ctx.strokeStyle = '#94a3b8';
-            ctx.lineWidth = 1.2;
-            ctx.strokeRect(cutX, cutY, cutW, cutH);
-
-            // 2. Линии реза по периметру выреза (темный пунктир)
-            ctx.save();
-            ctx.strokeStyle = '#0f172a';
-            ctx.lineWidth = 1.6;
-            ctx.setLineDash([5, 3]);
-            ctx.strokeRect(cutX, cutY, cutW, cutH);
-            ctx.restore();
-
-            // 3. Подпись делового остатка
-            if (cutW > 30 && cutH > 25) {
-              ctx.fillStyle = '#64748b';
-              ctx.font = 'italic 12px "Segoe UI", Arial, sans-serif';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText('Остаток', cutX + cutW / 2, cutY + cutH / 2);
-            }
-
-            // 4. ВЫНОСКИ РАЗМЕРОВ РАСПИЛА ДЛЯ ЦЕХА:
-            // 4.1. Расстояние от левого края панели до начала выреза двери
-            if (leftStripW > 5 && (px + cutX) / 2) {
-              const leftDimX = px + (cutX - px) / 2;
-              ctx.save();
-              ctx.fillStyle = '#0f172a';
-              ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(`${Math.round(leftStripW)}`, leftDimX, cutY + cutH - 12);
-              ctx.restore();
-            }
-
-            // 4.2. Расстояние от правого края выреза до правого края панели
-            if (rightStripW > 5) {
-              const rightDimX = cutX + cutW + (px + pw - (cutX + cutW)) / 2;
-              ctx.save();
-              ctx.fillStyle = '#0f172a';
-              ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(`${Math.round(rightStripW)}`, rightDimX, cutY + cutH - 12);
-              ctx.restore();
-            }
-
-            // 4.3. Горизонтальная цепочка размеров внизу выреза (Отступ | Вырез | Отступ)
-            const chainY = py + ph + 16;
-            ctx.save();
-            ctx.strokeStyle = '#0f172a';
-            ctx.fillStyle = '#0f172a';
-            ctx.lineWidth = 1.2;
-
-            // Стрелка/линия левого отступа
-            ctx.beginPath();
-            ctx.moveTo(px, chainY);
-            ctx.lineTo(cutX, chainY);
-            ctx.moveTo(px, chainY - 4);
-            ctx.lineTo(px, chainY + 4);
-            ctx.moveTo(cutX, chainY - 4);
-            ctx.lineTo(cutX, chainY + 4);
-            ctx.stroke();
-
-            // Стрелка/линия ширины выреза
-            ctx.beginPath();
-            ctx.moveTo(cutX, chainY);
-            ctx.lineTo(cutX + cutW, chainY);
-            ctx.moveTo(cutX + cutW, chainY - 4);
-            ctx.lineTo(cutX + cutW, chainY + 4);
-            ctx.stroke();
-
-            // Стрелка/линия правого отступа
-            ctx.beginPath();
-            ctx.moveTo(cutX + cutW, chainY);
-            ctx.lineTo(px + pw, chainY);
-            ctx.moveTo(px + pw, chainY - 4);
-            ctx.lineTo(px + pw, chainY + 4);
-            ctx.stroke();
-
-            ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.fillText(`${Math.round(leftStripW)}`, px + (cutX - px) / 2, chainY + 2);
-            ctx.fillText(`${Math.round(cut.width)}`, cutX + cutW / 2, chainY + 2);
-            ctx.fillText(`${Math.round(rightStripW)}`, cutX + cutW + (px + pw - (cutX + cutW)) / 2, chainY + 2);
-
-            ctx.restore();
           });
         }
 
@@ -3007,7 +2942,7 @@ export class PdfExportService {
 
     const cards = [
       { title: 'ВСЕГО ПАНЕЛЕЙ', val: `${nesting.totalPartsCount} шт.`, sub: `Листов 1220×2800: ${nesting.totalSheetsCount} шт.` },
-      { title: 'ПОГОНАЖ ПРОФИЛЕЙ', val: `${profiles.totalLinearMeters} м`, sub: `Хлыстов 3м (+10%): ${profiles.totalStockBars} шт.` },
+      { title: 'ПОГОНАЖ ПРОФИЛЕЙ', val: `${profiles.totalLinearMeters} м`, sub: `Хлыстов 3м: ${profiles.totalStockBars} шт.` },
       { title: 'ПЛОЩАДЬ ОТДЕЛКИ', val: `${nesting.materialResults.reduce((acc, m) => acc + m.totalPartsAreaSqM, 0).toFixed(1)} м²`, sub: `Эффективность: ${nesting.materialResults[0]?.overallEfficiencyPct || 92}%` },
       { title: 'КОЛИЧЕСТВО СТЕН', val: `${project.walls.length}`, sub: `Проемов: ${project.walls.reduce((acc, w) => acc + w.openings.length, 0)}` },
     ];
@@ -3086,11 +3021,10 @@ export class PdfExportService {
     ctx.restore();
 
     const colW2 = [
-      Math.round(totalAvailW * 0.34),
-      Math.round(totalAvailW * 0.18),
-      Math.round(totalAvailW * 0.14),
-      Math.round(totalAvailW * 0.11),
-      Math.round(totalAvailW * 0.11),
+      Math.round(totalAvailW * 0.38),
+      Math.round(totalAvailW * 0.22),
+      Math.round(totalAvailW * 0.16),
+      Math.round(totalAvailW * 0.12),
       Math.round(totalAvailW * 0.12),
     ];
 
@@ -3099,43 +3033,16 @@ export class PdfExportService {
       marginX,
       tbl2Y,
       totalAvailW,
-      ['Тип профиля', 'Артикул AllWall', 'Видимая ширина', 'Погонаж', 'Запас 10%', 'Хлыстов 3м'],
+      ['Тип профиля', 'Артикул AllWall', 'Видимая ширина', 'Погонаж', 'Хлыстов 3м'],
       profiles.byCategorySummary.map((p) => [
         p.name,
         p.article,
         `${PROFILE_CATEGORIES_INFO[p.category].defaultWidth} мм`,
         `${p.totalLinearMeters} м`,
-        `${(p.totalLinearMeters * 1.10).toFixed(1)} м`,
         `${p.stockBarsCount} шт.`,
       ]),
       colW2
     );
-
-    // 4. Памятка монтажникам
-    const noteY = 1600;
-    ctx.save();
-    ctx.fillStyle = '#eff6ff';
-    ctx.beginPath();
-    ctx.roundRect(marginX, noteY, totalAvailW, 300, 16);
-    ctx.fill();
-    ctx.strokeStyle = '#bfdbfe';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#1e40af';
-    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('ТЕХНИЧЕСКИЙ РЕГЛАМЕНТ МОНТАЖА ALLWALL:', marginX + 30, noteY + 50);
-
-    ctx.fillStyle = '#1e3a8a';
-    ctx.font = '20px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('• Стандартная длина всех металлических хлыстов профилей составляет 3000 мм (3 метра).', marginX + 30, noteY + 95);
-    ctx.fillText('• Соединительный профиль (H-стык): видимая ширина 0.8 мм — обеспечивает тонкий эстетичный шов.', marginX + 30, noteY + 135);
-    ctx.fillText('• Светодиодный LED-профиль: видимая ширина 10 мм — укомплектован светорассеивателем для RGB ленты.', marginX + 30, noteY + 175);
-    ctx.fillText('• Торцевые профили устанавливаются по периметру открытых краев, дверных коробок и оконных порталов.', marginX + 30, noteY + 215);
-    ctx.fillText('• Рекомендуемый запас на угловую подрезку и торцевание составляет 10% (учтен в колонке "Хлыстов 3м").', marginX + 30, noteY + 255);
-    ctx.restore();
 
     // Штамп
     ctx.save();
