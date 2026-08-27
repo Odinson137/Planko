@@ -36,6 +36,11 @@ import {
   Scissors,
   Home,
   Layout,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  RotateCcw,
 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
@@ -141,9 +146,11 @@ export const RightSidebar: React.FC = () => {
     syncSelectedJointsParams,
     setJointPresetForSelected,
     setJointWidthForSelected,
+    setJointTakeSideForSelected,
     setJointProfileForSelected,
     setJointColorForSelected,
     setJointWidth,
+    setJointTakeSide,
     setJointPreset,
     setJointProfile,
     setJointColor,
@@ -318,6 +325,74 @@ export const RightSidebar: React.FC = () => {
               }}
             />
 
+            {/* Направление взятия зазора (для группы) */}
+            <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
+              <Stack gap={6}>
+                <Text size="xs" fw={600}>
+                  Откуда брать зазор (для всех):
+                </Text>
+                {validation.orientation === 'HORIZONTAL' ? (
+                  <Group grow gap={6}>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="blue"
+                      leftSection={<ArrowUp size={14} />}
+                      onClick={() => setJointTakeSideForSelected(currentWall.id, 'TOP')}
+                    >
+                      Сверху
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="blue"
+                      leftSection={<ArrowDown size={14} />}
+                      onClick={() => setJointTakeSideForSelected(currentWall.id, 'BOTTOM')}
+                    >
+                      Снизу
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="teal"
+                      onClick={() => setJointTakeSideForSelected(currentWall.id, 'BOTH')}
+                    >
+                      Симм.
+                    </Button>
+                  </Group>
+                ) : (
+                  <Group grow gap={6}>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="blue"
+                      leftSection={<ArrowLeft size={14} />}
+                      onClick={() => setJointTakeSideForSelected(currentWall.id, 'LEFT')}
+                    >
+                      Слева
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="blue"
+                      leftSection={<ArrowRight size={14} />}
+                      onClick={() => setJointTakeSideForSelected(currentWall.id, 'RIGHT')}
+                    >
+                      Справа
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="teal"
+                      onClick={() => setJointTakeSideForSelected(currentWall.id, 'BOTH')}
+                    >
+                      Симм.
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
+            </Paper>
+
             {/* ФИЛЬТР 2 & НАСТРОЙКА: Отображаются ТОЛЬКО если ширина > 0 */}
             {!(validation.sameWidth && validation.widths[0] === 0) && (
               <>
@@ -407,6 +482,14 @@ export const RightSidebar: React.FC = () => {
     const isDiag = selectedJoint?.orientation === 'DIAGONAL' || selectedJointId.includes('-diag-');
     const isHoriz = selectedJoint?.orientation === 'HORIZONTAL' || selectedJointId.includes('-h-');
 
+    const smartTakeSide = PolygonSlicingEngine.getSmartJointTakeSide(
+      selectedJoint || { id: selectedJointId, orientation: isHoriz ? 'HORIZONTAL' : 'VERTICAL' },
+      currentWall.width,
+      currentWall.height,
+      currentWall.openings
+    );
+    const currentTakeSide = customConfig?.takeSide || selectedJoint?.takeSide || smartTakeSide;
+
     const cleanJointName = () => {
       if (selectedJoint?.name && !selectedJoint.name.includes('joint-') && !selectedJoint.name.includes('Шов joint')) {
         return selectedJoint.name;
@@ -471,6 +554,111 @@ export const RightSidebar: React.FC = () => {
                 }
               }}
             />
+
+            {/* Направление взятия зазора (Стрелки) */}
+            <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
+              <Stack gap={6}>
+                <Group justify="space-between" align="center">
+                  <Text size="xs" fw={600}>
+                    Откуда брать зазор:
+                  </Text>
+                  {customConfig?.takeSide !== undefined && customConfig.takeSide !== smartTakeSide && (
+                    <Tooltip label="Сбросить в умное авто-определение" withArrow>
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => setJointTakeSide(currentWall.id, selectedJointId, smartTakeSide)}
+                      >
+                        <RotateCcw size={12} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                </Group>
+
+                {isHoriz ? (
+                  <Group grow gap={6}>
+                    <Button
+                      size="xs"
+                      variant={currentTakeSide === 'BOTH' || currentTakeSide === 'TOP' ? 'filled' : 'default'}
+                      color={currentTakeSide === 'BOTH' || currentTakeSide === 'TOP' ? 'blue' : 'gray'}
+                      leftSection={<ArrowUp size={14} />}
+                      onClick={() => {
+                        if (currentTakeSide === 'BOTH') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTTOM');
+                        } else if (currentTakeSide === 'BOTTOM') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        }
+                      }}
+                    >
+                      Сверху
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant={currentTakeSide === 'BOTH' || currentTakeSide === 'BOTTOM' ? 'filled' : 'default'}
+                      color={currentTakeSide === 'BOTH' || currentTakeSide === 'BOTTOM' ? 'blue' : 'gray'}
+                      leftSection={<ArrowDown size={14} />}
+                      onClick={() => {
+                        if (currentTakeSide === 'BOTH') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'TOP');
+                        } else if (currentTakeSide === 'TOP') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        }
+                      }}
+                    >
+                      Снизу
+                    </Button>
+                  </Group>
+                ) : (
+                  <Group grow gap={6}>
+                    <Button
+                      size="xs"
+                      variant={currentTakeSide === 'BOTH' || currentTakeSide === 'LEFT' ? 'filled' : 'default'}
+                      color={currentTakeSide === 'BOTH' || currentTakeSide === 'LEFT' ? 'blue' : 'gray'}
+                      leftSection={<ArrowLeft size={14} />}
+                      onClick={() => {
+                        if (currentTakeSide === 'BOTH') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'RIGHT');
+                        } else if (currentTakeSide === 'RIGHT') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        }
+                      }}
+                    >
+                      Слева
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant={currentTakeSide === 'BOTH' || currentTakeSide === 'RIGHT' ? 'filled' : 'default'}
+                      color={currentTakeSide === 'BOTH' || currentTakeSide === 'RIGHT' ? 'blue' : 'gray'}
+                      leftSection={<ArrowRight size={14} />}
+                      onClick={() => {
+                        if (currentTakeSide === 'BOTH') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'LEFT');
+                        } else if (currentTakeSide === 'LEFT') {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        }
+                      }}
+                    >
+                      Справа
+                    </Button>
+                  </Group>
+                )}
+
+                <Text size="xs" c="dimmed" style={{ lineHeight: 1.25 }}>
+                  {isHoriz
+                    ? currentTakeSide === 'BOTH'
+                      ? '↕️ Симметрично (с верхней и нижней панели)'
+                      : currentTakeSide === 'TOP'
+                      ? '⬆️ Только сверху (нижняя панель зафиксирована)'
+                      : '⬇️ Только снизу (верхняя панель зафиксирована)'
+                    : currentTakeSide === 'BOTH'
+                    ? '↔️ Симметрично (с левой и правой панели)'
+                    : currentTakeSide === 'LEFT'
+                    ? '⬅️ Только слева (правая панель зафиксирована)'
+                    : '➡️ Только справа (левая панель зафиксирована)'}
+                </Text>
+              </Stack>
+            </Paper>
 
             {/* ФИЛЬТР 2: Тип, модель и цвет профиля (скрываются, если выбрано 0 мм) */}
             {currentWidth !== 0 && (

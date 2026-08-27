@@ -84,6 +84,7 @@ interface ProjectState {
   syncSelectedJointsParams: (wallId: string, targetJointId?: string) => void;
   setJointPresetForSelected: (wallId: string, preset: JointPreset) => void;
   setJointWidthForSelected: (wallId: string, width: number) => void;
+  setJointTakeSideForSelected: (wallId: string, takeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => void;
   setJointLEDForSelected: (wallId: string, isLED: boolean) => void;
   setJointProfileForSelected: (wallId: string, article: string, colorHex?: string) => void;
   setJointColorForSelected: (wallId: string, colorHex: string) => void;
@@ -108,6 +109,7 @@ interface ProjectState {
 
   // Управление кликабельными стыками и краями
   setJointWidth: (wallId: string, jointId: string, width: number) => void;
+  setJointTakeSide: (wallId: string, jointId: string, takeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => void;
   setJointLED: (wallId: string, jointId: string, isLED: boolean) => void;
   setJointPreset: (wallId: string, jointId: string, preset: JointPreset) => void;
   setJointProfile: (wallId: string, jointId: string, article: string, colorHex?: string) => void;
@@ -758,12 +760,14 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       state.selectedJointIds.forEach((jId) => {
         const baseId = jId.split('-part-')[0].split('-merged-')[0];
+        const currentTakeSide = nextCustomJoints[jId]?.takeSide || wall.joints?.find(j => j.id === jId)?.takeSide || 'BOTH';
         nextCustomJoints[jId] = {
           id: jId,
           orientation,
           width: targetWidth,
           isLED: targetLED,
           groupId,
+          takeSide: currentTakeSide,
         };
         nextCustomJoints[baseId] = {
           id: baseId,
@@ -771,6 +775,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           width: targetWidth,
           isLED: targetLED,
           groupId,
+          takeSide: currentTakeSide,
         };
       });
 
@@ -831,6 +836,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         orientation: baseId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
         width: 8,
         isLED: false,
+        takeSide: 'BOTH',
       };
 
       const nextCustomJoints = { ...wall.customJoints };
@@ -839,14 +845,28 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           ...(nextCustomJoints[id] || { id, orientation: baseConfig.orientation }),
           width: baseConfig.width,
           isLED: baseConfig.isLED,
+          takeSide: baseConfig.takeSide,
         };
       });
+
+      let nextWallJoints = wall.joints;
+      if (nextWallJoints && nextWallJoints.length > 0) {
+        nextWallJoints = nextWallJoints.map((j) => {
+          if (state.selectedJointIds.includes(j.id)) {
+            return {
+              ...j,
+              takeSide: baseConfig.takeSide,
+            };
+          }
+          return j;
+        });
+      }
 
       return {
         project: {
           ...state.project,
           walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customJoints: nextCustomJoints } : w
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints } : w
           ),
         },
       };
@@ -926,10 +946,11 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = wall.joints?.find((j) => j.id === jId);
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
               nextPanels!,
-              targetJoint,
+              { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
               wall.width,
@@ -994,10 +1015,11 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = wall.joints?.find((j) => j.id === jId);
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
               nextPanels!,
-              targetJoint,
+              { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
               wall.width,
@@ -1105,10 +1127,11 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = wall.joints?.find((j) => j.id === jId);
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
               nextPanels!,
-              targetJoint,
+              { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               clampedW,
               wall.width,
@@ -1124,6 +1147,48 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           ...state.project,
           walls: state.project.walls.map((w) =>
             w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints, panels: nextPanels } : w
+          ),
+        },
+      };
+    }),
+
+  setJointTakeSideForSelected: (wallId: string, takeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall || state.selectedJointIds.length === 0) return state;
+
+      const nextCustomJoints = { ...wall.customJoints };
+      state.selectedJointIds.forEach((id) => {
+        const current = nextCustomJoints[id];
+        nextCustomJoints[id] = {
+          ...(current || {
+            id,
+            orientation: id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
+            width: 8,
+            isLED: false,
+          }),
+          takeSide,
+        };
+      });
+
+      let nextWallJoints = wall.joints;
+      if (nextWallJoints && nextWallJoints.length > 0) {
+        nextWallJoints = nextWallJoints.map((j) => {
+          if (state.selectedJointIds.includes(j.id)) {
+            return {
+              ...j,
+              takeSide,
+            };
+          }
+          return j;
+        });
+      }
+
+      return {
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints } : w
           ),
         },
       };
@@ -2257,6 +2322,56 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     })),
 
 
+  setJointTakeSide: (wallId: string, jointId: string, takeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') =>
+    set((state) => ({
+      project: {
+        ...state.project,
+        walls: state.project.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const baseId = jointId.split('-part-')[0].split('-merged-')[0];
+          const targetGroupId = w.customJoints[jointId]?.groupId || w.customJoints[baseId]?.groupId;
+          const nextJoints = { ...w.customJoints };
+
+          if (targetGroupId) {
+            Object.keys(nextJoints).forEach((k) => {
+              if (nextJoints[k]?.groupId === targetGroupId) {
+                nextJoints[k] = {
+                  ...nextJoints[k],
+                  takeSide,
+                };
+              }
+            });
+          } else {
+            const current = nextJoints[jointId] || {
+              id: jointId,
+              orientation: jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
+              width: 8,
+              isLED: false,
+            };
+            nextJoints[jointId] = {
+              ...current,
+              takeSide,
+            };
+          }
+
+          let nextWallJoints = w.joints;
+          if (nextWallJoints && nextWallJoints.length > 0) {
+            nextWallJoints = nextWallJoints.map((j) => {
+              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+                return {
+                  ...j,
+                  takeSide,
+                };
+              }
+              return j;
+            });
+          }
+
+          return { ...w, customJoints: nextJoints, joints: nextWallJoints };
+        }),
+      },
+    })),
+
   setJointWidth: (wallId: string, jointId: string, width: number) =>
     set((state) => ({
       project: {
@@ -2317,11 +2432,12 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           let nextPanels = w.panels;
           const targetJoint = w.joints?.find((j) => j.id === jointId);
           const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
             nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
               nextPanels,
-              targetJoint,
+              { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               clamped,
               w.width,
@@ -2478,11 +2594,12 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           let nextPanels = w.panels;
           const targetJoint = w.joints?.find((j) => j.id === jointId);
           const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
             nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
               nextPanels,
-              targetJoint,
+              { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
               w.width,
@@ -2556,11 +2673,12 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           let nextPanels = w.panels;
           const targetJoint = w.joints?.find((j) => j.id === jointId);
           const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
             nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
               nextPanels,
-              targetJoint,
+              { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
               w.width,

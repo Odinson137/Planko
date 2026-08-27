@@ -1250,43 +1250,21 @@ export class PolygonSlicingEngine {
   }
 
   /**
-   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними.
-   * Если одна из сторон шва прилегает к двери / проему, сторона двери остается неподвижной (shift = 0),
-   * а вся дельта ширины шва берется со стороны соседнего элемента стены.
+   * Умный расчет направления взятия зазора стыка (takeSide):
+   * Автоматически определяет, примыкает ли стык к стене (границе) или проему двери/окна,
+   * и выбирает сторону забора размера так, чтобы внешние границы стены и проемы не смещались.
    */
-  public static adjustPanelsForJointWidthChange(
-    panels: WallPanelPiece[],
-    joint: WallJointLine,
-    oldWidth: number,
-    newWidth: number,
+  public static getSmartJointTakeSide(
+    joint: WallJointLine | { id: string; p1?: Point2D; p2?: Point2D; x?: number; y?: number; orientation?: string },
     wallWidth: number,
     wallHeight: number,
     openings: Opening[] = []
-  ): WallPanelPiece[] {
-    const delta = newWidth - oldWidth;
-    if (Math.abs(delta) < 1e-4) return panels;
-
-    const p1 = joint.p1;
-    const p2 = joint.p2;
-    if (!p1 || !p2) return panels;
-
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1e-4) return panels;
-
-    const halfDelta = delta / 2;
-    const nx = -dy / len;
-    const ny = dx / len;
-
-    // Проверяем, прилегает ли какая-либо сторона шва к проему (дверь, окно, ниша)
-    const midPt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-    const checkDist = Math.max(10, Math.max(oldWidth, newWidth) / 2 + 8);
-    const ptPosSide = { x: midPt.x + nx * checkDist, y: midPt.y + ny * checkDist };
-    const ptNegSide = { x: midPt.x - nx * checkDist, y: midPt.y - ny * checkDist };
+  ): 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM' {
+    const p1 = joint.p1 || { x: (joint as any).x || 0, y: (joint as any).y || 0 };
+    const p2 = joint.p2 || { x: (joint as any).x || 0, y: (joint as any).y || 0 };
+    const isVert = joint.orientation === 'VERTICAL' || Math.abs(p1.x - p2.x) <= Math.abs(p1.y - p2.y);
 
     const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
-
     const isInsideOpening = (pt: Point2D) =>
       cutoutOpenings.some(
         (op) =>
@@ -1296,8 +1274,97 @@ export class PolygonSlicingEngine {
           pt.y <= op.y + op.height + 2
       );
 
-    const posIsOpening = isInsideOpening(ptPosSide);
-    const negIsOpening = isInsideOpening(ptNegSide);
+    if (isVert) {
+      const jX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+
+      // 1. Примыкание к левой или правой стене (краю стены)
+      const nearLeftWall = jX <= 15;
+      const nearRightWall = jX >= wallWidth - 15;
+
+      // 2. Проверка прилегания к проемам слева и справа
+      const ptLeft = { x: jX - 25, y: midY };
+      const ptRight = { x: jX + 25, y: midY };
+      const leftIsOpening = isInsideOpening(ptLeft);
+      const rightIsOpening = isInsideOpening(ptRight);
+
+      if ((nearLeftWall || leftIsOpening) && !(nearRightWall || rightIsOpening)) {
+        return 'RIGHT'; // Забирать только справа, левая стена/проем зафиксирована
+      }
+      if ((nearRightWall || rightIsOpening) && !(nearLeftWall || leftIsOpening)) {
+        return 'LEFT'; // Забирать только слева, правая стена/проем зафиксирована
+      }
+      return 'BOTH';
+    } else {
+      const jY = (p1.y + p2.y) / 2;
+      const midX = (p1.x + p2.x) / 2;
+
+      // 1. Примыкание к полу или потолку (краю стены)
+      const nearBottomWall = jY <= 15;
+      const nearTopWall = jY >= wallHeight - 15;
+
+      // 2. Проверка прилегания к проемам снизу и сверху
+      const ptBottom = { x: midX, y: jY - 25 };
+      const ptTop = { x: midX, y: jY + 25 };
+      const bottomIsOpening = isInsideOpening(ptBottom);
+      const topIsOpening = isInsideOpening(ptTop);
+
+      if ((nearBottomWall || bottomIsOpening) && !(nearTopWall || topIsOpening)) {
+        return 'TOP'; // Забирать только сверху, пол/проем снизу зафиксирован
+      }
+      if ((nearTopWall || topIsOpening) && !(nearBottomWall || bottomIsOpening)) {
+        return 'BOTTOM'; // Забирать только снизу, потолок/проем сверху зафиксирован
+      }
+      return 'BOTH';
+    }
+  }
+
+  /**
+   * Корректирует геометрию полигонов панелей при изменении толщины шва между ними.
+   * Учитывает параметр takeSide (BOTH, LEFT, RIGHT, TOP, BOTTOM) или авто-определение примыканий.
+   */
+  public static adjustPanelsForJointWidthChange(
+    panels: WallPanelPiece[],
+    joint: WallJointLine,
+    oldWidth: number,
+    newWidth: number,
+    wallWidth: number,
+    wallHeight: number,
+    openings: Opening[] = [],
+    takeSideOverride?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'
+  ): WallPanelPiece[] {
+    const delta = newWidth - oldWidth;
+    if (Math.abs(delta) < 1e-4) return panels;
+
+    let p1 = joint.p1;
+    let p2 = joint.p2;
+    if (!p1 || !p2) return panels;
+
+    // Нормализуем направление отрезка: ориентируем вверх (dy > 0) или вправо (dx > 0)
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    if (dy < -1e-4 || (Math.abs(dy) <= 1e-4 && dx < -1e-4)) {
+      const temp = p1;
+      p1 = p2;
+      p2 = temp;
+      dx = p2.x - p1.x;
+      dy = p2.y - p1.y;
+    }
+
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-4) return panels;
+
+    const halfDelta = delta / 2;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    // Определяем эффективную сторону взятия зазора
+    const effTakeSide =
+      takeSideOverride ||
+      joint.takeSide ||
+      this.getSmartJointTakeSide(joint, wallWidth, wallHeight, openings);
+
+    const isVert = Math.abs(dx) <= Math.abs(dy);
 
     // Максимальное расстояние от линии шва, на котором точка считается принадлежащей стыку
     const maxThreshold = Math.max(35, Math.max(oldWidth, newWidth) / 2 + 15);
@@ -1317,15 +1384,30 @@ export class PolygonSlicingEngine {
           const isPosSide = Math.abs(h) > 1e-3 ? h > 0 : hCentroid >= 0;
 
           let shift = 0;
-          if (posIsOpening && !negIsOpening) {
-            // Сторона +n — это дверь/проем. Дверь НЕ сдвигается (shift = 0), вся ширина зазора берется со стороны соседней панели (-n)
-            shift = isPosSide ? 0 : -delta;
-          } else if (negIsOpening && !posIsOpening) {
-            // Сторона -n — это дверь/проем. Дверь НЕ сдвигается (shift = 0), вся ширина зазора берется со стороны соседней панели (+n)
-            shift = isPosSide ? delta : 0;
+          if (isVert) {
+            // Для вертикального шва: PosSide (nx=-1) это СЛЕВА, NegSide это СПРАВА
+            if (effTakeSide === 'LEFT') {
+              // Берем только с левой панели (левая сдвигается на полный delta, правая на месте)
+              shift = isPosSide ? delta : 0;
+            } else if (effTakeSide === 'RIGHT') {
+              // Берем только с правой панели (правая сдвигается на полный delta, левая на месте)
+              shift = isPosSide ? 0 : -delta;
+            } else {
+              // Симметрично
+              shift = isPosSide ? halfDelta : -halfDelta;
+            }
           } else {
-            // Обычный шов между панелями — симметричный сдвиг пополам
-            shift = isPosSide ? halfDelta : -halfDelta;
+            // Для горизонтального шва: PosSide (ny=1) это СВЕРХУ, NegSide это СНИЗУ
+            if (effTakeSide === 'TOP') {
+              // Берем только с верхней панели
+              shift = isPosSide ? delta : 0;
+            } else if (effTakeSide === 'BOTTOM') {
+              // Берем только с нижней панели
+              shift = isPosSide ? 0 : -delta;
+            } else {
+              // Симметрично
+              shift = isPosSide ? halfDelta : -halfDelta;
+            }
           }
 
           const newX = Math.max(0, Math.min(wallWidth, Math.round((pt.x + shift * nx) * 10) / 10));

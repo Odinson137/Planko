@@ -66,6 +66,7 @@ export interface CalculatedJointLine {
   columnIndex?: number;
   segmentIndex?: number;
   groupId?: string;
+  takeSide?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
 }
 
 export interface LayoutCalculationResult {
@@ -361,6 +362,7 @@ export class LayoutEngine {
           const effArticle = customConfig?.profileArticle !== undefined ? customConfig.profileArticle : j.profileArticle;
           const effColor = customConfig?.profileColor || j.profileColor;
           const effGroupId = customConfig?.groupId || j.groupId;
+          const effTakeSide = customConfig?.takeSide || j.takeSide;
 
           const defaultName =
             orientation === 'HORIZONTAL'
@@ -384,6 +386,7 @@ export class LayoutEngine {
             profileArticle: effArticle,
             profileColor: effColor,
             groupId: effGroupId,
+            takeSide: effTakeSide,
           });
         });
       }
@@ -1423,6 +1426,7 @@ export class LayoutEngine {
       orientation: j.orientation,
       groupId: j.groupId,
       isOuterEdge: j.isOuterEdge,
+      takeSide: j.takeSide,
     }));
 
     return { panels, joints };

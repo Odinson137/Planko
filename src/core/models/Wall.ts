@@ -35,6 +35,7 @@ export interface WallJointLine {
   orientation?: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
   groupId?: string;                 // Идентификатор группы объединенных швов
   isOuterEdge?: boolean;            // Внешний край стены
+  takeSide?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'; // Сторона, откуда забирается размер при расширении
 }
 
 export interface PanelSegmentConfig {
@@ -112,6 +113,7 @@ export interface JointEdgeConfig {
   profileArticle?: string;         // Артикул AllWall (DL-13, MC-06 и т.д.)
   profileColor?: string;           // HEX цвет профиля
   groupId?: string;                // идентификатор группы объединенных швов
+  takeSide?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'; // сторона, откуда забирается зазор
 }
 
 export interface WallZone {
