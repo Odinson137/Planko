@@ -2550,9 +2550,10 @@ export class PolygonSlicingEngine {
     return { newPanels: resultPanels, joints: [] };
   }
 
-    /**
+      /**
    * Применяет торцевые зазоры (Edge Insets / Откосы) к полигону детали.
-   * Работает для ЛЮБЫХ полигонов (прямоугольники, трапеции, треугольники, диагональные срезы).
+   * Работает для ВСЕХ типов полигонов (прямоугольники, трапеции, сложные срезы, П- и Г-образные детали вокруг проемов).
+   * Сдвигает только внешние грани полигона, сохраняя внутренние вырезы и сложную форму деталей.
    */
   public static applyPanelEdgesInsets(
     polygon: Point2D[],
@@ -2562,10 +2563,10 @@ export class PolygonSlicingEngine {
       return polygon;
     }
 
-    const dLeft = edges.left?.width ?? 0;
-    const dRight = edges.right?.width ?? 0;
-    const dTop = edges.top?.width ?? 0;
-    const dBottom = edges.bottom?.width ?? 0;
+    const dLeft = Math.max(0, edges.left?.width ?? 0);
+    const dRight = Math.max(0, edges.right?.width ?? 0);
+    const dTop = Math.max(0, edges.top?.width ?? 0);
+    const dBottom = Math.max(0, edges.bottom?.width ?? 0);
 
     if (dLeft <= 0 && dRight <= 0 && dTop <= 0 && dBottom <= 0) {
       return polygon;
@@ -2598,92 +2599,36 @@ export class PolygonSlicingEngine {
       ];
     }
 
-    // 2. Универсальное отсечение (Sutherland-Hodgman Clipping) для любых сложных полигонов
-    let currentPoly = [...polygon];
+    // 2. Универсальный сдвиг внешних границ для любых сложных полигонов (включая П- и Г-образные)
+    return polygon.map((pt) => {
+      let newX = pt.x;
+      let newY = pt.y;
 
-    // Отсечение слева (x >= targetMinX)
-    if (dLeft > 0) {
-      currentPoly = this.clipPolygonHalfPlane(
-        currentPoly,
-        (p) => p.x >= targetMinX - 0.001,
-        (p1, p2) => {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (targetMinX - p1.x) / (p2.x - p1.x) : 0;
-          return { x: targetMinX, y: p1.y + t * (p2.y - p1.y) };
-        }
-      );
-    }
-
-    // Отсечение справа (x <= targetMaxX)
-    if (dRight > 0) {
-      currentPoly = this.clipPolygonHalfPlane(
-        currentPoly,
-        (p) => p.x <= targetMaxX + 0.001,
-        (p1, p2) => {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (targetMaxX - p1.x) / (p2.x - p1.x) : 0;
-          return { x: targetMaxX, y: p1.y + t * (p2.y - p1.y) };
-        }
-      );
-    }
-
-    // Отсечение снизу (y >= targetMinY)
-    if (dBottom > 0) {
-      currentPoly = this.clipPolygonHalfPlane(
-        currentPoly,
-        (p) => p.y >= targetMinY - 0.001,
-        (p1, p2) => {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (targetMinY - p1.y) / (p2.x - p1.x) : 0;
-          return { x: p1.x + t * (p2.x - p1.x), y: targetMinY };
-        }
-      );
-    }
-
-    // Отсечение сверху (y <= targetMaxY)
-    if (dTop > 0) {
-      currentPoly = this.clipPolygonHalfPlane(
-        currentPoly,
-        (p) => p.y <= targetMaxY + 0.001,
-        (p1, p2) => {
-          const t = Math.abs(p2.y - p1.y) > 0.0001 ? (targetMaxY - p1.y) / (p2.y - p1.y) : 0;
-          return { x: p1.x + t * (p2.x - p1.x), y: targetMaxY };
-        }
-      );
-    }
-
-    if (currentPoly.length >= 3) {
-      return currentPoly.map((pt) => ({
-        x: Math.round(pt.x * 10) / 10,
-        y: Math.round(pt.y * 10) / 10,
-      }));
-    }
-
-    return polygon;
-  }
-
-  private static clipPolygonHalfPlane(
-    poly: Point2D[],
-    isInside: (p: Point2D) => boolean,
-    intersect: (p1: Point2D, p2: Point2D) => Point2D
-  ): Point2D[] {
-    if (poly.length === 0) return [];
-    const outputList: Point2D[] = [];
-    let s = poly[poly.length - 1];
-
-    for (let i = 0; i < poly.length; i++) {
-      const e = poly[i];
-      if (isInside(e)) {
-        if (isInside(s)) {
-          outputList.push(e);
-        } else {
-          outputList.push(intersect(s, e));
-          outputList.push(e);
-        }
-      } else if (isInside(s)) {
-        outputList.push(intersect(s, e));
+      if (dLeft > 0 && Math.abs(pt.x - minX) < 1.5) {
+        newX = targetMinX;
+      } else if (dRight > 0 && Math.abs(pt.x - maxX) < 1.5) {
+        newX = targetMaxX;
+      } else if (dLeft > 0 && newX < targetMinX && Math.abs(pt.x - minX) < (maxX - minX) * 0.4) {
+        newX = targetMinX;
+      } else if (dRight > 0 && newX > targetMaxX && Math.abs(pt.x - maxX) < (maxX - minX) * 0.4) {
+        newX = targetMaxX;
       }
-      s = e;
-    }
 
-    return outputList;
+      if (dBottom > 0 && Math.abs(pt.y - minY) < 1.5) {
+        newY = targetMinY;
+      } else if (dTop > 0 && Math.abs(pt.y - maxY) < 1.5) {
+        newY = targetMaxY;
+      } else if (dBottom > 0 && newY < targetMinY && Math.abs(pt.y - minY) < (maxY - minY) * 0.4) {
+        newY = targetMinY;
+      } else if (dTop > 0 && newY > targetMaxY && Math.abs(pt.y - maxY) < (maxY - minY) * 0.4) {
+        newY = targetMaxY;
+      }
+
+      return {
+        x: Math.round(newX * 10) / 10,
+        y: Math.round(newY * 10) / 10,
+      };
+    });
   }
 
 }
