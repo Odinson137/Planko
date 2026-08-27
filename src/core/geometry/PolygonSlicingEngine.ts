@@ -1480,14 +1480,31 @@ export class PolygonSlicingEngine {
         });
       };
 
+      let centerShift = 0;
       if (effTakeSide === 'RIGHT') {
         applyRightShift(delta);
+        centerShift = delta / 2;
       } else if (effTakeSide === 'LEFT') {
         applyLeftShift(delta);
+        centerShift = -delta / 2;
       } else {
         applyRightShift(delta / 2);
         applyLeftShift(delta / 2);
+        centerShift = 0;
       }
+
+      // Обновляем сам targetJoint
+      nextJoints = nextJoints.map((j) => {
+        if (j.id === targetJoint.id) {
+          return {
+            ...j,
+            width: newWidth,
+            p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + centerShift) * 10) / 10)), y: j.p1.y },
+            p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + centerShift) * 10) / 10)), y: j.p2.y },
+          };
+        }
+        return j;
+      });
     } else {
       // Горизонтальный стык
       const xMin = Math.min(p1.x, p2.x);
@@ -1610,14 +1627,31 @@ export class PolygonSlicingEngine {
         });
       };
 
+      let centerShift = 0;
       if (effTakeSide === 'BOTTOM') {
         applyBottomShift(delta);
+        centerShift = -delta / 2;
       } else if (effTakeSide === 'TOP') {
         applyTopShift(delta);
+        centerShift = delta / 2;
       } else {
         applyTopShift(delta / 2);
         applyBottomShift(delta / 2);
+        centerShift = 0;
       }
+
+      // Обновляем сам targetJoint
+      nextJoints = nextJoints.map((j) => {
+        if (j.id === targetJoint.id) {
+          return {
+            ...j,
+            width: newWidth,
+            p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + centerShift) * 10) / 10)) },
+            p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + centerShift) * 10) / 10)) },
+          };
+        }
+        return j;
+      });
     }
 
     return { panels: nextPanels, joints: nextJoints };
@@ -1647,8 +1681,8 @@ export class PolygonSlicingEngine {
 
     if (isVert) {
       const getSideShift = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
-        if (side === 'RIGHT') return half; // сдвиг правой стороны вправо
-        if (side === 'LEFT') return -half; // сдвиг правой стороны влево
+        if (side === 'RIGHT') return half; // сдвиг шва вправо
+        if (side === 'LEFT') return -half; // сдвиг шва влево
         return 0;
       };
 
@@ -1684,9 +1718,16 @@ export class PolygonSlicingEngine {
         .filter((p) => Math.max(...p.points.map((pt) => pt.x)) <= jX + 5)
         .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
 
-      // Сдвигаем все правые стыки
+      // Сдвигаем сам targetJoint и все правые стыки
       nextJoints = nextJoints.map((j) => {
-        if (j.id === targetJoint.id) return j;
+        if (j.id === targetJoint.id) {
+          return {
+            ...j,
+            takeSide: newTakeSide,
+            p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + shiftDelta) * 10) / 10)), y: j.p1.y },
+            p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + shiftDelta) * 10) / 10)), y: j.p2.y },
+          };
+        }
         const currX = (j.p1.x + j.p2.x) / 2;
         if (isJointInBand(j) && currX > jX + 5) {
           return {
@@ -1751,8 +1792,8 @@ export class PolygonSlicingEngine {
     } else {
       // Горизонтальный стык
       const getSideShift = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
-        if (side === 'TOP') return half;    // сдвиг верхней стороны вверх
-        if (side === 'BOTTOM') return -half; // сдвиг нижней стороны вниз
+        if (side === 'TOP') return half;    // сдвиг шва вверх
+        if (side === 'BOTTOM') return -half; // сдвиг шва вниз
         return 0;
       };
 
@@ -1788,9 +1829,16 @@ export class PolygonSlicingEngine {
         .filter((p) => Math.max(...p.points.map((pt) => pt.y)) <= jY + 5)
         .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
 
-      // Сдвигаем стыки сверху
+      // Сдвигаем сам targetJoint и стыки сверху
       nextJoints = nextJoints.map((j) => {
-        if (j.id === targetJoint.id) return j;
+        if (j.id === targetJoint.id) {
+          return {
+            ...j,
+            takeSide: newTakeSide,
+            p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + shiftDelta) * 10) / 10)) },
+            p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + shiftDelta) * 10) / 10)) },
+          };
+        }
         const currY = (j.p1.y + j.p2.y) / 2;
         if (isJointInCol(j) && currY > jY + 5) {
           return {
@@ -1802,16 +1850,16 @@ export class PolygonSlicingEngine {
         return j;
       });
 
-      // Смежная нижняя панель: её верхний край смещается на shiftDelta
-      const immediateBottomPanel = bottomPanels.length > 0 ? bottomPanels[bottomPanels.length - 1] : null;
-      if (immediateBottomPanel) {
-        const maxY = Math.max(...immediateBottomPanel.points.map((pt) => pt.y));
+      // Смежная верхняя панель (topPanels[0]): её нижний край смещается на shiftDelta
+      const immediateTopPanel = topPanels.length > 0 ? topPanels[0] : null;
+      if (immediateTopPanel) {
+        const minY = Math.min(...immediateTopPanel.points.map((pt) => pt.y));
         nextPanels = nextPanels.map((p) => {
-          if (p.id !== immediateBottomPanel.id) return p;
+          if (p.id !== immediateTopPanel.id) return p;
           return {
             ...p,
             points: p.points.map((pt) => {
-              if (pt.y >= maxY - 15) {
+              if (pt.y <= minY + 15) {
                 return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)) };
               }
               return pt;
@@ -1820,20 +1868,20 @@ export class PolygonSlicingEngine {
         });
       }
 
-      // Верхние панели: промежуточные сдвигаются целиком, верхняя у потолка подрезается
-      if (topPanels.length > 0) {
-        const lastPanelId = topPanels[topPanels.length - 1].id;
-        const topPanelIds = new Set(topPanels.map((p) => p.id));
+      // Нижние панели: промежуточные сдвигаются целиком, первая у пола подрезается
+      if (bottomPanels.length > 0) {
+        const firstPanelId = bottomPanels[0].id;
+        const bottomPanelIds = new Set(bottomPanels.map((p) => p.id));
 
         nextPanels = nextPanels.map((p) => {
-          if (!topPanelIds.has(p.id)) return p;
+          if (!bottomPanelIds.has(p.id)) return p;
 
-          if (p.id === lastPanelId) {
-            const minY = Math.min(...p.points.map((pt) => pt.y));
+          if (p.id === firstPanelId) {
+            const maxY = Math.max(...p.points.map((pt) => pt.y));
             return {
               ...p,
               points: p.points.map((pt) => {
-                if (pt.y <= minY + 15) {
+                if (pt.y >= maxY - 15) {
                   return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)) };
                 }
                 return pt;

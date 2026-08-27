@@ -948,8 +948,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
-            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+            const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
               nextPanels!,
+              nextWallJoints || [],
               { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
@@ -957,6 +958,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               wall.height,
               wall.openings
             );
+            nextPanels = cascadeRes.panels;
+            nextWallJoints = cascadeRes.joints;
           }
         });
 
@@ -1024,8 +1027,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
-            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+            const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
               nextPanels!,
+              nextWallJoints || [],
               { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
@@ -1033,6 +1037,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               wall.height,
               wall.openings
             );
+            nextPanels = cascadeRes.panels;
+            nextWallJoints = cascadeRes.joints;
           }
         });
 
@@ -1144,8 +1150,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
-            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+            const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
               nextPanels!,
+              nextWallJoints || [],
               { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               clampedW,
@@ -1153,6 +1160,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               wall.height,
               wall.openings
             );
+            nextPanels = cascadeRes.panels;
+            nextWallJoints = cascadeRes.joints;
           }
         });
 
@@ -1219,8 +1228,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               : 'BOTH');
 
           if (targetJoint && oldTakeSide !== takeSide && jointW > 0) {
-            nextPanels = PolygonSlicingEngine.adjustPanelsForJointTakeSideChange(
+            const cascadeRes = PolygonSlicingEngine.cascadeChainJointTakeSideChange(
               nextPanels!,
+              nextWallJoints || [],
               targetJoint,
               jointW,
               oldTakeSide,
@@ -1228,6 +1238,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               wall.width,
               wall.height
             );
+            nextPanels = cascadeRes.panels;
+            nextWallJoints = cascadeRes.joints;
           }
         });
 
@@ -2694,8 +2706,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
-            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+            const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
               nextPanels,
+              nextWallJoints || [],
               { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
@@ -2703,6 +2716,15 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               w.height,
               w.openings
             );
+            nextPanels = cascadeRes.panels;
+            nextWallJoints = cascadeRes.joints;
+
+            const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+              { ...w, panels: nextPanels, joints: nextWallJoints },
+              state.project.materials
+            );
+            nextPanels = valid.panels;
+            nextWallJoints = valid.joints;
           }
 
           return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };
@@ -2773,8 +2795,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
-            nextPanels = PolygonSlicingEngine.adjustPanelsForJointWidthChange(
+            const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
               nextPanels,
+              nextWallJoints || [],
               { ...targetJoint, takeSide: currentTakeSide },
               oldW,
               width,
@@ -2782,6 +2805,15 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               w.height,
               w.openings
             );
+            nextPanels = cascadeRes.panels;
+            nextWallJoints = cascadeRes.joints;
+
+            const valid = PolygonSlicingEngine.ensureValidPanelDimensions(
+              { ...w, panels: nextPanels, joints: nextWallJoints },
+              state.project.materials
+            );
+            nextPanels = valid.panels;
+            nextWallJoints = valid.joints;
           }
 
           return { ...w, customJoints: nextJoints, joints: nextWallJoints, panels: nextPanels };

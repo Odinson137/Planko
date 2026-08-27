@@ -584,10 +584,10 @@ export const RightSidebar: React.FC = () => {
                       color={currentTakeSide === 'BOTH' || currentTakeSide === 'TOP' ? 'blue' : 'gray'}
                       leftSection={<ArrowUp size={14} />}
                       onClick={() => {
-                        if (currentTakeSide === 'BOTH') {
-                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTTOM');
-                        } else if (currentTakeSide === 'BOTTOM') {
+                        if (currentTakeSide === 'TOP') {
                           setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        } else {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'TOP');
                         }
                       }}
                     >
@@ -599,10 +599,10 @@ export const RightSidebar: React.FC = () => {
                       color={currentTakeSide === 'BOTH' || currentTakeSide === 'BOTTOM' ? 'blue' : 'gray'}
                       leftSection={<ArrowDown size={14} />}
                       onClick={() => {
-                        if (currentTakeSide === 'BOTH') {
-                          setJointTakeSide(currentWall.id, selectedJointId, 'TOP');
-                        } else if (currentTakeSide === 'TOP') {
+                        if (currentTakeSide === 'BOTTOM') {
                           setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        } else {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'BOTTOM');
                         }
                       }}
                     >
@@ -617,10 +617,10 @@ export const RightSidebar: React.FC = () => {
                       color={currentTakeSide === 'BOTH' || currentTakeSide === 'LEFT' ? 'blue' : 'gray'}
                       leftSection={<ArrowLeft size={14} />}
                       onClick={() => {
-                        if (currentTakeSide === 'BOTH') {
-                          setJointTakeSide(currentWall.id, selectedJointId, 'RIGHT');
-                        } else if (currentTakeSide === 'RIGHT') {
+                        if (currentTakeSide === 'LEFT') {
                           setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        } else {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'LEFT');
                         }
                       }}
                     >
@@ -632,10 +632,10 @@ export const RightSidebar: React.FC = () => {
                       color={currentTakeSide === 'BOTH' || currentTakeSide === 'RIGHT' ? 'blue' : 'gray'}
                       leftSection={<ArrowRight size={14} />}
                       onClick={() => {
-                        if (currentTakeSide === 'BOTH') {
-                          setJointTakeSide(currentWall.id, selectedJointId, 'LEFT');
-                        } else if (currentTakeSide === 'LEFT') {
+                        if (currentTakeSide === 'RIGHT') {
                           setJointTakeSide(currentWall.id, selectedJointId, 'BOTH');
+                        } else {
+                          setJointTakeSide(currentWall.id, selectedJointId, 'RIGHT');
                         }
                       }}
                     >
