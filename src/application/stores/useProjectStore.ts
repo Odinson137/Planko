@@ -1363,7 +1363,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               oldTakeSide,
               takeSide,
               wall.width,
-              wall.height
+              wall.height,
+              wall.openings
             );
             nextPanels = cascadeRes.panels;
             nextWallJoints = cascadeRes.joints;
@@ -1944,7 +1945,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       if (wall.panels && wall.panels.length > 0) {
         let nextPanels = [...wall.panels];
-        const nextJoints = [...(wall.joints || [])];
+        let nextJoints = [...(wall.joints || [])];
 
         const targetIds = state.selectedPieceIds.length > 0
           ? state.selectedPieceIds
@@ -2000,6 +2001,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           }
           return [updated];
         });
+
+        if (wall.openings && wall.openings.length > 0) {
+          const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
+            nextPanels,
+            nextJoints,
+            wall.openings
+          );
+          nextPanels = sanitized.panels;
+          nextJoints = sanitized.joints;
+        }
 
         return {
           project: {
@@ -2492,6 +2503,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               }
             }
 
+            if (w.openings && w.openings.length > 0) {
+              const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
+                nextPanels,
+                nextJoints,
+                w.openings
+              );
+              nextPanels = sanitized.panels;
+              nextJoints = sanitized.joints;
+            }
+
             return {
               ...w,
               customPanels: {},
@@ -2580,7 +2601,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               oldTakeSide,
               takeSide,
               w.width,
-              w.height
+              w.height,
+              w.openings
             );
             nextPanels = cascadeRes.panels;
             nextWallJoints = cascadeRes.joints;
@@ -3012,7 +3034,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       if (wall.panels && wall.panels.length > 0) {
         let nextPanels = [...wall.panels];
-        const nextJoints = [...(wall.joints || [])];
+        let nextJoints = [...(wall.joints || [])];
         const targetId =
           state.selectedSubPieceId ||
           state.selectedPieceIds[0] ||
@@ -3068,6 +3090,17 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               );
               nextPanels.splice(pIdx, 1, ...newPanels);
               nextJoints.push(...joints);
+
+              if (wall.openings && wall.openings.length > 0) {
+                const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
+                  nextPanels,
+                  nextJoints,
+                  wall.openings
+                );
+                nextPanels = sanitized.panels;
+                nextJoints = sanitized.joints;
+              }
+
               return {
                 project: {
                   ...state.project,
@@ -3080,6 +3113,15 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           }
 
           nextPanels[pIdx] = updated;
+          if (wall.openings && wall.openings.length > 0) {
+            const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
+              nextPanels,
+              nextJoints,
+              wall.openings
+            );
+            nextPanels = sanitized.panels;
+            nextJoints = sanitized.joints;
+          }
           return {
             project: {
               ...state.project,
@@ -5694,12 +5736,17 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 partLabel: '1.1',
               };
               const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(basePanel, 1220, 8);
+              const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
+                sliced.newPanels,
+                sliced.joints,
+                w.openings
+              );
               return {
                 ...w,
                 customPanels: {},
                 customJoints: {},
-                panels: sliced.newPanels,
-                joints: sliced.joints,
+                panels: sanitized.panels,
+                joints: sanitized.joints,
                 zone: { ...w.zone, materialId: 'mat-sheet-1220', jointProfileType: 'JOINT_8' },
               };
             }
@@ -5725,12 +5772,17 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 partLabel: '1.1',
               };
               const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(basePanel, 145, 0);
+              const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
+                sliced.newPanels,
+                sliced.joints,
+                w.openings
+              );
               return {
                 ...w,
                 customPanels: {},
                 customJoints: {},
-                panels: sliced.newPanels,
-                joints: sliced.joints,
+                panels: sanitized.panels,
+                joints: sanitized.joints,
                 zone: { ...w.zone, materialId: 'mat-slat-16', jointProfileType: 'JOINT_8' },
               };
             }

@@ -1299,13 +1299,21 @@ export class PolygonSlicingEngine {
       const jX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
 
-      // 1. Примыкание к правой стене (краю) или проем справа
+      // 1. Примыкание к правой стене (краю) или к левому косяку проема (проем справа)
       const nearRightWall = jX >= wallWidth - 15;
       const ptRight = { x: jX + 25, y: midY };
       const rightIsOpening = isInsideOpening(ptRight);
 
-      if (nearRightWall || rightIsOpening) {
+      // 2. Примыкание к левой стене (краю) или к правому косяку проема (проем слева)
+      const nearLeftWall = jX <= 15;
+      const ptLeft = { x: jX - 25, y: midY };
+      const leftIsOpening = isInsideOpening(ptLeft);
+
+      if ((nearRightWall || rightIsOpening) && !(nearLeftWall || leftIsOpening)) {
         return 'LEFT'; // Забирать только слева, правая стена/проем зафиксирована
+      }
+      if ((nearLeftWall || leftIsOpening) && !(nearRightWall || rightIsOpening)) {
+        return 'RIGHT'; // Забирать только справа, левая стена/проем зафиксирована
       }
       // По умолчанию для вертикальных стыков активна правая стрелка (RIGHT)
       return 'RIGHT';
@@ -1313,16 +1321,21 @@ export class PolygonSlicingEngine {
       const jY = (p1.y + p2.y) / 2;
       const midX = (p1.x + p2.x) / 2;
 
-      // 1. Примыкание к полу (краю стены) или проем снизу
+      // 1. Примыкание к полу (краю стены) или к верху проема (проем снизу)
       const nearBottomWall = jY <= 15;
-      const nearTopWall = jY >= wallHeight - 15;
       const ptBottom = { x: midX, y: jY - 25 };
-      const ptTop = { x: midX, y: jY + 25 };
       const bottomIsOpening = isInsideOpening(ptBottom);
+
+      // 2. Примыкание к потолку (краю стены) или к низу проема (проем сверху)
+      const nearTopWall = jY >= wallHeight - 15;
+      const ptTop = { x: midX, y: jY + 25 };
       const topIsOpening = isInsideOpening(ptTop);
 
       if ((nearBottomWall || bottomIsOpening) && !(nearTopWall || topIsOpening)) {
         return 'TOP'; // Забирать только сверху, пол/проем снизу зафиксирован
+      }
+      if ((nearTopWall || topIsOpening) && !(nearBottomWall || bottomIsOpening)) {
+        return 'BOTTOM'; // Забирать только снизу, потолок/проем сверху зафиксирован
       }
       // По умолчанию для горизонтальных стыков активна нижняя стрелка (BOTTOM)
       return 'BOTTOM';
@@ -1331,9 +1344,8 @@ export class PolygonSlicingEngine {
 
   /**
    * Выполняет физическое каскадное перемещение цепочки элементов в строке/столбце при изменении ширины стыка.
-   * Поддерживает как внутренние стыки, так и краевые стыки стены (edge-v-left, edge-v-right, edge-h-bot, edge-h-top).
-   * Промежуточные элементы сохраняют свою точную ширину и физически сдвигаются.
-   * Крайний элемент цепочки у стены (или границы группы) подрезается или расширяется.
+   * Поддерживает внутренние стыки, краевые стыки стены (edge-v-left/right, edge-h-bot/top) и жесткие границы проемов.
+   * Элементы сдвигаются только внутри непрерывного отрезка между стенами и проемами.
    */
   public static cascadeChainJointWidthChange(
     panels: WallPanelPiece[],
@@ -1363,6 +1375,8 @@ export class PolygonSlicingEngine {
       targetJoint.takeSide ||
       this.getSmartJointTakeSide(targetJoint, wallWidth, wallHeight, openings);
 
+    const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
+
     let nextPanels = [...panels];
     let nextJoints = [...joints];
 
@@ -1390,34 +1404,50 @@ export class PolygonSlicingEngine {
       const applyRightShift = (shiftVal: number) => {
         if (Math.abs(shiftVal) < 1e-4) return;
 
-        // Сдвигаем все вертикальные стыки правее jX
-        nextJoints = nextJoints.map((j) => {
-          if (j.id === targetJoint.id) return j;
-          const currX = (j.p1.x + j.p2.x) / 2;
-          const jyMin = Math.min(j.p1.y, j.p2.y);
-          const jyMax = Math.max(j.p1.y, j.p2.y);
-          const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
-          const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
-
-          if (jIsVert && overlapsJoint && currX > jX + 5) {
-            return {
-              ...j,
-              p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + shiftVal) * 10) / 10)), y: j.p1.y },
-              p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + shiftVal) * 10) / 10)), y: j.p2.y },
-            };
-          }
-          return j;
-        });
-
         bandsToProcess.forEach((b) => {
           const isPanelInBand = (p: WallPanelPiece) => {
             const ys = p.points.map((pt) => pt.y);
-            return Math.abs(Math.min(...ys) - b.yMin) <= 15 && Math.abs(Math.max(...ys) - b.yMax) <= 15;
+            return Math.max(...ys) > b.yMin + 5 && Math.min(...ys) < b.yMax - 5;
           };
 
+          const openingsInBand = cutoutOpenings.filter(
+            (op) => Math.max(op.y, b.yMin) < Math.min(op.y + op.height, b.yMax) - 5
+          );
+
+          // Правая жесткая граница цепочки: левый косяк проема справа или правая стена
+          const rightObstacles = [
+            wallWidth,
+            ...openingsInBand.filter((op) => op.x > jX + 5).map((op) => op.x),
+          ];
+          const nextObstacleX = Math.min(...rightObstacles);
+
+          // Сдвигаем все вертикальные стыки строго между jX и nextObstacleX
+          nextJoints = nextJoints.map((j) => {
+            if (j.id === targetJoint.id) return j;
+            const currX = (j.p1.x + j.p2.x) / 2;
+            const jyMin = Math.min(j.p1.y, j.p2.y);
+            const jyMax = Math.max(j.p1.y, j.p2.y);
+            const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
+            const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
+
+            if (jIsVert && overlapsJoint && currX > jX + 5 && currX < nextObstacleX - 5) {
+              return {
+                ...j,
+                p1: { x: Math.max(0, Math.min(nextObstacleX, Math.round((j.p1.x + shiftVal) * 10) / 10)), y: j.p1.y },
+                p2: { x: Math.max(0, Math.min(nextObstacleX, Math.round((j.p2.x + shiftVal) * 10) / 10)), y: j.p2.y },
+              };
+            }
+            return j;
+          });
+
+          // Панели в цепочке от jX до препятствия
           const rightPanels = nextPanels
             .filter(isPanelInBand)
-            .filter((p) => Math.min(...p.points.map((pt) => pt.x)) >= jX - 5)
+            .filter((p) => {
+              const minX = Math.min(...p.points.map((pt) => pt.x));
+              const maxX = Math.max(...p.points.map((pt) => pt.x));
+              return minX >= jX - 5 && maxX <= nextObstacleX + 15;
+            })
             .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
 
           if (rightPanels.length === 0) return;
@@ -1435,7 +1465,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.x <= minX + 15) {
-                    return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
+                    return { x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
                   }
                   return pt;
                 }),
@@ -1443,12 +1473,13 @@ export class PolygonSlicingEngine {
             }
 
             if (p.id === lastPanelId) {
+              // Крайняя панель цепочки перед стеной/проемом: сдвигается только левый край, правый примыкает к препятствию
               const minX = Math.min(...p.points.map((pt) => pt.x));
               return {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.x <= minX + 15) {
-                    return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
+                    return { x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)), y: pt.y };
                   }
                   return pt;
                 }),
@@ -1457,7 +1488,7 @@ export class PolygonSlicingEngine {
               return {
                 ...p,
                 points: p.points.map((pt) => ({
-                  x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftVal) * 10) / 10)),
+                  x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)),
                   y: pt.y,
                 })),
               };
@@ -1465,7 +1496,7 @@ export class PolygonSlicingEngine {
               return {
                 ...p,
                 points: p.points.map((pt) => ({
-                  x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftVal) * 10) / 10)),
+                  x: Math.max(0, Math.min(nextObstacleX, Math.round((pt.x + shiftVal) * 10) / 10)),
                   y: pt.y,
                 })),
               };
@@ -1477,35 +1508,50 @@ export class PolygonSlicingEngine {
       const applyLeftShift = (shiftVal: number) => {
         if (Math.abs(shiftVal) < 1e-4) return;
 
-        if (!isRightEdge) {
-          nextJoints = nextJoints.map((j) => {
-            if (j.id === targetJoint.id) return j;
-            const currX = (j.p1.x + j.p2.x) / 2;
-            const jyMin = Math.min(j.p1.y, j.p2.y);
-            const jyMax = Math.max(j.p1.y, j.p2.y);
-            const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
-            const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
-
-            if (jIsVert && overlapsJoint && currX < jX - 5) {
-              return {
-                ...j,
-                p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x - shiftVal) * 10) / 10)), y: j.p1.y },
-                p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x - shiftVal) * 10) / 10)), y: j.p2.y },
-              };
-            }
-            return j;
-          });
-        }
-
         bandsToProcess.forEach((b) => {
           const isPanelInBand = (p: WallPanelPiece) => {
             const ys = p.points.map((pt) => pt.y);
-            return Math.abs(Math.min(...ys) - b.yMin) <= 15 && Math.abs(Math.max(...ys) - b.yMax) <= 15;
+            return Math.max(...ys) > b.yMin + 5 && Math.min(...ys) < b.yMax - 5;
           };
+
+          const openingsInBand = cutoutOpenings.filter(
+            (op) => Math.max(op.y, b.yMin) < Math.min(op.y + op.height, b.yMax) - 5
+          );
+
+          // Левая жесткая граница цепочки: правый косяк проема слева или левая стена 0
+          const leftObstacles = [
+            0,
+            ...openingsInBand.filter((op) => op.x + op.width < jX - 5).map((op) => op.x + op.width),
+          ];
+          const prevObstacleX = Math.max(...leftObstacles);
+
+          if (!isRightEdge) {
+            nextJoints = nextJoints.map((j) => {
+              if (j.id === targetJoint.id) return j;
+              const currX = (j.p1.x + j.p2.x) / 2;
+              const jyMin = Math.min(j.p1.y, j.p2.y);
+              const jyMax = Math.max(j.p1.y, j.p2.y);
+              const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
+              const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
+
+              if (jIsVert && overlapsJoint && currX < jX - 5 && currX > prevObstacleX + 5) {
+                return {
+                  ...j,
+                  p1: { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((j.p1.x - shiftVal) * 10) / 10)), y: j.p1.y },
+                  p2: { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((j.p2.x - shiftVal) * 10) / 10)), y: j.p2.y },
+                };
+              }
+              return j;
+            });
+          }
 
           const leftPanels = nextPanels
             .filter(isPanelInBand)
-            .filter((p) => Math.max(...p.points.map((pt) => pt.x)) <= jX + 5)
+            .filter((p) => {
+              const minX = Math.min(...p.points.map((pt) => pt.x));
+              const maxX = Math.max(...p.points.map((pt) => pt.x));
+              return maxX <= jX + 5 && minX >= prevObstacleX - 15;
+            })
             .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
 
           if (leftPanels.length === 0) return;
@@ -1524,7 +1570,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.x >= maxX - 15) {
-                    return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
+                    return { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
                   }
                   return pt;
                 }),
@@ -1532,12 +1578,13 @@ export class PolygonSlicingEngine {
             }
 
             if (p.id === firstPanelId && !isRightEdge) {
+              // Первая панель цепочки у стены/проема: подрезается только правый край
               const maxX = Math.max(...p.points.map((pt) => pt.x));
               return {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.x >= maxX - 15) {
-                    return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
+                    return { x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)), y: pt.y };
                   }
                   return pt;
                 }),
@@ -1546,7 +1593,7 @@ export class PolygonSlicingEngine {
               return {
                 ...p,
                 points: p.points.map((pt) => ({
-                  x: Math.max(0, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)),
+                  x: Math.max(prevObstacleX, Math.min(wallWidth, Math.round((pt.x - shiftVal) * 10) / 10)),
                   y: pt.y,
                 })),
               };
@@ -1606,36 +1653,50 @@ export class PolygonSlicingEngine {
       const applyBottomShift = (shiftVal: number) => {
         if (Math.abs(shiftVal) < 1e-4) return;
 
-        // Если это верхний край стены (isTopEdge), промежуточные швы стены не сдвигаются вниз
-        if (!isTopEdge) {
-          nextJoints = nextJoints.map((j) => {
-            if (j.id === targetJoint.id) return j;
-            const currY = (j.p1.y + j.p2.y) / 2;
-            const jxMin = Math.min(j.p1.x, j.p2.x);
-            const jxMax = Math.max(j.p1.x, j.p2.x);
-            const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
-            const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
-
-            if (jIsHoriz && overlapsJoint && currY < jY - 5) {
-              return {
-                ...j,
-                p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y - shiftVal) * 10) / 10)) },
-                p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y - shiftVal) * 10) / 10)) },
-              };
-            }
-            return j;
-          });
-        }
-
         colsToProcess.forEach((c) => {
           const isPanelInCol = (p: WallPanelPiece) => {
             const xs = p.points.map((pt) => pt.x);
-            return Math.abs(Math.min(...xs) - c.xMin) <= 15 && Math.abs(Math.max(...xs) - c.xMax) <= 15;
+            return Math.max(...xs) > c.xMin + 5 && Math.min(...xs) < c.xMax - 5;
           };
+
+          const openingsInCol = cutoutOpenings.filter(
+            (op) => Math.max(op.x, c.xMin) < Math.min(op.x + op.width, c.xMax) - 5
+          );
+
+          // Нижняя граница цепочки: верхний край проема снизу или пол 0
+          const bottomObstacles = [
+            0,
+            ...openingsInCol.filter((op) => op.y + op.height < jY - 5).map((op) => op.y + op.height),
+          ];
+          const prevObstacleY = Math.max(...bottomObstacles);
+
+          if (!isTopEdge) {
+            nextJoints = nextJoints.map((j) => {
+              if (j.id === targetJoint.id) return j;
+              const currY = (j.p1.y + j.p2.y) / 2;
+              const jxMin = Math.min(j.p1.x, j.p2.x);
+              const jxMax = Math.max(j.p1.x, j.p2.x);
+              const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
+              const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
+
+              if (jIsHoriz && overlapsJoint && currY < jY - 5 && currY > prevObstacleY + 5) {
+                return {
+                  ...j,
+                  p1: { x: j.p1.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((j.p1.y - shiftVal) * 10) / 10)) },
+                  p2: { x: j.p2.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((j.p2.y - shiftVal) * 10) / 10)) },
+                };
+              }
+              return j;
+            });
+          }
 
           const bottomPanels = nextPanels
             .filter(isPanelInCol)
-            .filter((p) => Math.max(...p.points.map((pt) => pt.y)) <= jY + 5)
+            .filter((p) => {
+              const minY = Math.min(...p.points.map((pt) => pt.y));
+              const maxY = Math.max(...p.points.map((pt) => pt.y));
+              return maxY <= jY + 5 && minY >= prevObstacleY - 15;
+            })
             .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
 
           if (bottomPanels.length === 0) return;
@@ -1654,7 +1715,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.y >= maxY - 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
+                    return { x: pt.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
                   }
                   return pt;
                 }),
@@ -1667,7 +1728,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.y >= maxY - 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
+                    return { x: pt.x, y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)) };
                   }
                   return pt;
                 }),
@@ -1677,7 +1738,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => ({
                   x: pt.x,
-                  y: Math.max(0, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)),
+                  y: Math.max(prevObstacleY, Math.min(wallHeight, Math.round((pt.y - shiftVal) * 10) / 10)),
                 })),
               };
             }
@@ -1689,33 +1750,48 @@ export class PolygonSlicingEngine {
       const applyTopShift = (shiftVal: number) => {
         if (Math.abs(shiftVal) < 1e-4) return;
 
-        nextJoints = nextJoints.map((j) => {
-          if (j.id === targetJoint.id) return j;
-          const currY = (j.p1.y + j.p2.y) / 2;
-          const jxMin = Math.min(j.p1.x, j.p2.x);
-          const jxMax = Math.max(j.p1.x, j.p2.x);
-          const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
-          const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
-
-          if (jIsHoriz && overlapsJoint && currY > jY + 5) {
-            return {
-              ...j,
-              p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + shiftVal) * 10) / 10)) },
-              p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + shiftVal) * 10) / 10)) },
-            };
-          }
-          return j;
-        });
-
         colsToProcess.forEach((c) => {
           const isPanelInCol = (p: WallPanelPiece) => {
             const xs = p.points.map((pt) => pt.x);
-            return Math.abs(Math.min(...xs) - c.xMin) <= 15 && Math.abs(Math.max(...xs) - c.xMax) <= 15;
+            return Math.max(...xs) > c.xMin + 5 && Math.min(...xs) < c.xMax - 5;
           };
+
+          const openingsInCol = cutoutOpenings.filter(
+            (op) => Math.max(op.x, c.xMin) < Math.min(op.x + op.width, c.xMax) - 5
+          );
+
+          // Верхняя граница цепочки: нижний край проема сверху или потолок wallHeight
+          const topObstacles = [
+            wallHeight,
+            ...openingsInCol.filter((op) => op.y > jY + 5).map((op) => op.y),
+          ];
+          const nextObstacleY = Math.min(...topObstacles);
+
+          nextJoints = nextJoints.map((j) => {
+            if (j.id === targetJoint.id) return j;
+            const currY = (j.p1.y + j.p2.y) / 2;
+            const jxMin = Math.min(j.p1.x, j.p2.x);
+            const jxMax = Math.max(j.p1.x, j.p2.x);
+            const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
+            const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
+
+            if (jIsHoriz && overlapsJoint && currY > jY + 5 && currY < nextObstacleY - 5) {
+              return {
+                ...j,
+                p1: { x: j.p1.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((j.p1.y + shiftVal) * 10) / 10)) },
+                p2: { x: j.p2.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((j.p2.y + shiftVal) * 10) / 10)) },
+              };
+            }
+            return j;
+          });
 
           const topPanels = nextPanels
             .filter(isPanelInCol)
-            .filter((p) => Math.min(...p.points.map((pt) => pt.y)) >= jY - 5)
+            .filter((p) => {
+              const minY = Math.min(...p.points.map((pt) => pt.y));
+              const maxY = Math.max(...p.points.map((pt) => pt.y));
+              return minY >= jY - 5 && maxY <= nextObstacleY + 15;
+            })
             .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
 
           if (topPanels.length === 0) return;
@@ -1733,7 +1809,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.y <= minY + 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftVal) * 10) / 10)) };
+                    return { x: pt.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)) };
                   }
                   return pt;
                 }),
@@ -1746,18 +1822,17 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.y <= minY + 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftVal) * 10) / 10)) };
+                    return { x: pt.x, y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)) };
                   }
                   return pt;
                 }),
               };
             } else if (p.id === firstPanelId && isBotEdge) {
-              // Краевой шов снизу (edge-h-bot): первая панель снизу сдвигается вверх целиком
               return {
                 ...p,
                 points: p.points.map((pt) => ({
                   x: pt.x,
-                  y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftVal) * 10) / 10)),
+                  y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)),
                 })),
               };
             } else {
@@ -1765,7 +1840,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => ({
                   x: pt.x,
-                  y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftVal) * 10) / 10)),
+                  y: Math.max(0, Math.min(nextObstacleY, Math.round((pt.y + shiftVal) * 10) / 10)),
                 })),
               };
             }
@@ -1800,12 +1875,12 @@ export class PolygonSlicingEngine {
       });
     }
 
-    return { panels: nextPanels, joints: nextJoints };
+    return this.subtractOpeningsFromWallPanels(nextPanels, nextJoints, openings);
   }
 
   /**
    * Выполняет физическое каскадное перемещение цепочки при смене активной стрелки направления зазора (takeSide).
-   * Промежуточные панели сохраняют свою точную ширину, крайние подгоняются по стенам.
+   * Промежуточные панели сохраняют свою точную ширину, крайние подгоняются по стенам и проемам.
    */
   public static cascadeChainJointTakeSideChange(
     panels: WallPanelPiece[],
@@ -1815,7 +1890,8 @@ export class PolygonSlicingEngine {
     oldTakeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM',
     newTakeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM',
     wallWidth: number,
-    wallHeight: number
+    wallHeight: number,
+    openings: Opening[] = []
   ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
     if (oldTakeSide === newTakeSide || jointWidth <= 0) return { panels, joints };
 
@@ -1829,6 +1905,7 @@ export class PolygonSlicingEngine {
         : Math.abs(p1.x - p2.x) < Math.abs(p1.y - p2.y);
 
     const half = jointWidth / 2;
+    const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
 
     if (isVert) {
       const getSideShift = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
@@ -1860,46 +1937,70 @@ export class PolygonSlicingEngine {
       let nextPanels = [...panels];
       let nextJoints = [...joints];
 
-      // Сдвигаем сам targetJoint и все правые стыки
-      nextJoints = nextJoints.map((j) => {
-        if (j.id === targetJoint.id) {
-          return {
-            ...j,
-            takeSide: newTakeSide,
-            p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + shiftDelta) * 10) / 10)), y: j.p1.y },
-            p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + shiftDelta) * 10) / 10)), y: j.p2.y },
-          };
-        }
-        const currX = (j.p1.x + j.p2.x) / 2;
-        const jyMin = Math.min(j.p1.y, j.p2.y);
-        const jyMax = Math.max(j.p1.y, j.p2.y);
-        const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
-        const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
-
-        if (jIsVert && overlapsJoint && currX > jX + 5) {
-          return {
-            ...j,
-            p1: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p1.x + shiftDelta) * 10) / 10)), y: j.p1.y },
-            p2: { x: Math.max(0, Math.min(wallWidth, Math.round((j.p2.x + shiftDelta) * 10) / 10)), y: j.p2.y },
-          };
-        }
-        return j;
-      });
-
       bandsToProcess.forEach((b) => {
         const isPanelInBand = (p: WallPanelPiece) => {
           const ys = p.points.map((pt) => pt.y);
-          return Math.abs(Math.min(...ys) - b.yMin) <= 15 && Math.abs(Math.max(...ys) - b.yMax) <= 15;
+          return Math.max(...ys) > b.yMin + 5 && Math.min(...ys) < b.yMax - 5;
         };
+
+        const openingsInBand = cutoutOpenings.filter(
+          (op) => Math.max(op.y, b.yMin) < Math.min(op.y + op.height, b.yMax) - 5
+        );
+
+        const rightObstacles = [
+          wallWidth,
+          ...openingsInBand.filter((op) => op.x > jX + 5).map((op) => op.x),
+        ];
+        const nextObstacleX = Math.min(...rightObstacles);
+
+        const leftObstacles = [
+          0,
+          ...openingsInBand.filter((op) => op.x + op.width < jX - 5).map((op) => op.x + op.width),
+        ];
+        const prevObstacleX = Math.max(...leftObstacles);
+
+        // Сдвигаем сам targetJoint и стыки правее jX
+        nextJoints = nextJoints.map((j) => {
+          if (j.id === targetJoint.id) {
+            return {
+              ...j,
+              takeSide: newTakeSide,
+              p1: { x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((j.p1.x + shiftDelta) * 10) / 10)), y: j.p1.y },
+              p2: { x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((j.p2.x + shiftDelta) * 10) / 10)), y: j.p2.y },
+            };
+          }
+          const currX = (j.p1.x + j.p2.x) / 2;
+          const jyMin = Math.min(j.p1.y, j.p2.y);
+          const jyMax = Math.max(j.p1.y, j.p2.y);
+          const jIsVert = j.orientation === 'VERTICAL' || (j.orientation !== 'HORIZONTAL' && Math.abs(j.p1.x - j.p2.x) < Math.abs(j.p1.y - j.p2.y));
+          const overlapsJoint = Math.max(jyMin, yMin) < Math.min(jyMax, yMax) - 5;
+
+          if (jIsVert && overlapsJoint && currX > jX + 5 && currX < nextObstacleX - 5) {
+            return {
+              ...j,
+              p1: { x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((j.p1.x + shiftDelta) * 10) / 10)), y: j.p1.y },
+              p2: { x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((j.p2.x + shiftDelta) * 10) / 10)), y: j.p2.y },
+            };
+          }
+          return j;
+        });
 
         const rightPanels = nextPanels
           .filter(isPanelInBand)
-          .filter((p) => Math.min(...p.points.map((pt) => pt.x)) >= jX - 5)
+          .filter((p) => {
+            const minX = Math.min(...p.points.map((pt) => pt.x));
+            const maxX = Math.max(...p.points.map((pt) => pt.x));
+            return minX >= jX - 5 && maxX <= nextObstacleX + 15;
+          })
           .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
 
         const leftPanels = nextPanels
           .filter(isPanelInBand)
-          .filter((p) => Math.max(...p.points.map((pt) => pt.x)) <= jX + 5)
+          .filter((p) => {
+            const minX = Math.min(...p.points.map((pt) => pt.x));
+            const maxX = Math.max(...p.points.map((pt) => pt.x));
+            return maxX <= jX + 5 && minX >= prevObstacleX - 15;
+          })
           .sort((a, b) => Math.min(...a.points.map((pt) => pt.x)) - Math.min(...b.points.map((pt) => pt.x)));
 
         const immediateLeftPanel = leftPanels.length > 0 ? leftPanels[leftPanels.length - 1] : null;
@@ -1911,7 +2012,7 @@ export class PolygonSlicingEngine {
               ...p,
               points: p.points.map((pt) => {
                 if (pt.x >= maxX - 15) {
-                  return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftDelta) * 10) / 10)), y: pt.y };
+                  return { x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((pt.x + shiftDelta) * 10) / 10)), y: pt.y };
                 }
                 return pt;
               }),
@@ -1932,7 +2033,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.x <= minX + 15) {
-                    return { x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftDelta) * 10) / 10)), y: pt.y };
+                    return { x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((pt.x + shiftDelta) * 10) / 10)), y: pt.y };
                   }
                   return pt;
                 }),
@@ -1941,7 +2042,7 @@ export class PolygonSlicingEngine {
               return {
                 ...p,
                 points: p.points.map((pt) => ({
-                  x: Math.max(0, Math.min(wallWidth, Math.round((pt.x + shiftDelta) * 10) / 10)),
+                  x: Math.max(prevObstacleX, Math.min(nextObstacleX, Math.round((pt.x + shiftDelta) * 10) / 10)),
                   y: pt.y,
                 })),
               };
@@ -1950,7 +2051,7 @@ export class PolygonSlicingEngine {
         }
       });
 
-      return { panels: nextPanels, joints: nextJoints };
+      return this.subtractOpeningsFromWallPanels(nextPanels, nextJoints, openings);
     } else {
       // Горизонтальный стык
       const getSideShift = (side: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => {
@@ -1982,46 +2083,70 @@ export class PolygonSlicingEngine {
       let nextPanels = [...panels];
       let nextJoints = [...joints];
 
-      // Сдвигаем сам targetJoint и стыки сверху
-      nextJoints = nextJoints.map((j) => {
-        if (j.id === targetJoint.id) {
-          return {
-            ...j,
-            takeSide: newTakeSide,
-            p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + shiftDelta) * 10) / 10)) },
-            p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + shiftDelta) * 10) / 10)) },
-          };
-        }
-        const currY = (j.p1.y + j.p2.y) / 2;
-        const jxMin = Math.min(j.p1.x, j.p2.x);
-        const jxMax = Math.max(j.p1.x, j.p2.x);
-        const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
-        const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
-
-        if (jIsHoriz && overlapsJoint && currY > jY + 5) {
-          return {
-            ...j,
-            p1: { x: j.p1.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p1.y + shiftDelta) * 10) / 10)) },
-            p2: { x: j.p2.x, y: Math.max(0, Math.min(wallHeight, Math.round((j.p2.y + shiftDelta) * 10) / 10)) },
-          };
-        }
-        return j;
-      });
-
       colsToProcess.forEach((c) => {
         const isPanelInCol = (p: WallPanelPiece) => {
           const xs = p.points.map((pt) => pt.x);
-          return Math.abs(Math.min(...xs) - c.xMin) <= 15 && Math.abs(Math.max(...xs) - c.xMax) <= 15;
+          return Math.max(...xs) > c.xMin + 5 && Math.min(...xs) < c.xMax - 5;
         };
+
+        const openingsInCol = cutoutOpenings.filter(
+          (op) => Math.max(op.x, c.xMin) < Math.min(op.x + op.width, c.xMax) - 5
+        );
+
+        const topObstacles = [
+          wallHeight,
+          ...openingsInCol.filter((op) => op.y > jY + 5).map((op) => op.y),
+        ];
+        const nextObstacleY = Math.min(...topObstacles);
+
+        const bottomObstacles = [
+          0,
+          ...openingsInCol.filter((op) => op.y + op.height < jY - 5).map((op) => op.y + op.height),
+        ];
+        const prevObstacleY = Math.max(...bottomObstacles);
+
+        // Сдвигаем сам targetJoint и стыки сверху
+        nextJoints = nextJoints.map((j) => {
+          if (j.id === targetJoint.id) {
+            return {
+              ...j,
+              takeSide: newTakeSide,
+              p1: { x: j.p1.x, y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((j.p1.y + shiftDelta) * 10) / 10)) },
+              p2: { x: j.p2.x, y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((j.p2.y + shiftDelta) * 10) / 10)) },
+            };
+          }
+          const currY = (j.p1.y + j.p2.y) / 2;
+          const jxMin = Math.min(j.p1.x, j.p2.x);
+          const jxMax = Math.max(j.p1.x, j.p2.x);
+          const jIsHoriz = j.orientation === 'HORIZONTAL' || (j.orientation !== 'VERTICAL' && Math.abs(j.p1.y - j.p2.y) < Math.abs(j.p1.x - j.p2.x));
+          const overlapsJoint = Math.max(jxMin, xMin) < Math.min(jxMax, xMax) - 5;
+
+          if (jIsHoriz && overlapsJoint && currY > jY + 5 && currY < nextObstacleY - 5) {
+            return {
+              ...j,
+              p1: { x: j.p1.x, y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((j.p1.y + shiftDelta) * 10) / 10)) },
+              p2: { x: j.p2.x, y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((j.p2.y + shiftDelta) * 10) / 10)) },
+            };
+          }
+          return j;
+        });
 
         const topPanels = nextPanels
           .filter(isPanelInCol)
-          .filter((p) => Math.min(...p.points.map((pt) => pt.y)) >= jY - 5)
+          .filter((p) => {
+            const minY = Math.min(...p.points.map((pt) => pt.y));
+            const maxY = Math.max(...p.points.map((pt) => pt.y));
+            return minY >= jY - 5 && maxY <= nextObstacleY + 15;
+          })
           .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
 
         const bottomPanels = nextPanels
           .filter(isPanelInCol)
-          .filter((p) => Math.max(...p.points.map((pt) => pt.y)) <= jY + 5)
+          .filter((p) => {
+            const minY = Math.min(...p.points.map((pt) => pt.y));
+            const maxY = Math.max(...p.points.map((pt) => pt.y));
+            return maxY <= jY + 5 && minY >= prevObstacleY - 15;
+          })
           .sort((a, b) => Math.min(...a.points.map((pt) => pt.y)) - Math.min(...b.points.map((pt) => pt.y)));
 
         const immediateTopPanel = topPanels.length > 0 ? topPanels[0] : null;
@@ -2033,7 +2158,7 @@ export class PolygonSlicingEngine {
               ...p,
               points: p.points.map((pt) => {
                 if (pt.y <= minY + 15) {
-                  return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)) };
+                  return { x: pt.x, y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((pt.y + shiftDelta) * 10) / 10)) };
                 }
                 return pt;
               }),
@@ -2054,7 +2179,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => {
                   if (pt.y >= maxY - 15) {
-                    return { x: pt.x, y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)) };
+                    return { x: pt.x, y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((pt.y + shiftDelta) * 10) / 10)) };
                   }
                   return pt;
                 }),
@@ -2064,7 +2189,7 @@ export class PolygonSlicingEngine {
                 ...p,
                 points: p.points.map((pt) => ({
                   x: pt.x,
-                  y: Math.max(0, Math.min(wallHeight, Math.round((pt.y + shiftDelta) * 10) / 10)),
+                  y: Math.max(prevObstacleY, Math.min(nextObstacleY, Math.round((pt.y + shiftDelta) * 10) / 10)),
                 })),
               };
             }
@@ -2072,8 +2197,91 @@ export class PolygonSlicingEngine {
         }
       });
 
-      return { panels: nextPanels, joints: nextJoints };
+      return this.subtractOpeningsFromWallPanels(nextPanels, nextJoints, openings);
     }
+  }
+
+  /**
+   * Физически вычитает сквозные проемы (двери, окна, ниши) из плоского массива WallPanelPiece и WallJointLine.
+   * Гарантирует, что ни одна панель и ни один внутренний шов не перекрывают дверной/оконный проем.
+   */
+  public static subtractOpeningsFromWallPanels(
+    panels: WallPanelPiece[],
+    joints: WallJointLine[],
+    openings: Opening[] = []
+  ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
+    const cutoutOpenings = (openings || []).filter((op) => op.isCutout !== false);
+    if (cutoutOpenings.length === 0 || !panels || panels.length === 0) {
+      return { panels: panels || [], joints: joints || [] };
+    }
+
+    const nextPanels: WallPanelPiece[] = [];
+
+    panels.forEach((p) => {
+      if (p.isVoid) {
+        nextPanels.push(p);
+        return;
+      }
+
+      let currentPolys: Point2D[][] = [p.points];
+
+      cutoutOpenings.forEach((op) => {
+        const nextPolys: Point2D[][] = [];
+        currentPolys.forEach((poly) => {
+          const polyXs = poly.map((pt) => pt.x);
+          const polyYs = poly.map((pt) => pt.y);
+          const minX = Math.min(...polyXs);
+          const maxX = Math.max(...polyXs);
+          const minY = Math.min(...polyYs);
+          const maxY = Math.max(...polyYs);
+
+          if (
+            maxX <= op.x + 0.1 ||
+            minX >= op.x + op.width - 0.1 ||
+            maxY <= op.y + 0.1 ||
+            minY >= op.y + op.height - 0.1
+          ) {
+            nextPolys.push(poly);
+            return;
+          }
+
+          const remaining = this.subtractRectangleFromPolygon(poly, op);
+          nextPolys.push(...remaining);
+        });
+        currentPolys = nextPolys;
+      });
+
+      if (currentPolys.length === 1) {
+        nextPanels.push({ ...p, points: currentPolys[0] });
+      } else if (currentPolys.length > 1) {
+        currentPolys.forEach((poly, idx) => {
+          nextPanels.push({
+            ...p,
+            id: `${p.id}-cut-${idx + 1}-${Math.random().toString(36).substring(2, 5)}`,
+            points: poly,
+            partLabel: `${p.partLabel}.${idx + 1}`,
+          });
+        });
+      }
+    });
+
+    const isInsideOpening = (pt: Point2D) =>
+      cutoutOpenings.some(
+        (op) =>
+          pt.x >= op.x - 1 &&
+          pt.x <= op.x + op.width + 1 &&
+          pt.y >= op.y - 1 &&
+          pt.y <= op.y + op.height + 1
+      );
+
+    const nextJoints = (joints || []).filter((j) => {
+      const p1 = j.p1 || { x: (j as any).x || 0, y: (j as any).y || 0 };
+      const p2 = j.p2 || { x: (j as any).x || 0, y: (j as any).y || 0 };
+      const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      return !isInsideOpening(mid);
+    });
+
+    return { panels: nextPanels, joints: nextJoints };
   }
 
   /**
