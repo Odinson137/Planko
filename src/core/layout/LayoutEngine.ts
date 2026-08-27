@@ -279,13 +279,13 @@ export class LayoutEngine {
       // 2. ПРЯМАЯ ПОЛИГОНАЛЬНАЯ МОДЕЛЬ (Pure 2D Polygon Mesh)
       renumberedWall.panels.forEach((p, pIdx) => {
         let points = p.points;
-        if (renumberedWall.panels!.length === 1) {
-          // Если это единственная цельная панель стены, её габариты всегда совпадают с размерами стены
+        if (!points || points.length < 3) {
+          // Если координаты отсутствуют, строим прямоугольник с учетом внешних отступов
           points = [
-            { x: 0, y: 0 },
-            { x: wall.width, y: 0 },
-            { x: wall.width, y: wall.height },
-            { x: 0, y: wall.height },
+            { x: leftEdgeWidth, y: botEdgeWidth },
+            { x: wall.width - rightEdgeWidth, y: botEdgeWidth },
+            { x: wall.width - rightEdgeWidth, y: wall.height - topEdgeWidth },
+            { x: leftEdgeWidth, y: wall.height - topEdgeWidth },
           ];
         } else {
           // Для всех деталей гарантируем, что координаты вершин не вылезают за пределы стены
@@ -805,6 +805,8 @@ export class LayoutEngine {
       name: 'Левый край стены',
       x: 0,
       y: 0,
+      p1: { x: 0, y: 0 },
+      p2: { x: 0, y: wall.height },
       width: leftEdgeWidth,
       length: wall.height,
       orientation: 'VERTICAL',
@@ -812,6 +814,7 @@ export class LayoutEngine {
       isOuterEdge: true,
       profileArticle: leftEdgeConfig?.profileArticle,
       profileColor: leftEdgeConfig?.profileColor,
+      takeSide: leftEdgeConfig?.takeSide ?? 'RIGHT',
     });
 
     rawJoints.push({
@@ -819,6 +822,8 @@ export class LayoutEngine {
       name: 'Правый край стены',
       x: wall.width - rightEdgeWidth,
       y: 0,
+      p1: { x: wall.width, y: 0 },
+      p2: { x: wall.width, y: wall.height },
       width: rightEdgeWidth,
       length: wall.height,
       orientation: 'VERTICAL',
@@ -826,6 +831,7 @@ export class LayoutEngine {
       isOuterEdge: true,
       profileArticle: rightEdgeConfig?.profileArticle,
       profileColor: rightEdgeConfig?.profileColor,
+      takeSide: rightEdgeConfig?.takeSide ?? 'LEFT',
     });
 
     rawJoints.push({
@@ -833,6 +839,8 @@ export class LayoutEngine {
       name: 'Нижний край стены (плинтус/пол)',
       x: 0,
       y: 0,
+      p1: { x: 0, y: 0 },
+      p2: { x: wall.width, y: 0 },
       width: botEdgeWidth,
       length: wall.width,
       orientation: 'HORIZONTAL',
@@ -840,6 +848,7 @@ export class LayoutEngine {
       isOuterEdge: true,
       profileArticle: botEdgeConfig?.profileArticle,
       profileColor: botEdgeConfig?.profileColor,
+      takeSide: botEdgeConfig?.takeSide ?? 'TOP',
     });
 
     rawJoints.push({
@@ -847,6 +856,8 @@ export class LayoutEngine {
       name: 'Верхний край стены (потолок)',
       x: 0,
       y: wall.height - topEdgeWidth,
+      p1: { x: 0, y: wall.height },
+      p2: { x: wall.width, y: wall.height },
       width: topEdgeWidth,
       length: wall.width,
       orientation: 'HORIZONTAL',
@@ -854,6 +865,7 @@ export class LayoutEngine {
       isOuterEdge: true,
       profileArticle: topEdgeConfig?.profileArticle,
       profileColor: topEdgeConfig?.profileColor,
+      takeSide: topEdgeConfig?.takeSide ?? 'BOTTOM',
     });
 
     // 5.1 Интерактивные стыки по периметру проемов (двери, окна, ниши)

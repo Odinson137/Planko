@@ -384,6 +384,122 @@ function splitOversizedSegment(
   return { segments: resultSegments, customJoints: resultJoints };
 }
 
+/**
+ * Находит существующий стык в wall.joints или синтезирует его для краевых стыков (edge-v-left/right, edge-h-bot/top) и стыков проемов.
+ */
+function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined {
+  const existing = w.joints?.find((j) => j.id === jId);
+  if (existing) return existing;
+
+  const baseId = jId.split('-part-')[0].split('-merged-')[0];
+  const customConfig = w.customJoints[jId] || w.customJoints[baseId];
+
+  // 1. Краевые стыки периметра стены
+  if (jId === 'edge-v-left') {
+    return {
+      id: 'edge-v-left',
+      p1: { x: 0, y: 0 },
+      p2: { x: 0, y: w.height },
+      width: customConfig?.width ?? 0,
+      orientation: 'VERTICAL',
+      isLED: customConfig?.isLED ?? false,
+      isOuterEdge: true,
+      takeSide: customConfig?.takeSide ?? 'RIGHT',
+      profileArticle: customConfig?.profileArticle,
+      profileColor: customConfig?.profileColor,
+    };
+  }
+  if (jId === 'edge-v-right' || jId === 'edge-v-end') {
+    return {
+      id: jId,
+      p1: { x: w.width, y: 0 },
+      p2: { x: w.width, y: w.height },
+      width: customConfig?.width ?? 0,
+      orientation: 'VERTICAL',
+      isLED: customConfig?.isLED ?? false,
+      isOuterEdge: true,
+      takeSide: customConfig?.takeSide ?? 'LEFT',
+      profileArticle: customConfig?.profileArticle,
+      profileColor: customConfig?.profileColor,
+    };
+  }
+  if (jId === 'edge-h-bot') {
+    return {
+      id: 'edge-h-bot',
+      p1: { x: 0, y: 0 },
+      p2: { x: w.width, y: 0 },
+      width: customConfig?.width ?? 0,
+      orientation: 'HORIZONTAL',
+      isLED: customConfig?.isLED ?? false,
+      isOuterEdge: true,
+      takeSide: customConfig?.takeSide ?? 'TOP',
+      profileArticle: customConfig?.profileArticle,
+      profileColor: customConfig?.profileColor,
+    };
+  }
+  if (jId === 'edge-h-top') {
+    return {
+      id: 'edge-h-top',
+      p1: { x: 0, y: w.height },
+      p2: { x: w.width, y: w.height },
+      width: customConfig?.width ?? 0,
+      orientation: 'HORIZONTAL',
+      isLED: customConfig?.isLED ?? false,
+      isOuterEdge: true,
+      takeSide: customConfig?.takeSide ?? 'BOTTOM',
+      profileArticle: customConfig?.profileArticle,
+      profileColor: customConfig?.profileColor,
+    };
+  }
+
+  // 2. Периметр проемов: joint-op-${opId}-left / right / top
+  if (jId.startsWith('joint-op-')) {
+    const match = jId.match(/^joint-op-(.+)-(left|right|top)$/);
+    if (match) {
+      const opId = match[1];
+      const side = match[2];
+      const op = w.openings?.find((o) => o.id === opId);
+      if (op) {
+        if (side === 'left') {
+          return {
+            id: jId,
+            p1: { x: op.x, y: op.y },
+            p2: { x: op.x, y: op.y + op.height },
+            width: customConfig?.width ?? 8,
+            orientation: 'VERTICAL',
+            isLED: customConfig?.isLED ?? false,
+            takeSide: customConfig?.takeSide ?? 'LEFT',
+          };
+        }
+        if (side === 'right') {
+          return {
+            id: jId,
+            p1: { x: op.x + op.width, y: op.y },
+            p2: { x: op.x + op.width, y: op.y + op.height },
+            width: customConfig?.width ?? 8,
+            orientation: 'VERTICAL',
+            isLED: customConfig?.isLED ?? false,
+            takeSide: customConfig?.takeSide ?? 'RIGHT',
+          };
+        }
+        if (side === 'top') {
+          return {
+            id: jId,
+            p1: { x: op.x, y: op.y + op.height },
+            p2: { x: op.x + op.width, y: op.y + op.height },
+            width: customConfig?.width ?? 8,
+            orientation: 'HORIZONTAL',
+            isLED: customConfig?.isLED ?? false,
+            takeSide: customConfig?.takeSide ?? 'TOP',
+          };
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export const useProjectStore = create<ProjectState>((setRaw, get) => {
   const set: typeof setRaw = (partial, replace) => {
     setRaw((state) => {
@@ -942,9 +1058,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       let nextPanels = wall.panels;
-      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+      if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
-          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const targetJoint = findOrSynthesizeJoint(wall, jId);
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
@@ -1021,9 +1137,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       let nextPanels = wall.panels;
-      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+      if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
-          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const targetJoint = findOrSynthesizeJoint(wall, jId);
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
@@ -1144,9 +1260,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       let nextPanels = wall.panels;
-      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+      if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
-          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const targetJoint = findOrSynthesizeJoint(wall, jId);
           const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
@@ -1216,9 +1332,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       let nextPanels = wall.panels;
-      if (nextPanels && nextPanels.length > 0 && wall.joints) {
+      if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
-          const targetJoint = wall.joints?.find((j) => j.id === jId);
+          const targetJoint = findOrSynthesizeJoint(wall, jId);
           const jointW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
           const oldTakeSide =
             wall.customJoints[jId]?.takeSide ||
@@ -2435,7 +2551,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           }
 
           let nextPanels = w.panels;
-          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const targetJoint = findOrSynthesizeJoint(w, jointId);
           const jointW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
           const oldTakeSide =
             w.customJoints[jointId]?.takeSide ||
@@ -2529,7 +2645,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           }
 
           let nextPanels = w.panels;
-          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const targetJoint = findOrSynthesizeJoint(w, jointId);
           const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
@@ -2701,7 +2817,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           }
 
           let nextPanels = w.panels;
-          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const targetJoint = findOrSynthesizeJoint(w, jointId);
           const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
@@ -2790,7 +2906,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           }
 
           let nextPanels = w.panels;
-          const targetJoint = w.joints?.find((j) => j.id === jointId);
+          const targetJoint = findOrSynthesizeJoint(w, jointId);
           const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
