@@ -2582,4 +2582,152 @@ export class PolygonSlicingEngine {
       };
     });
   }
+  /**
+   * Нарезает деталь на листы максимального формата материала (по ширине и высоте) с сохранением швов 8 мм.
+   */
+  public static slicePanelByMaxSheetDimensions(
+    panel: WallPanelPiece,
+    maxW: number,
+    maxH: number,
+    seamGap: number = 8
+  ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
+    if (!panel || !panel.points || panel.points.length < 3) {
+      return { newPanels: [panel], joints: [] };
+    }
+
+    const xs = panel.points.map((p) => p.x);
+    const ys = panel.points.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const totalW = maxX - minX;
+    const totalH = maxY - minY;
+
+    const effMaxW = maxW > 50 ? maxW : 1220;
+    const effMaxH = maxH > 50 ? maxH : 2800;
+
+    const needsCutW = totalW > effMaxW + 2;
+    const needsCutH = totalH > effMaxH + 2;
+
+    if (!needsCutW && !needsCutH) {
+      return { newPanels: [panel], joints: [] };
+    }
+
+    let currentPolys: Point2D[][] = [panel.points];
+    const createdJoints: WallJointLine[] = [];
+
+    // 1. Нарезка по вертикали (по ширине листа)
+    if (needsCutW) {
+      let curX = minX;
+      while (curX + effMaxW < maxX - 2) {
+        const cutLineX = curX + effMaxW;
+        const nextPolys: Point2D[][] = [];
+
+        for (const poly of currentPolys) {
+          const pXs = poly.map((p) => p.x);
+          const pMinX = Math.min(...pXs);
+          const pMaxX = Math.max(...pXs);
+
+          if (cutLineX > pMinX + 2 && cutLineX < pMaxX - 2) {
+            const split = this.splitPolygonByLine(
+              poly,
+              { x: cutLineX, y: -10000 },
+              { x: cutLineX, y: 10000 },
+              seamGap
+            );
+            if (split && split.allPieces && split.allPieces.length >= 2) {
+              nextPolys.push(...split.allPieces);
+              if (split.cutSegments) {
+                split.cutSegments.forEach((seg) => {
+                  createdJoints.push({
+                    id: `joint-cut-${Date.now()}-${createdJoints.length + 1}`,
+                    p1: seg.p1,
+                    p2: seg.p2,
+                    width: seamGap,
+                    isLED: false,
+                    orientation: 'VERTICAL',
+                  });
+                });
+              }
+            } else {
+              nextPolys.push(poly);
+            }
+          } else {
+            nextPolys.push(poly);
+          }
+        }
+
+        currentPolys = nextPolys;
+        curX += effMaxW + seamGap;
+      }
+    }
+
+    // 2. Нарезка по горизонтали (по высоте листа)
+    if (needsCutH) {
+      let curY = minY;
+      while (curY + effMaxH < maxY - 2) {
+        const cutLineY = curY + effMaxH;
+        const nextPolys: Point2D[][] = [];
+
+        for (const poly of currentPolys) {
+          const pYs = poly.map((p) => p.y);
+          const pMinY = Math.min(...pYs);
+          const pMaxY = Math.max(...pYs);
+
+          if (cutLineY > pMinY + 2 && cutLineY < pMaxY - 2) {
+            const split = this.splitPolygonByLine(
+              poly,
+              { x: -10000, y: cutLineY },
+              { x: 10000, y: cutLineY },
+              seamGap
+            );
+            if (split && split.allPieces && split.allPieces.length >= 2) {
+              nextPolys.push(...split.allPieces);
+              if (split.cutSegments) {
+                split.cutSegments.forEach((seg) => {
+                  createdJoints.push({
+                    id: `joint-cut-${Date.now()}-${createdJoints.length + 1}`,
+                    p1: seg.p1,
+                    p2: seg.p2,
+                    width: seamGap,
+                    isLED: false,
+                    orientation: 'HORIZONTAL',
+                  });
+                });
+              }
+            } else {
+              nextPolys.push(poly);
+            }
+          } else {
+            nextPolys.push(poly);
+          }
+        }
+
+        currentPolys = nextPolys;
+        curY += effMaxH + seamGap;
+      }
+    }
+
+    // Сортируем полученные детали слева направо, сверху вниз
+    const sortedPolys = [...currentPolys].sort((a, b) => {
+      const aCentroid = this.calculateCentroid(a);
+      const bCentroid = this.calculateCentroid(b);
+      if (Math.abs(aCentroid.x - bCentroid.x) > 10) {
+        return aCentroid.x - bCentroid.x;
+      }
+      return bCentroid.y - aCentroid.y;
+    });
+
+    const newPanels: WallPanelPiece[] = sortedPolys.map((poly, idx) => ({
+      ...panel,
+      id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+      points: poly,
+      partLabel: `${panel.partLabel || '1.1'}.${idx + 1}`,
+    }));
+
+    return { newPanels, joints: createdJoints };
+  }
+
 }

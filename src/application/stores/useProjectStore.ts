@@ -213,6 +213,12 @@ interface ProjectState {
     profileColor?: string
   ) => void;
   splitPanelAroundOpening: (wallId: string, openingId: string) => void;
+  slicePanelToSheetFormat: (
+    wallId: string,
+    panelId?: string,
+    columnIndex?: number,
+    segmentIndex?: number
+  ) => void;
 }
 
 
@@ -6057,6 +6063,110 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
   exportProjectFile: () => {
     localProjectRepository.exportProjectAsJson(get().project);
   },
+
+  slicePanelToSheetFormat: (
+    wallId: string,
+    panelId?: string,
+    columnIndex?: number,
+    _segmentIndex?: number
+  ) =>
+    set((state) => {
+      const wall = state.project.walls.find((w) => w.id === wallId);
+      if (!wall) return state;
+
+      let nextPanels = wall.panels;
+      let nextJoints = wall.joints ? [...wall.joints] : [];
+
+      // Если в стене еще нет wall.panels, инициализируем их из текущего layout'а
+      if (!nextPanels || nextPanels.length === 0) {
+        const defaultMat =
+          state.project.materials.find((m) => m.id === wall.zone.materialId) ||
+          state.project.materials[0];
+        const layout = LayoutEngine.calculateWallLayout(
+          wall,
+          defaultMat,
+          state.project.materials
+        );
+        nextPanels = layout.panels.map((p) => ({
+          id: p.id,
+          points: p.polygonPoints || [
+            { x: p.x, y: p.y },
+            { x: p.x + p.width, y: p.y },
+            { x: p.x + p.width, y: p.y + p.height },
+            { x: p.x, y: p.y + p.height },
+          ],
+          materialId: p.materialId,
+          color: p.materialColor,
+          decorCode: p.decorCode,
+          decorName: p.decorName,
+          partLabel: p.partLabel,
+          isVoid: p.isVoid,
+          thickness: p.thickness,
+          reliefType: p.reliefType as any,
+          textureCategory: p.textureCategory as any,
+          patternAngleDeg: p.patternAngleDeg,
+          patternFlipX: p.patternFlipX,
+        }));
+        nextJoints = layout.joints.map((j) => ({
+          id: j.id,
+          p1: j.p1 || { x: j.x, y: j.y },
+          p2:
+            j.p2 ||
+            (j.orientation === 'HORIZONTAL'
+              ? { x: j.x + j.length, y: j.y }
+              : { x: j.x, y: j.y + j.length }),
+          width: j.width,
+          orientation: j.orientation,
+          isLED: j.isLED,
+        }));
+      }
+
+      if (!nextPanels || nextPanels.length === 0) return state;
+
+      // Находим целевую деталь
+      const targetPanel =
+        (panelId && nextPanels.find((p) => p.id === panelId || (p as any).subPieceId === panelId)) ||
+        (columnIndex !== null && columnIndex !== undefined
+          ? nextPanels.find((p) => (p as any).originalColumnIndex === columnIndex)
+          : null) ||
+        nextPanels[0];
+
+      if (!targetPanel) return state;
+
+      const mat =
+        state.project.materials.find((m) => m.id === targetPanel.materialId) ||
+        state.project.materials.find((m) => m.id === wall.zone.materialId) ||
+        state.project.materials[0];
+
+      const maxW = mat?.width && mat.width > 50 ? mat.width : 1220;
+      const maxH = mat?.height && mat.height > 50 ? mat.height : 2800;
+
+      const sliced = PolygonSlicingEngine.slicePanelByMaxSheetDimensions(targetPanel, maxW, maxH, 8);
+      if (!sliced.newPanels || sliced.newPanels.length <= 1) {
+        return state;
+      }
+
+      const remainingPanels = nextPanels.filter((p) => p.id !== targetPanel.id);
+      const updatedPanels = [...remainingPanels, ...sliced.newPanels];
+      const updatedJoints = [...nextJoints, ...sliced.joints];
+
+      return {
+        selectedPieceIds: [sliced.newPanels[0].id],
+        selectedSubPieceId: sliced.newPanels[0].id,
+        project: {
+          ...state.project,
+          walls: state.project.walls.map((w) =>
+            w.id === wallId
+              ? {
+                  ...w,
+                  panels: updatedPanels,
+                  joints: updatedJoints,
+                }
+              : w
+          ),
+        },
+      };
+    }),
 
   importProjectFromFile: async (jsonString: string) => {
     const imported = await localProjectRepository.importProjectFromJson(jsonString);

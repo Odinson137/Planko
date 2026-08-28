@@ -34,6 +34,7 @@ import {
   Link,
   Search,
   Scissors,
+  Grid,
   Home,
   Layout,
   ArrowLeft,
@@ -147,6 +148,7 @@ export const RightSidebar: React.FC = () => {
     removeOpening,
     setOpeningFramingSide,
     splitPanelAroundOpening,
+    slicePanelToSheetFormat,
     updateWallBend,
     deleteWallBend,
     mergeSelectedCells,
@@ -635,24 +637,6 @@ export const RightSidebar: React.FC = () => {
                 </div>
               </>
             )}
-
-            {/* Кнопка сброса */}
-            <Button
-              variant="subtle"
-              color="red"
-              size="xs"
-              leftSection={<Trash2 size={14} />}
-              onClick={() => {
-                setPanelEdgeJoint(currentWall.id, targetPanelId, side, {
-                  width: 0,
-                  isLED: false,
-                  profileArticle: undefined,
-                  profileColor: undefined,
-                });
-              }}
-            >
-              Убрать стык (сделать встык 0 мм)
-            </Button>
           </Stack>
         </ScrollArea>
       </Stack>
@@ -2769,6 +2753,30 @@ export const RightSidebar: React.FC = () => {
               <Text size="xs" fw={700} c="dimmed">
                 РЕДАКТОР РАСКРОЯ
               </Text>
+
+              {/* Кнопка нарезки по формату листа */}
+              <Tooltip
+                label={`Нарезать деталь на листы макс. формата (${currentMaterial?.width || 1220} × ${currentMaterial?.height || 2800} мм) с зазорами 8 мм`}
+                withArrow
+              >
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="teal"
+                  leftSection={<Grid size={14} />}
+                  onClick={() =>
+                    slicePanelToSheetFormat(
+                      currentWall.id,
+                      (selectedPieceId || selectedSubPieceId) || undefined,
+                      activeColumnIndex,
+                      activeSegmentIndex
+                    )
+                  }
+                  style={{ fontWeight: 600 }}
+                >
+                  📐 Раскроить по формату листа
+                </Button>
+              </Tooltip>
 
               {/* Акцентная кнопка Редактора раскроя */}
               <Button
