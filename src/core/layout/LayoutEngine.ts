@@ -1062,7 +1062,8 @@ export class LayoutEngine {
     finalJoints.push(...unmergedJoints);
 
     // 2.9. Автоматическое физическое вычитание проемов (двери, окна, ниши) из панелей для раскроя и производства
-    panels = this.subtractOpeningsFromPanels(panels, wall.openings, wallNumber);
+    const isPolygonMesh = Boolean(wall.panels && wall.panels.length > 0);
+    panels = this.subtractOpeningsFromPanels(panels, wall.openings, wallNumber, isPolygonMesh);
 
     // Расчет площадей и расхода
     const wallAreaSqM = (wall.width * wall.height) / 1_000_000;
@@ -1445,9 +1446,10 @@ export class LayoutEngine {
   private static subtractOpeningsFromPanels(
     panels: CalculatedPanelPiece[],
     openings: Opening[],
-    wallNumber: number = 1
+    wallNumber: number = 1,
+    isPolygonMesh: boolean = false
   ): CalculatedPanelPiece[] {
-    const cutoutOpenings = openings.filter((op) => op.isCutout !== false);
+    const cutoutOpenings = openings.filter((op) => op.isCutout !== false && (!isPolygonMesh || !op.isApplied));
     if (cutoutOpenings.length === 0 || panels.length === 0) return panels;
 
     const resultPanels: CalculatedPanelPiece[] = [];

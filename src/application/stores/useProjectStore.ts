@@ -5731,7 +5731,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         }));
       }
 
-      if (nextPanels && nextPanels.length > 0 && opening.isCutout !== false) {
+      else if (nextPanels && nextPanels.length > 0 && opening.isCutout !== false) {
         const cutResult = PolygonSlicingEngine.cutOpeningFromWallPanels(nextPanels, opening, 8);
         nextPanels = cutResult.newPanels;
         nextJoints = [...nextJoints, ...(cutResult.joints || [])];
