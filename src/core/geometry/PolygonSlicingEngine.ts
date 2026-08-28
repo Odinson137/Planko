@@ -2132,40 +2132,10 @@ export class PolygonSlicingEngine {
    */
   public static ensureValidPanelDimensions(
     wall: Wall,
-    materials: Material[],
-    defaultSeamGap: number = 8
+    _materials: Material[],
+    _defaultSeamGap: number = 8
   ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
-    if (!wall.panels || wall.panels.length === 0) {
-      return { panels: wall.panels || [], joints: wall.joints || [] };
-    }
-
-    const nextPanels: WallPanelPiece[] = [];
-    const nextJoints: WallJointLine[] = wall.joints ? [...wall.joints] : [];
-
-    wall.panels.forEach((p) => {
-      const mat = materials.find((m) => m.id === p.materialId);
-      const isVoid = p.isVoid || mat?.isVoid || p.materialId === MATERIAL_NONE_ID;
-      const maxW = mat?.width && mat.width > 0 ? mat.width : 1220;
-
-      const xs = p.points.map((pt) => pt.x);
-      const pieceW = Math.max(...xs) - Math.min(...xs);
-
-      if (!isVoid && maxW > 0 && pieceW > maxW + 2) {
-        const isSlat =
-          p.reliefType !== 'FLAT' ||
-          p.materialId?.includes('slat') ||
-          p.decorName?.toLowerCase().includes('рейка');
-        const seam = isSlat ? 0 : defaultSeamGap;
-
-        const sliced = this.sliceWallPanelIntoStrips(p, maxW, seam);
-        nextPanels.push(...sliced.newPanels);
-        nextJoints.push(...sliced.joints);
-      } else {
-        nextPanels.push(p);
-      }
-    });
-
-    return { panels: nextPanels, joints: nextJoints };
+    return { panels: wall.panels || [], joints: wall.joints || [] };
   }
 
   /**
@@ -2176,7 +2146,6 @@ export class PolygonSlicingEngine {
     rect: { x: number; y: number; width: number; height: number }
   ): Point2D[][] {
     if (!polygon || polygon.length < 3) return [];
-
     const opLeft = rect.x;
     const opRight = rect.x + rect.width;
     const opBottom = rect.y;
@@ -2550,10 +2519,9 @@ export class PolygonSlicingEngine {
     return { newPanels: resultPanels, joints: [] };
   }
 
-      /**
+  /**
    * Применяет торцевые зазоры (Edge Insets / Откосы) к полигону детали.
-   * Работает для ВСЕХ типов полигонов (прямоугольники, трапеции, сложные срезы, П- и Г-образные детали вокруг проемов).
-   * Сдвигает только внешние грани полигона, сохраняя внутренние вырезы и сложную форму деталей.
+   * Сдвигает только внешние граничные вершины, сохраняя порядок обхода и внутренние вырезы.
    */
   public static applyPanelEdgesInsets(
     polygon: Point2D[],
@@ -2584,22 +2552,6 @@ export class PolygonSlicingEngine {
     const targetMinY = minY + dBottom;
     const targetMaxY = Math.max(targetMinY, maxY - dTop);
 
-    // 1. Быстрый путь для стандартных прямоугольников
-    const isAxisAlignedRect =
-      polygon.length === 4 &&
-      xs.every((x) => Math.abs(x - minX) < 1.5 || Math.abs(x - maxX) < 1.5) &&
-      ys.every((y) => Math.abs(y - minY) < 1.5 || Math.abs(y - maxY) < 1.5);
-
-    if (isAxisAlignedRect) {
-      return [
-        { x: Math.round(targetMinX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
-        { x: Math.round(targetMaxX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
-        { x: Math.round(targetMaxX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
-        { x: Math.round(targetMinX * 10) / 10, y: Math.round(targetMinY * 10) / 10 },
-      ];
-    }
-
-    // 2. Универсальный сдвиг внешних границ для любых сложных полигонов (включая П- и Г-образные)
     return polygon.map((pt) => {
       let newX = pt.x;
       let newY = pt.y;
@@ -2630,5 +2582,4 @@ export class PolygonSlicingEngine {
       };
     });
   }
-
 }
