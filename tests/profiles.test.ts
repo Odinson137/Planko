@@ -9,8 +9,31 @@ import { useProjectStore } from '../src/application/stores/useProjectStore';
 import { LayoutEngine } from '../src/core/layout/LayoutEngine';
 import { createDefaultOpening } from '../src/core/models/Opening';
 import { PdfExportService } from '../src/application/services/PdfExportService';
+import { NestingEngine } from '../src/core/layout/NestingEngine';
 
 const material = DEFAULT_MATERIALS.find((m) => !m.isVoid && m.type === 'SHEET')!;
+
+test('PDF rejects oversized parts but allows rotated and exact-size parts', () => {
+  for (const [width, height, invalid] of [[3450, 300, true], [2870, 310, true], [1300, 1300, true], [2800, 300, false], [1220, 2800, false]] as const) {
+    const result = NestingEngine.optimizeProjectNesting([{
+      id: 'slope', wallId: 'wall', wallName: 'Стена 1', partLabel: '1.36',
+      materialId: material.id, width, height, note: 'Окно (Подоконник)',
+    }]);
+    const texts: string[] = [];
+    const ctx = new Proxy({} as Record<string, unknown>, {
+      get: (_, key) => key === 'fillText' ? (text: string) => texts.push(text)
+        : key === 'measureText' ? (text: string) => ({ width: text.length * 7 }) : () => undefined,
+      set: () => true,
+    });
+    (PdfExportService as any).drawNestingSheetsOnCanvas(ctx, result.allSheets.map((sheet) => ({ sheet, otherWallNames: [] })), [], 'wall', 0, 0, 600, 600);
+    assert.equal(texts.includes('Нельзя разместить'), invalid, `${width} × ${height}`);
+    if (invalid) {
+      assert.ok(texts.includes('! Элемент 1.36'));
+      assert.ok(texts.includes(`Деталь: ${width} × ${height} мм`));
+      assert.ok(!texts.some((text) => text.includes('Исп:')));
+    }
+  }
+});
 function panel(width = 2500): WallPanelPiece {
   return { id: 'panel-test', points: [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: 2000 }, { x: 0, y: 2000 }], materialId: material.id, partLabel: '1.1' };
 }

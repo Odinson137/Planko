@@ -8,6 +8,12 @@ import { MATERIAL_NONE_ID } from '../../core/models/Material';
 import { Point2D, PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
 
 export class PdfExportService {
+  private static fitsStandardSheet(width: number, height: number): boolean {
+    const w = NestingEngine.DEFAULT_SHEET_WIDTH;
+    const h = NestingEngine.DEFAULT_SHEET_HEIGHT;
+    return (width <= w && height <= h) || (height <= w && width <= h);
+  }
+
   /**
    * 1. Экспорт клиентской раскладки панелей и карт раскроя листов 1220x2800
    */
@@ -517,6 +523,7 @@ export class PdfExportService {
     // 2. Панели стены
     layout.panels.forEach((p, pIdx) => {
       const isVoid = p.isVoid || p.materialId === MATERIAL_NONE_ID;
+      const cannotPlace = !isVoid && !this.fitsStandardSheet(p.width, p.height);
       const pts = p.polygonPoints && p.polygonPoints.length >= 3
         ? p.polygonPoints.map((pt) => toC(pt.x, pt.y))
         : [
@@ -539,9 +546,10 @@ export class PdfExportService {
       } else {
         ctx.fillStyle = '#ffffff'; // Чистый белый для монтажного чертежа
       }
+      if (cannotPlace) ctx.fillStyle = '#ffe4e6';
       ctx.fill();
 
-      ctx.strokeStyle = '#475569';
+      ctx.strokeStyle = cannotPlace ? '#e11d48' : '#475569';
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.restore();
@@ -587,14 +595,19 @@ export class PdfExportService {
         const badgeH = 34;
 
         // Прямоугольная аккуратная рамка с белым фоном как на скрине 2
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = cannotPlace ? '#e11d48' : '#ffffff';
         ctx.fillRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1.8;
         ctx.strokeRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
 
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle = cannotPlace ? '#ffffff' : '#000000';
         ctx.fillText(label, midX, midY);
+        if (cannotPlace) {
+          ctx.font = 'bold 14px "Segoe UI", Arial, sans-serif';
+          ctx.fillStyle = '#be123c';
+          ctx.fillText('Нельзя разместить', midX, midY + 30);
+        }
         ctx.restore();
       }
     });
@@ -851,17 +864,19 @@ export class PdfExportService {
           dir: 'TOP' | 'LEFT' | 'RIGHT' | 'BOTTOM'
         ) => {
           ctx.save();
+          const slope = layout.slopes?.find((s) => s.partLabel === partLabel);
+          const cannotPlace = !!slope && !this.fitsStandardSheet(slope.width, slope.depth);
           ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
           const subTextW = ctx.measureText(sideText).width;
-          const bw = Math.max(80, subTextW + 16);
-          const bh = 44;
+          const bw = Math.max(cannotPlace ? 132 : 80, subTextW + 16);
+          const bh = cannotPlace ? 62 : 44;
           const bx = boxCenterX - bw / 2;
           const by = boxCenterY - bh / 2;
 
           // Фон плашки
-          ctx.fillStyle = '#ffffff';
+          ctx.fillStyle = cannotPlace ? '#e11d48' : '#ffffff';
           ctx.fillRect(bx, by, bw, bh);
-          ctx.strokeStyle = '#0f172a';
+          ctx.strokeStyle = cannotPlace ? '#be123c' : '#0f172a';
           ctx.lineWidth = 1.8;
           ctx.strokeRect(bx, by, bw, bh);
 
@@ -872,7 +887,7 @@ export class PdfExportService {
           ctx.stroke();
 
           // Верхний текст: Номер откоса (например 1.4)
-          ctx.fillStyle = '#0f172a';
+          ctx.fillStyle = cannotPlace ? '#ffffff' : '#0f172a';
           ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -881,10 +896,11 @@ export class PdfExportService {
           // Нижний текст: ОТКОС: 150 мм
           ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
           ctx.fillText(sideText, boxCenterX, by + 33);
+          if (cannotPlace) ctx.fillText('Нельзя разместить', boxCenterX, by + 51);
 
           // Линия-указатель к грани
-          ctx.strokeStyle = '#0f172a';
-          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = cannotPlace ? '#e11d48' : '#0f172a';
+          ctx.lineWidth = cannotPlace ? 4 : 1.5;
           ctx.beginPath();
           if (dir === 'TOP') {
             ctx.moveTo(boxCenterX, by);
@@ -1421,6 +1437,33 @@ export class PdfExportService {
       const cellY = boxY + row * cellH;
 
       ctx.save();
+      const invalidPart = sheet.placedParts.find((p) => !this.fitsStandardSheet(p.part.width, p.part.height));
+      if (invalidPart) {
+        const part = invalidPart.part;
+        ctx.fillStyle = '#ffe4e6';
+        ctx.fillRect(cellX + 8, cellY + 8, cellW - 16, cellH - 16);
+        ctx.strokeStyle = '#e11d48';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(cellX + 8, cellY + 8, cellW - 16, cellH - 16);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#be123c';
+        const centerX = cellX + cellW / 2;
+        const centerY = cellY + cellH / 2;
+        const fontSize = Math.min(24, (cellW - 32) / 12, (cellH - 32) / 7);
+        const lineH = fontSize * 1.5;
+        ctx.font = `bold ${fontSize}px "Segoe UI", Arial, sans-serif`;
+        const lines = [
+          `! Элемент ${part.partLabel}`,
+          'Нельзя разместить',
+          `на листе ${NestingEngine.DEFAULT_SHEET_WIDTH} × ${NestingEngine.DEFAULT_SHEET_HEIGHT} мм`,
+          `Деталь: ${Math.round(part.width)} × ${Math.round(part.height)} мм`,
+          part.note || 'Требуется разделение детали',
+        ];
+        lines.forEach((line, i) => ctx.fillText(line, centerX, centerY + (i - 2) * lineH, cellW - 32));
+        ctx.restore();
+        return;
+      }
       // 1. Заголовок листа: Лист N: [Арт. XXXX] Название материала
       const firstPart = sheet.placedParts[0]?.part;
       const decorCode = sheet.decorCode || firstPart?.decorCode || '';
