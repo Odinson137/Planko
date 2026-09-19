@@ -1,0 +1,1 @@
+require('esbuild').buildSync({entryPoints:['tmp/pdfs/chains.ts'],bundle:true,platform:'node',format:'esm',banner:{js:'import {createRequire as nodeRequire} from "node:module"; const require=nodeRequire(import.meta.url);'},outfile:'tmp/pdfs/chains.mjs'});

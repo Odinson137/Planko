@@ -1,0 +1,10 @@
+import {createRequire} from 'node:module';import fs from 'node:fs';
+import {PdfExportService} from '../../src/application/services/PdfExportService';
+import {LayoutEngine} from '../../src/core/layout/LayoutEngine';
+const nr=createRequire(import.meta.url);const {createCanvas}=nr(process.env.CANVAS_MODULE!);
+const project=JSON.parse(fs.readFileSync('tests/fixtures/textures-no-photo.planko.json','utf8'));
+const wall=project.walls[0];wall.width=3600;wall.height=2750;wall.openings=[];
+wall.panels=[[0,0,1219,2750],[1222,2062.5,1220,687.5],[1222,1375,1220,687.5],[1222,0,1220,1375],[2445,2062.5,1155,687.5],[2445,1375,578,687.5],[2445,0,578,1375],[3023,1375,577,687.5],[3023,0,577,1375]].map(([x,y,w,h],i)=>({id:`1.${i+1}`,partLabel:`1.${i+1}`,materialId:project.materials[0].id,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]}));
+const canvas=createCanvas(2830,840);const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,2830,840);
+(PdfExportService as any).drawWall2DOnCanvas(ctx,wall,LayoutEngine.calculateWallLayout(wall,project.materials[0],project.materials),0,0,2830,840,true,project.materials);
+fs.writeFileSync('tmp/pdfs/chains.png',canvas.toBuffer('image/png'));
