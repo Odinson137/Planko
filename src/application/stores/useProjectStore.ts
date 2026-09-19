@@ -3217,6 +3217,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   addCustomCatalogPanel: (panel: Material) =>
     set((state) => ({
+      isDirty: true,
       project: {
         ...state.project,
         materials: [...state.project.materials, panel],
@@ -3225,6 +3226,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   updateCatalogPanel: (panelId: string, updates: Partial<Material>) =>
     set((state) => ({
+      isDirty: true,
       project: {
         ...state.project,
         materials: state.project.materials.map((m) =>
@@ -3235,6 +3237,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   deleteCatalogPanel: (panelId: string) =>
     set((state) => ({
+      isDirty: true,
       project: {
         ...state.project,
         materials: state.project.materials.filter((m) => m.id !== panelId),

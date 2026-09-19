@@ -6,14 +6,12 @@ import { Wall, RadiusType } from '../../core/models/Wall';
 import { LayoutEngine, LayoutCalculationResult } from '../../core/layout/LayoutEngine';
 import { NestingEngine, NestingPartInput, ProjectNestingResult, NestingSheet, NestingCutout } from '../../core/layout/NestingEngine';
 import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport } from '../../core/layout/ProfileSpecificationEngine';
-import { MATERIAL_NONE_ID } from '../../core/models/Material';
+import { MATERIAL_NONE_ID, Material } from '../../core/models/Material';
 import { Point2D, PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
 
 export class PdfExportService {
-  private static fitsStandardSheet(width: number, height: number): boolean {
-    const w = NestingEngine.DEFAULT_SHEET_WIDTH;
-    const h = NestingEngine.DEFAULT_SHEET_HEIGHT;
-    return (width <= w && height <= h) || (height <= w && width <= h);
+  private static fitsMaterial(width: number, height: number, material?: Material): boolean {
+    return NestingEngine.fitsStock(width, height, material?.width, material?.height, material?.type);
   }
 
   /**
@@ -104,7 +102,7 @@ export class PdfExportService {
     });
 
     // Рассчитываем оптимальный раскрой
-    const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allPartsForNesting);
+    const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allPartsForNesting, undefined, undefined, project.materials);
 
     // Генерируем страницу для каждой стены с умной адаптивной компоновкой
     for (let wIdx = 0; wIdx < project.walls.length; wIdx++) {
@@ -235,7 +233,7 @@ export class PdfExportService {
       }
     });
 
-    const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allParts);
+    const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allParts, undefined, undefined, project.materials);
 
     // Variants and finishes create more rows than the old category-only report.
     const coverPageCount = Math.max(1, Math.ceil(projectProfiles.byCategorySummary.length / 16));
@@ -349,7 +347,7 @@ export class PdfExportService {
       const wallAreaH = 1790;
 
       // Отрисовка крупного 2D-чертежа стены
-      this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true);
+      this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true, project.materials);
 
       // Вертикальная разделительная линия
       const sepX = marginX + wallColW + 28;
@@ -372,7 +370,7 @@ export class PdfExportService {
       ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
-      ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', sheetsAreaX, 160);
+      ctx.fillText('Карта раскроя материала по размерам заготовок', sheetsAreaX, 160);
       ctx.restore();
 
       this.drawNestingSheetsOnCanvas(
@@ -395,7 +393,7 @@ export class PdfExportService {
       const wallAreaW = totalAvailW;
       const wallAreaH = 840;
 
-      this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true);
+      this.drawWall2DOnCanvas(ctx, wall, layout, wallAreaX, wallAreaY, wallAreaW, wallAreaH, true, project.materials);
 
       // Горизонтальная разделительная черта
       ctx.strokeStyle = '#e2e8f0';
@@ -416,7 +414,7 @@ export class PdfExportService {
       ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
-      ctx.fillText('Карта оптимального раскроя материала (Листы 1220 × 2800 мм)', marginX, 1038);
+      ctx.fillText('Карта раскроя материала по размерам заготовок', marginX, 1038);
       ctx.restore();
 
       this.drawNestingSheetsOnCanvas(
@@ -499,7 +497,8 @@ export class PdfExportService {
     boxY: number,
     boxW: number,
     boxH: number,
-    showMaterials: boolean = true
+    showMaterials: boolean = true,
+    materials: Material[] = []
   ): void {
     const padX = 80;
     const padY = 45;
@@ -525,7 +524,7 @@ export class PdfExportService {
     // 2. Панели стены
     layout.panels.forEach((p, pIdx) => {
       const isVoid = p.isVoid || p.materialId === MATERIAL_NONE_ID;
-      const cannotPlace = !isVoid && !this.fitsStandardSheet(p.width, p.height);
+      const cannotPlace = !isVoid && !this.fitsMaterial(p.width, p.height, materials.find((m) => m.id === p.materialId));
       const pts = p.polygonPoints && p.polygonPoints.length >= 3
         ? p.polygonPoints.map((pt) => toC(pt.x, pt.y))
         : [
@@ -867,7 +866,7 @@ export class PdfExportService {
         ) => {
           ctx.save();
           const slope = layout.slopes?.find((s) => s.partLabel === partLabel);
-          const cannotPlace = !!slope && !this.fitsStandardSheet(slope.width, slope.depth);
+          const cannotPlace = !!slope && !this.fitsMaterial(slope.width, slope.depth, materials.find((m) => m.id === slope.materialId));
           ctx.font = 'bold 11px "Segoe UI", Arial, sans-serif';
           const subTextW = ctx.measureText(sideText).width;
           const bw = Math.max(cannotPlace ? 132 : 80, subTextW + 16);
@@ -1395,7 +1394,7 @@ export class PdfExportService {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(
-        'ℹ️ Для данной стены не требуется нарезка новых листов материала.',
+        'ℹ️ Для данной стены не требуется нарезка новых заготовок материала.',
         boxX + boxW / 2,
         boxY + boxH / 2 - 35
       );
@@ -1439,7 +1438,7 @@ export class PdfExportService {
       const cellY = boxY + row * cellH;
 
       ctx.save();
-      const invalidPart = sheet.placedParts.find((p) => !this.fitsStandardSheet(p.part.width, p.part.height));
+      const invalidPart = sheet.placedParts.find((p) => !NestingEngine.fitsStock(p.part.width, p.part.height, sheet.sheetWidth, sheet.sheetHeight, p.part.materialType));
       if (invalidPart) {
         const part = invalidPart.part;
         ctx.fillStyle = '#ffe4e6';
@@ -1458,7 +1457,7 @@ export class PdfExportService {
         const lines = [
           `! Элемент ${part.partLabel}`,
           'Нельзя разместить',
-          `на листе ${NestingEngine.DEFAULT_SHEET_WIDTH} × ${NestingEngine.DEFAULT_SHEET_HEIGHT} мм`,
+          `на заготовке ${sheet.sheetWidth} × ${sheet.sheetHeight} мм`,
           `Деталь: ${Math.round(part.width)} × ${Math.round(part.height)} мм`,
           part.note || 'Требуется разделение детали',
         ];
@@ -3054,7 +3053,7 @@ export class PdfExportService {
     const cardH = 145;
 
     const cards = [
-      { title: 'ВСЕГО ПАНЕЛЕЙ', val: `${nesting.totalPartsCount} шт.`, sub: `Листов 1220×2800: ${nesting.totalSheetsCount} шт.` },
+      { title: 'ВСЕГО ПАНЕЛЕЙ', val: `${nesting.totalPartsCount} шт.`, sub: `Заготовок: ${nesting.totalSheetsCount} шт.` },
       { title: 'ПОГОНАЖ ПРОФИЛЕЙ', val: `${profiles.totalLinearMeters} м`, sub: `Хлыстов 3м: ${profiles.totalStockBars} шт.` },
       { title: 'ПЛОЩАДЬ ОТДЕЛКИ', val: `${nesting.materialResults.reduce((acc, m) => acc + m.totalPartsAreaSqM, 0).toFixed(1)} м²`, sub: `Эффективность: ${nesting.materialResults[0]?.overallEfficiencyPct || 92}%` },
       { title: 'КОЛИЧЕСТВО СТЕН', val: `${project.walls.length}`, sub: `Проемов: ${project.walls.reduce((acc, w) => acc + w.openings.length, 0)}` },
@@ -3111,11 +3110,11 @@ export class PdfExportService {
       marginX,
       tbl1Y,
       totalAvailW,
-      ['Материал / Декор', 'Артикул', 'Тип', 'Деталей', 'Площадь', 'Листов 1220×2800'],
+      ['Материал / Декор', 'Артикул', 'Тип', 'Деталей', 'Площадь', 'Заготовок'],
       nesting.materialResults.map((m) => [
         m.materialName,
         m.materialId,
-        'Листовая панель',
+        m.sheets[0]?.placedParts[0]?.part.materialType === 'SLAT' ? 'Рейка' : 'Листовая панель',
         `${m.totalParts} шт.`,
         `${m.totalPartsAreaSqM} м²`,
         `${m.totalSheets} шт.`,
@@ -3210,7 +3209,7 @@ export class PdfExportService {
     const drawAreaW = w - marginX * 2 - sideW - 40;
     const drawAreaH = 1700;
 
-    this.drawWall2DOnCanvas(ctx, wall, layout, drawAreaX, drawAreaY, drawAreaW, drawAreaH, false);
+    this.drawWall2DOnCanvas(ctx, wall, layout, drawAreaX, drawAreaY, drawAreaW, drawAreaH, false, project.materials);
 
     // 2. Правая боковая колонка: Сводка по профилям на этой стене
     const sideX = w - marginX - sideW;

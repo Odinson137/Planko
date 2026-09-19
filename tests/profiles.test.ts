@@ -144,3 +144,80 @@ test('PDF table prints actual face width and metal thickness in separate values'
   assert.ok(texts.includes('Лист 2 / 4 (Сводный)'));
   assert.ok(texts.some((text) => text.includes('MC-06-7')));
 });
+
+function stockParts(materialId: string, sizes: Array<[number, number]>) {
+  return sizes.map(([width, height], index) => ({
+    id: `part-${index}`, wallId: 'wall', wallName: 'Стена 1', partLabel: `1.${index + 1}`,
+    materialId, width, height, decorCode: 'SAME-DECOR', thickness: 16,
+  }));
+}
+
+test('slats use separate real stock and reuse length with a saw kerf', () => {
+  const slat = { ...material, id: 'slat-test', type: 'SLAT' as const, width: 145, height: 3000, thickness: 16 };
+  const full = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 3000], [145, 3000]]), undefined, undefined, [slat]);
+  assert.equal(full.totalSheetsCount, 2);
+  assert.ok(full.allSheets.every((s) => s.sheetWidth === 145 && s.sheetHeight === 3000 && s.sheetLabel.startsWith('Рейка')));
+  const short = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 1500], [145, 1496]]), undefined, undefined, [slat]);
+  assert.equal(short.totalSheetsCount, 1);
+  assert.deepEqual(short.allSheets[0].placedParts.map((p) => p.y).sort((a, b) => a - b), [0, 1504]);
+  const noRoomForKerf = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 1500], [145, 1500]]), undefined, undefined, [slat]);
+  assert.equal(noRoomForKerf.totalSheetsCount, 2);
+  const ripped = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[60, 2000], [60, 2000]]), undefined, undefined, [slat]);
+  assert.equal(ripped.totalSheetsCount, 2);
+  assert.ok(ripped.allSheets.every((s) => s.placedParts.every((p) => !p.rotated)));
+  assert.equal(NestingEngine.fitsStock(3000, 145, 145, 3000, 'SLAT'), false);
+});
+
+test('different stock formats and slat models never share stock despite matching decor', () => {
+  const stocks = [
+    { ...material, id: 'sheet-custom', width: 800, height: 3500 },
+    { ...material, id: 'sheet-custom-other', width: 1000, height: 3500 },
+    { ...material, id: 'slat-a', type: 'SLAT' as const, width: 145, height: 3000 },
+    { ...material, id: 'slat-b', type: 'SLAT' as const, width: 145, height: 3000 },
+  ];
+  const result = NestingEngine.optimizeProjectNesting(stocks.flatMap((stock) => stockParts(stock.id, [[100, 500]])), undefined, undefined, stocks);
+  assert.equal(result.materialResults.length, 4);
+  assert.equal(result.totalSheetsCount, 4);
+  assert.deepEqual(result.allSheets.map((s) => [s.sheetWidth, s.sheetHeight]), stocks.map((s) => [s.width, s.height]));
+});
+
+test('PDF accepts full slats and custom sheets, flags true oversize against actual stock', () => {
+  for (const type of ['SLAT', 'SHEET'] as const) {
+    const stock = { ...material, id: `stock-${type}`, type, width: type === 'SLAT' ? 145 : 900, height: 3500 };
+    for (const extra of [0, 100]) {
+      const result = NestingEngine.optimizeProjectNesting(stockParts(stock.id, [[stock.width, stock.height + extra]]), undefined, undefined, [stock]);
+      const texts: string[] = [];
+      const ctx = new Proxy({} as Record<string, unknown>, {
+        get: (_, key) => key === 'fillText' ? (text: string) => texts.push(text)
+          : key === 'measureText' ? (text: string) => ({ width: text.length * 7 }) : () => undefined,
+        set: () => true,
+      });
+      (PdfExportService as any).drawNestingSheetsOnCanvas(ctx, result.allSheets.map((sheet) => ({ sheet, otherWallNames: [] })), [], 'wall', 0, 0, 900, 900);
+      assert.equal(texts.includes('Нельзя разместить'), extra > 0);
+      assert.equal(result.allSheets[0].sheetHeight, 3500);
+      if (extra > 0) assert.ok(texts.includes(`на заготовке ${stock.width} × 3500 мм`));
+      else assert.ok(texts.some((text) => text.includes(`${stock.width} × 3500`)));
+    }
+  }
+});
+
+test('custom catalog changes mark the project as requiring save', () => {
+  const initial = useProjectStore.getState();
+  const custom = { ...material, id: 'custom-save-test', isCustom: true, width: 900, height: 3500 };
+  try {
+    useProjectStore.setState({ isDirty: false });
+    useProjectStore.getState().addCustomCatalogPanel(custom);
+    assert.equal(useProjectStore.getState().isDirty, true);
+    assert.deepEqual(useProjectStore.getState().project.materials.find((m) => m.id === custom.id), custom);
+    useProjectStore.setState({ isDirty: false });
+    useProjectStore.getState().updateCatalogPanel(custom.id, { width: 950 });
+    assert.equal(useProjectStore.getState().isDirty, true);
+    assert.equal(useProjectStore.getState().project.materials.find((m) => m.id === custom.id)?.width, 950);
+    useProjectStore.setState({ isDirty: false });
+    useProjectStore.getState().deleteCatalogPanel(custom.id);
+    assert.equal(useProjectStore.getState().isDirty, true);
+    assert.ok(!useProjectStore.getState().project.materials.some((m) => m.id === custom.id));
+  } finally {
+    useProjectStore.setState(initial);
+  }
+});

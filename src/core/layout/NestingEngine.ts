@@ -1,5 +1,6 @@
 import { Point2D } from '../geometry/PolygonSlicingEngine';
 import { PanelBendInfo } from '../models/Wall';
+import type { Material, MaterialType } from '../models/Material';
 
 export interface NestingCutout {
   x: number;          // смещение выреза от левого края детали в мм
@@ -19,6 +20,9 @@ export interface NestingPartInput {
   height: number;
   areaSqM?: number;
   materialId: string;
+  materialType?: MaterialType;
+  stockWidth?: number;
+  stockHeight?: number;
   materialName?: string;
   decorCode?: string;
   color?: string;
@@ -102,6 +106,11 @@ export class NestingEngine {
   public static readonly DEFAULT_SHEET_HEIGHT = 2800;
   public static readonly SAW_KERF = 4; // Пропил пилы в мм
 
+  public static fitsStock(width: number, height: number, stockWidth = this.DEFAULT_SHEET_WIDTH, stockHeight = this.DEFAULT_SHEET_HEIGHT, type?: MaterialType): boolean {
+    return (width <= stockWidth && height <= stockHeight) ||
+      (type !== 'SLAT' && height <= stockWidth && width <= stockHeight);
+  }
+
   /**
    * Вычисляет реальную полезную нетто-площадь детали (с вычетом проемов / по полигону)
    */
@@ -126,10 +135,16 @@ export class NestingEngine {
   public static optimizeProjectNesting(
     parts: NestingPartInput[],
     sheetW: number = NestingEngine.DEFAULT_SHEET_WIDTH,
-    sheetH: number = NestingEngine.DEFAULT_SHEET_HEIGHT
+    sheetH: number = NestingEngine.DEFAULT_SHEET_HEIGHT,
+    materials: Material[] = []
   ): ProjectNestingResult {
     // 1. Фильтруем пустые элементы и нулевые размеры
-    const validParts = parts.filter(
+    const validParts = parts.map((part) => {
+      const material = materials.find((m) => m.id === part.materialId);
+      return { ...part, materialType: material?.type ?? part.materialType,
+        stockWidth: material?.width ?? part.stockWidth ?? sheetW,
+        stockHeight: material?.height ?? part.stockHeight ?? sheetH };
+    }).filter(
       (p) => p.width > 5 && p.height > 5 && p.materialId !== 'mat-none' && !p.partLabel.includes('ПУСТО')
     );
 
@@ -154,7 +169,8 @@ export class NestingEngine {
 
     const groupsByMaterial = new Map<string, NestingPartInput[]>();
     validParts.forEach((p) => {
-      const key = getMaterialGroupKey(p);
+      const distinctModel = p.materialType === 'SLAT' || materials.some((m) => m.id === p.materialId && m.isCustom);
+      const key = `${getMaterialGroupKey(p)}_${p.materialType ?? 'SHEET'}_${p.stockWidth}_${p.stockHeight}_${distinctModel ? p.materialId : ''}`;
       const list = groupsByMaterial.get(key) || [];
       list.push(p);
       groupsByMaterial.set(key, list);
@@ -167,7 +183,7 @@ export class NestingEngine {
       const firstPart = matParts[0];
       const matId = firstPart?.materialId || 'mat-sheet-1220';
       const matName = firstPart?.materialName || (firstPart?.decorCode ? `AllWall декор ${firstPart.decorCode}` : 'Панель AllWall');
-      const matResult = this.packMaterialParts(matParts, matId, matName, sheetW, sheetH);
+      const matResult = this.packMaterialParts(matParts, matId, matName, firstPart.stockWidth ?? sheetW, firstPart.stockHeight ?? sheetH);
 
       materialResults.push(matResult);
       rawSheets.push(...matResult.sheets);
@@ -193,7 +209,7 @@ export class NestingEngine {
       return {
         ...sheet,
         sheetIndex,
-        sheetLabel: `Лист ${sheetIndex}`,
+        sheetLabel: `${sheet.placedParts[0]?.part.materialType === 'SLAT' ? 'Рейка' : 'Лист'} ${sheetIndex}`,
       };
     });
 
@@ -391,7 +407,7 @@ export class NestingEngine {
           }
 
           // 2. Проверяем с поворотом на 90 градусов
-          if (itemH <= rect.w && itemW <= rect.h) {
+          if (item.materialType !== 'SLAT' && itemH <= rect.w && itemW <= rect.h) {
             const leftoverW = rect.w - itemH;
             const leftoverH = rect.h - itemW;
             let score = 0;
@@ -430,9 +446,12 @@ export class NestingEngine {
           });
 
           unplaced.splice(itemIdx, 1);
-          freeRects = NestingEngine.splitMaxRects(freeRects, px, py, placedW, placedH);
+          // A ripped slat still consumes its entire profile width at this length.
+          freeRects = NestingEngine.splitMaxRects(freeRects, px, py,
+            item.materialType === 'SLAT' ? sheetW : placedW,
+            item.materialType === 'SLAT' ? placedH + this.SAW_KERF : placedH);
 
-          if (item.cutouts && item.cutouts.length > 0) {
+          if (item.materialType !== 'SLAT' && item.cutouts && item.cutouts.length > 0) {
             item.cutouts.forEach((cut) => {
               const cutX = px + (bestRotated ? cut.y : cut.x);
               const cutY = py + (bestRotated ? cut.x : cut.y);
@@ -457,7 +476,10 @@ export class NestingEngine {
 
       if (placedOnSheet.length > 0) {
         const cutLines = NestingEngine.generateSheetCutLines(placedOnSheet, sheetW, sheetH);
-        const offcuts: NestingOffcut[] = NestingEngine.calculateDisjointOffcuts(placedOnSheet, sheetW, sheetH);
+        const offcuts: NestingOffcut[] = NestingEngine.calculateDisjointOffcuts(
+          placedOnSheet.map((p) => p.part.materialType === 'SLAT'
+            ? { ...p, width: sheetW, height: Math.min(p.height + this.SAW_KERF, sheetH - p.y) }
+            : p), sheetW, sheetH);
 
         const usedAreaSqM = placedOnSheet.reduce(
           (acc, p) => acc + NestingEngine.getPartNetAreaSqM(p.part),
@@ -500,8 +522,8 @@ export class NestingEngine {
           decorCode: oversized.decorCode,
           color: oversized.color,
           thickness: oversized.thickness,
-          sheetWidth: Math.max(sheetW, oversized.width),
-          sheetHeight: Math.max(sheetH, oversized.height),
+          sheetWidth: sheetW,
+          sheetHeight: sheetH,
           placedParts: [{
             part: oversized,
             x: 0,
@@ -773,4 +795,3 @@ export class NestingEngine {
     }
   }
 }
-

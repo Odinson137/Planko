@@ -18,7 +18,7 @@ import {
   ActionIcon,
   NumberInput,
   Select,
-  MultiSelect,
+  TagsInput,
   ColorInput,
   ScrollArea,
   Alert,
@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   Columns2,
   Zap,
+  Plus,
 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import {
@@ -61,6 +62,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
     selectedJointIds,
     setWallMaterial,
     updateCatalogPanel,
+    addCustomCatalogPanel,
     deleteCatalogPanel,
     setJointProfile,
     setJointProfileForSelected,
@@ -75,6 +77,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
 
   // Состояние редактирования существующей панели
   const [editingModel, setEditingModel] = useState<AllWallPanelModel | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState<'SHEET' | 'SLAT' | 'HQ'>('SHEET');
   const [editWidth, setEditWidth] = useState<number>(1220);
@@ -185,6 +188,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
   };
 
   const handleStartEdit = (model: AllWallPanelModel) => {
+    setIsCreating(false);
     setEditingModel(model);
     setEditName(model.name);
     setEditCategory(model.category);
@@ -197,6 +201,32 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
     setEditNewColorCode('');
     setEditNewColorName('');
   };
+
+  const handleStartCreate = () => {
+    setIsCreating(true);
+    setEditingModel(null);
+    setEditName('');
+    setEditCategory('SHEET');
+    setEditWidth(1220);
+    setEditHeight(2800);
+    setEditThicknesses(['5']);
+    setEditTextureCategory('WOOD');
+    setEditReliefType('FLAT');
+    setEditDecors([{ code: '001', name: 'Основной цвет', color: '#d6cbbe', category: 'WOOD' }]);
+    setEditNewColorCode('');
+    setEditNewColorName('');
+    setEditNewColorHex('#a0784a');
+  };
+
+  const closePanelEditor = () => {
+    setEditingModel(null);
+    setIsCreating(false);
+  };
+
+  const validPanel = editName.trim().length > 0 &&
+    Number.isFinite(editWidth) && editWidth >= 50 && editWidth <= 10000 &&
+    Number.isFinite(editHeight) && editHeight >= 50 && editHeight <= 10000 &&
+    editThicknesses.length > 0 && editThicknesses.every((value) => Number.isFinite(Number(value)) && Number(value) > 0);
 
   const handleAddEditColor = () => {
     if (!editNewColorHex) return;
@@ -214,14 +244,14 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
   };
 
   const handleSaveEditedPanel = () => {
-    if (!editingModel || !editName.trim()) return;
+    if ((!editingModel && !isCreating) || !validPanel) return;
 
     const parsedThicknesses = editThicknesses
       .map((t) => Number(t))
       .filter((t) => !isNaN(t) && t > 0);
     const defThick = parsedThicknesses[0] || 5;
 
-    const updates: Partial<Material> = {
+    const updates: Omit<Material, 'id'> = {
       name: editName.trim(),
       type: editCategory,
       width: editWidth,
@@ -236,8 +266,14 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
       decorName: editDecors[0]?.name || editName,
     };
 
-    updateCatalogPanel(editingModel.id, updates);
-    setEditingModel(null);
+    if (isCreating) {
+      addCustomCatalogPanel({ ...updates, id: `custom-${crypto.randomUUID()}`, isCustom: true });
+      setPanelCategoryFilter('ALL');
+      setPanelThicknessFilter('ALL');
+    } else if (editingModel) {
+      updateCatalogPanel(editingModel.id, updates);
+    }
+    closePanelEditor();
   };
 
   return (
@@ -303,6 +339,11 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           {/* Фильтры для вкладки Панелей */}
           {activeTab === 'PANELS' && (
             <Box style={{ flexShrink: 0 }}>
+              <Group justify="flex-end" mb="xs">
+                <Button leftSection={<Plus size={18} />} onClick={handleStartCreate}>
+                  Добавить панель
+                </Button>
+              </Group>
               <Paper p="xs" radius="md" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
                 <Stack gap="xs">
                   <Group justify="space-between" align="center" style={{ flexWrap: 'wrap' }}>
@@ -731,12 +772,12 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
 
       {/* Модальное окно редактирования панели */}
       <Modal
-        opened={editingModel !== null}
-        onClose={() => setEditingModel(null)}
+        opened={editingModel !== null || isCreating}
+        onClose={closePanelEditor}
         title={
           <Group gap="sm">
             <Edit3 size={20} color="#339af0" />
-            <Text fw={700}>Редактирование панели: {editingModel?.name}</Text>
+            <Text fw={700}>{isCreating ? 'Новая пользовательская панель' : `Редактирование панели: ${editingModel?.name}`}</Text>
           </Group>
         }
         size="lg"
@@ -747,7 +788,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
           body: { padding: '16px' },
         }}
       >
-        {editingModel && (
+        {(editingModel || isCreating) && (
           <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
               <TextInput
@@ -772,22 +813,23 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
               <NumberInput
                 label="Ширина (мм)"
                 value={editWidth}
-                onChange={(v) => setEditWidth(Number(v) || 1220)}
+                onChange={(v) => setEditWidth(Number(v))}
                 min={50}
                 max={10000}
               />
               <NumberInput
                 label="Высота (мм)"
                 value={editHeight}
-                onChange={(v) => setEditHeight(Number(v) || 2800)}
+                onChange={(v) => setEditHeight(Number(v))}
                 min={50}
                 max={10000}
               />
             </SimpleGrid>
 
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-              <MultiSelect
+              <TagsInput
                 label="Доступные толщины (мм)"
+                description="Выберите из списка или введите свою толщину и нажмите Enter"
                 data={['5', '8', '9', '10', '11', '12', '14', '15', '16', '17', '18', '22', '25']}
                 value={editThicknesses}
                 onChange={setEditThicknesses}
@@ -880,11 +922,11 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
             </ScrollArea>
 
             <Group justify="flex-end" gap="xs" mt="md">
-              <Button variant="default" onClick={() => setEditingModel(null)}>
+              <Button variant="default" onClick={closePanelEditor}>
                 Отмена
               </Button>
-              <Button color="blue" onClick={handleSaveEditedPanel}>
-                Сохранить изменения
+              <Button color="blue" onClick={handleSaveEditedPanel} disabled={!validPanel}>
+                {isCreating ? 'Добавить панель' : 'Сохранить изменения'}
               </Button>
             </Group>
           </Stack>

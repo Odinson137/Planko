@@ -227,7 +227,7 @@ export const TopToolbar: React.FC = () => {
               >
                 <div>
                   <Text size="xs" fw={700} c="blue.6">1. Раскладка панелей (PDF)</Text>
-                  <Text size="10px" c="dimmed">План стены + карты раскроя листов 1220×2800</Text>
+                  <Text size="10px" c="dimmed">План стены + карты раскроя листов и реек</Text>
                 </div>
               </Menu.Item>
               <Menu.Item
