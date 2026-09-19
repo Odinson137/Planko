@@ -83,8 +83,9 @@ export interface WallProfileItemSummary {
   colorHex: string;
   totalLengthMm: number;
   totalLinearMeters: number;
-  stockBarsCount: number; // 3-метровые хлысты с запасом 10%
+  stockBarsCount: number;
   segmentsCount: number;
+  segmentLengthsMm: number[]; // Preserve individual cuts when combining orders across walls.
 }
 
 export interface WallProfilesReport {
@@ -108,6 +109,27 @@ type ProfileIdentity = Pick<WallProfileItemSummary, 'category' | 'name' | 'artic
 
 function profileKey(item: ProfileIdentity): string {
   return JSON.stringify([item.category, item.article, item.visibleWidth, item.metalThickness, item.stockLengthMm, item.profileColor?.toLowerCase()]);
+}
+
+// First-fit decreasing keeps each segment intact when it fits a stock bar.
+// Longer tracks require joints; their full bars and remaining tail are counted separately.
+// Saw allowance and an extra purchase reserve are not configured for profiles yet.
+function countStockBars(lengths: number[], stockLength: number): number {
+  let fullBars = 0;
+  const tails: number[] = [];
+  for (const length of lengths) {
+    if (length <= 0) continue;
+    fullBars += Math.floor(length / stockLength);
+    const tail = length % stockLength;
+    if (tail > 1e-6) tails.push(tail);
+  }
+  const remaining: number[] = [];
+  for (const tail of tails.sort((a, b) => b - a)) {
+    const bar = remaining.findIndex(space => space + 1e-6 >= tail);
+    if (bar < 0) remaining.push(stockLength - tail);
+    else remaining[bar] -= tail;
+  }
+  return fullBars + remaining.length;
 }
 
 function profileIdentity(category: StandardProfileCategory, joint?: Partial<CalculatedJointLine>): ProfileIdentity {
@@ -168,7 +190,7 @@ export class ProfileSpecificationEngine {
     wallIndexOrNumber: number = 1
   ): WallProfilesReport {
     const layout: LayoutCalculationResult = LayoutEngine.calculateWallLayout(wall, defaultMaterial, allMaterials, wallIndexOrNumber);
-    const activeJoints = layout.joints.filter((j) => j.width > 0 || j.isLED);
+    const activeJoints = layout.joints.filter((j) => j.width > 0 || j.isLED || j.profileArticle);
 
     const map = new Map<string, { identity: ProfileIdentity; lengths: number[]; count: number }>();
 
@@ -208,7 +230,9 @@ export class ProfileSpecificationEngine {
             const identity = profileIdentity(category, { width: profile.width, profileArticle: article });
             const key = profileKey(identity);
             const entry = map.get(key) || { identity, lengths: [], count: 0 };
-            const depth = (side: 'top' | 'bottom' | 'left' | 'right') => slopes.fitToOpeningDepth ? (op.depth ?? 150) : (slopes[side].depth ?? slopes.depth);
+            const depth = (side: 'top' | 'bottom' | 'left' | 'right') => slopes.fitToOpeningDepth
+              ? (op.depth ?? (op.type === 'WINDOW' ? 200 : 150))
+              : slopes.depthMode === 'SAME' ? slopes.depth : slopes[side].depth;
             for (const [a, b] of [['top', 'left'], ['top', 'right'], ['bottom', 'left'], ['bottom', 'right']] as const) {
               if (slopes[a].enabled && slopes[b].enabled) {
                 entry.lengths.push(Math.max(depth(a), depth(b)));
@@ -230,7 +254,8 @@ export class ProfileSpecificationEngine {
           const identity = profileIdentity(opCat);
           const key = profileKey(identity);
           const entry = map.get(key) || { identity, lengths: [], count: 0 };
-          entry.lengths.push(perim);
+          entry.lengths.push(op.width, op.height, op.height);
+          if (op.type !== 'DOOR' || op.y > 5) entry.lengths.push(op.width);
           entry.count += (op.type === 'DOOR' && op.y <= 5 ? 3 : 4);
           map.set(key, entry);
         }
@@ -245,8 +270,7 @@ export class ProfileSpecificationEngine {
       const sumMm = data.lengths.reduce((acc, l) => acc + l, 0);
       const meters = Math.round((sumMm / 1000) * 100) / 100;
       
-      // Расчет 3-метровых хлыстов без наценки
-      const barsCount = Math.max(1, Math.ceil(sumMm / data.identity.stockLengthMm));
+      const barsCount = countStockBars(data.lengths, data.identity.stockLengthMm);
 
       totalWallMeters += meters;
       totalWallBars += barsCount;
@@ -257,6 +281,7 @@ export class ProfileSpecificationEngine {
         totalLinearMeters: meters,
         stockBarsCount: barsCount,
         segmentsCount: data.count,
+        segmentLengthsMm: [...data.lengths],
       });
     });
 
@@ -300,7 +325,7 @@ export class ProfileSpecificationEngine {
       report.items.forEach((item) => {
         const key = profileKey(item);
         const entry = aggregated.get(key) || { identity: item, lengths: [], count: 0 };
-        entry.lengths.push(item.totalLengthMm);
+        entry.lengths.push(...item.segmentLengthsMm);
         entry.count += item.segmentsCount;
         aggregated.set(key, entry);
       });
@@ -313,7 +338,7 @@ export class ProfileSpecificationEngine {
     aggregated.forEach((data) => {
       const sumMm = data.lengths.reduce((acc, l) => acc + l, 0);
       const meters = Math.round((sumMm / 1000) * 100) / 100;
-      const barsCount = Math.max(1, Math.ceil(sumMm / data.identity.stockLengthMm));
+      const barsCount = countStockBars(data.lengths, data.identity.stockLengthMm);
 
       projectTotalMeters += meters;
       projectTotalBars += barsCount;
@@ -324,6 +349,7 @@ export class ProfileSpecificationEngine {
         totalLinearMeters: meters,
         stockBarsCount: barsCount,
         segmentsCount: data.count,
+        segmentLengthsMm: [...data.lengths],
       });
     });
 

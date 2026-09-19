@@ -1,5 +1,6 @@
 import { TextureMapping, hasPhotoTexture, resolveTextureMapping, textureMappingError, textureFootprint, pointOnSheet } from '../textures/TextureMapping';
 import { Point2D } from '../geometry/PolygonSlicingEngine';
+import { subtractRectangles } from '../geometry/Rect2D';
 import { PanelBendInfo } from '../models/Wall';
 import type { Material, MaterialType } from '../models/Material';
 
@@ -270,10 +271,7 @@ export class NestingEngine {
     }
     for (const sheet of sheets) {
       sheet.cutLines = this.generateSheetCutLines(sheet.placedParts, sheetW, sheetH);
-      sheet.offcuts = this.calculateDisjointOffcuts(sheet.placedParts.map(p => ({ ...p,
-        x: Math.max(0,p.x-this.SAW_KERF), y: Math.max(0,p.y-this.SAW_KERF),
-        width: Math.min(sheetW,p.x+(p.part.materialType === 'SLAT' ? sheetW : p.width)+this.SAW_KERF)-Math.max(0,p.x-this.SAW_KERF),
-        height: Math.min(sheetH,p.y+p.height+this.SAW_KERF)-Math.max(0,p.y-this.SAW_KERF) })), sheetW, sheetH);
+      sheet.offcuts = this.calculateDisjointOffcuts(sheet.placedParts, sheetW, sheetH);
       sheet.usedAreaSqM = sheet.placedParts.reduce((n, p) => n + this.getPartNetAreaSqM(p.part), 0);
       sheet.efficiencyPct = Math.round(sheet.usedAreaSqM / sheet.totalAreaSqM * 100);
     }
@@ -442,8 +440,8 @@ export class NestingEngine {
       let itemIdx = 0;
       while (itemIdx < unplaced.length) {
         const item = unplaced[itemIdx];
-        const itemW = Math.round(item.width);
-        const itemH = Math.round(item.height);
+        const itemW = item.width;
+        const itemH = item.height;
 
         let bestRectIdx = -1;
         let bestFitScore = Number.MAX_VALUE;
@@ -515,16 +513,18 @@ export class NestingEngine {
 
           unplaced.splice(itemIdx, 1);
           // A ripped slat still consumes its entire profile width at this length.
-          freeRects = NestingEngine.splitMaxRects(freeRects, px, py,
-            item.materialType === 'SLAT' ? sheetW : placedW,
-            item.materialType === 'SLAT' ? placedH + this.SAW_KERF : placedH);
+          // Reserve the saw width on every side. Adjacent pieces may occupy overlapping
+          // MaxRects free regions, so protecting only the top/right edge is insufficient.
+          freeRects = NestingEngine.splitMaxRects(freeRects, px - this.SAW_KERF, py - this.SAW_KERF,
+            (item.materialType === 'SLAT' ? sheetW : placedW) + 2 * this.SAW_KERF,
+            placedH + 2 * this.SAW_KERF);
 
           if (item.materialType !== 'SLAT' && item.cutouts && item.cutouts.length > 0) {
             item.cutouts.forEach((cut) => {
-              const cutX = px + (bestRotated ? cut.y : cut.x);
-              const cutY = py + (bestRotated ? cut.x : cut.y);
-              const cutW = bestRotated ? cut.height : cut.width;
-              const cutH = bestRotated ? cut.width : cut.height;
+              const cutX = px + (bestRotated ? cut.y : cut.x) + this.SAW_KERF;
+              const cutY = py + (bestRotated ? item.width - cut.x - cut.width : cut.y) + this.SAW_KERF;
+              const cutW = (bestRotated ? cut.height : cut.width) - 2 * this.SAW_KERF;
+              const cutH = (bestRotated ? cut.width : cut.height) - 2 * this.SAW_KERF;
               if (cutW >= 80 && cutH >= 80) {
                 freeRects.push({
                   x: cutX,
@@ -544,10 +544,7 @@ export class NestingEngine {
 
       if (placedOnSheet.length > 0) {
         const cutLines = NestingEngine.generateSheetCutLines(placedOnSheet, sheetW, sheetH);
-        const offcuts: NestingOffcut[] = NestingEngine.calculateDisjointOffcuts(
-          placedOnSheet.map((p) => p.part.materialType === 'SLAT'
-            ? { ...p, width: sheetW, height: Math.min(p.height + this.SAW_KERF, sheetH - p.y) }
-            : p), sheetW, sheetH);
+        const offcuts = NestingEngine.calculateDisjointOffcuts(placedOnSheet, sheetW, sheetH);
 
         const usedAreaSqM = placedOnSheet.reduce(
           (acc, p) => acc + NestingEngine.getPartNetAreaSqM(p.part),
@@ -698,65 +695,17 @@ export class NestingEngine {
     sheetW: number,
     sheetH: number
   ): NestingOffcut[] {
-    const offcuts: NestingOffcut[] = [];
-    if (placed.length === 0) {
-      offcuts.push({ x: 0, y: 0, width: sheetW, height: sheetH, areaSqM: (sheetW * sheetH) / 1_000_000 });
-      return offcuts;
-    }
-
-    // Находим максимальную занятую координату X и Y
-    const maxX = Math.max(...placed.map((p) => p.x + p.width));
-    const maxY = Math.max(...placed.map((p) => p.y + p.height));
-
-    // 1. Правый сплошной остаток листа
-    if (sheetW - maxX >= 60) {
-      offcuts.push({
-        x: maxX,
-        y: 0,
-        width: sheetW - maxX,
-        height: sheetH,
-        areaSqM: Math.round((((sheetW - maxX) * sheetH) / 1_000_000) * 1000) / 1000,
-      });
-    }
-
-    // 2. Верхний сплошной остаток листа (над деталями)
-    if (sheetH - maxY >= 60) {
-      offcuts.push({
-        x: 0,
-        y: maxY,
-        width: maxX > 0 ? maxX : sheetW,
-        height: sheetH - maxY,
-        areaSqM: Math.round((((maxX > 0 ? maxX : sheetW) * (sheetH - maxY)) / 1_000_000) * 1000) / 1000,
-      });
-    }
-
-    // 3. Локальные свободные карманы внутри листа (если есть детали разной высоты в колонке)
-    placed.forEach((p) => {
-      if (p.x + p.width < maxX && p.y + p.height < maxY) {
-        const pocketW = maxX - (p.x + p.width);
-        const pocketH = p.height;
-        // Проверяем, не занята ли эта зона другой деталью
-        const isOccupied = placed.some(
-          (other) =>
-            other !== p &&
-            other.x < p.x + p.width + pocketW &&
-            other.x + other.width > p.x + p.width &&
-            other.y < p.y + pocketH &&
-            other.y + other.height > p.y
-        );
-        if (!isOccupied && pocketW >= 80 && pocketH >= 80) {
-          offcuts.push({
-            x: p.x + p.width,
-            y: p.y,
-            width: pocketW,
-            height: pocketH,
-            areaSqM: Math.round(((pocketW * pocketH) / 1_000_000) * 1000) / 1000,
-          });
-        }
-      }
-    });
-
-    return offcuts;
+    // Subtract occupied stock including the kerf. Rectangle subtraction produces
+    // disjoint remnants, so the same offcut cannot be offered more than once.
+    const occupied = placed.map(p => ({
+      x: p.x - this.SAW_KERF,
+      y: p.y - this.SAW_KERF,
+      width: (p.part.materialType === 'SLAT' ? sheetW : p.width) + 2 * this.SAW_KERF,
+      height: p.height + 2 * this.SAW_KERF,
+    }));
+    return subtractRectangles({ x: 0, y: 0, width: sheetW, height: sheetH }, occupied)
+      .filter(rect => rect.width >= 60 && rect.height >= 60)
+      .map(rect => ({ ...rect, areaSqM: Math.round(rect.width * rect.height / 1000) / 1000 }));
   }
 
   /**

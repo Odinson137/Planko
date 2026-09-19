@@ -43,6 +43,10 @@ export function createDefaultProject(name: string = 'Новый проект р�
   const initialWall = createDefaultWall('wall-1', 'Стена 1', roomName);
   initialWall.width = wallWidth;
   initialWall.height = wallHeight;
+  initialWall.panels![0].points = [
+    { x: 0, y: 0 }, { x: wallWidth, y: 0 },
+    { x: wallWidth, y: wallHeight }, { x: 0, y: wallHeight },
+  ];
 
   return {
     id: `proj-${Date.now()}`,

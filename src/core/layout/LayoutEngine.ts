@@ -347,6 +347,10 @@ export class LayoutEngine {
           textureCategory: p.textureCategory || mat.textureCategory || 'WOOD',
           partLabel: defaultLabel,
           polygonPoints: cleanPoints,
+          radiusConfig: p.radiusConfig,
+          arcLength: p.radiusConfig
+            ? Math.round(Math.PI * p.radiusConfig.radius * (p.radiusConfig.angleDeg ?? 90) / 180)
+            : undefined,
           textureMapping: p.textureMapping,
           patternAngleDeg: p.patternAngleDeg ?? 0,
           patternFlipX: p.patternFlipX || false,
@@ -1079,6 +1083,28 @@ export class LayoutEngine {
     const isPolygonMesh = Boolean(wall.panels && wall.panels.length > 0);
     panels = this.subtractOpeningsFromPanels(panels, wall.openings, wallNumber, isPolygonMesh);
 
+    // Resolve bend offsets against the final part bounds, including pieces cut by openings.
+    // The polygon model and the legacy grid must carry the same manufacturing metadata.
+    if (wall.bends?.length) {
+      panels = panels.map((panel) => {
+        const bendsInfo: PanelBendInfo[] = [];
+        for (const bend of wall.bends!) {
+          const bendEnd = bend.x + Math.round(Math.PI * bend.radius * bend.angleDeg / 180);
+          const overlapStart = Math.max(bend.x, panel.x);
+          const overlapEnd = Math.min(bendEnd, panel.x + panel.width);
+          if (overlapEnd <= overlapStart) continue;
+          bendsInfo.push({
+            bendId: bend.id, type: bend.type, radius: bend.radius, angleDeg: bend.angleDeg,
+            flatLeft: Math.max(0, Math.round(bend.x - panel.x)),
+            flatRight: Math.max(0, Math.round(panel.x + panel.width - bendEnd)),
+            bendWidth: Math.round(overlapEnd - overlapStart),
+            bendOffsetInSheet: Math.round(overlapStart - panel.x),
+          });
+        }
+        return { ...panel, bendsInfo: bendsInfo.length ? bendsInfo : undefined };
+      });
+    }
+
     // Расчет площадей и расхода
     const wallAreaSqM = (wall.width * wall.height) / 1_000_000;
     const cutoutOpenings = wall.openings.filter((op) => op.isCutout !== false);
@@ -1118,10 +1144,6 @@ export class LayoutEngine {
       (acc, p) => acc + (p.areaSqM || ((p.width * p.height) / 1_000_000)),
       0
     );
-
-    let profileLinearMeters = finalJoints
-      .filter((j) => j.width > 0 || j.isLED)
-      .reduce((acc, j) => acc + j.length / 1000, 0);
 
     // =========================================================================
     // Расчет параметров и деталей откосов
@@ -1398,6 +1420,10 @@ export class LayoutEngine {
         });
       }
     });
+
+    const profileLinearMeters = cleanFinalJoints
+      .filter((j) => j.width > 0 || j.isLED || j.profileArticle)
+      .reduce((acc, j) => acc + j.length / 1000, 0);
 
     return {
       panels: panels.map(p => {

@@ -10,10 +10,10 @@ try {
   const outputs = [];
   for (const file of files) {
     const outfile = join(directory, file.replace(/\.ts$/, '.cjs'));
-    await build({ entryPoints: [`tests/${file}`], outfile, bundle: true, platform: 'node', format: 'cjs' });
+    await build({ entryPoints: [`tests/${file}`], outfile, bundle: true, platform: 'node', format: 'cjs', sourcemap: 'inline' });
     outputs.push(outfile);
   }
-  const result = spawnSync(process.execPath, ['--test', ...outputs], { stdio: 'inherit' });
+  const result = spawnSync(process.execPath, ['--enable-source-maps', '--test', ...process.argv.slice(2), ...outputs], { stdio: 'inherit' });
   process.exitCode = result.status ?? 1;
 } finally {
   await rm(directory, { recursive: true, force: true });
