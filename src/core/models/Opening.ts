@@ -1,6 +1,6 @@
 export type OpeningType = 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE';
 
-export type SlopeJointProfileType = 'NONE' | 'CORNER' | 'LED_10' | 'JOINT_8';
+export type SlopeJointProfileType = 'NONE' | 'CORNER' | 'LED_10' | 'JOINT_3' | 'JOINT_7' | 'JOINT_8';
 
 export interface SlopeSideConfig {
   enabled: boolean;          // Включена ли данная грань откоса

@@ -1,3 +1,4 @@
+import { findProfileByArticle } from '../models/Profile';
 import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
 import { Opening, ensureOpeningSlopes } from '../models/Opening';
@@ -56,7 +57,9 @@ export interface CalculatedJointLine {
   name: string;
   x: number;
   y: number;
-  width: number;      // толщина шва на чертеже в мм
+  width: number;      // монтажный зазор в мм (не толщина металла)
+  visibleWidth?: number; // ширина лицевой планки для отрисовки
+  metalThickness?: number;
   length: number;     // длина линии шва в мм
   orientation: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
   p1?: Point2D;
@@ -1371,7 +1374,10 @@ export class LayoutEngine {
 
     return {
       panels,
-      joints: cleanFinalJoints,
+      joints: cleanFinalJoints.map((joint) => {
+        const profile = joint.profileArticle ? findProfileByArticle(joint.profileArticle) : undefined;
+        return { ...joint, visibleWidth: profile?.visibleWidth ?? joint.width, metalThickness: profile?.metalThickness };
+      }),
       slopes: slopePieces,
       summary: {
         totalPanelsNeeded: coveredPanels.length,

@@ -472,6 +472,11 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                           <Badge size="xs" variant="outline" color="cyan">
                             📏 Видимая ширина: {prof.visibleWidth} мм
                           </Badge>
+                          {prof.metalThickness && (
+                            <Badge size="xs" variant="outline" color="indigo">
+                              🛡️ Толщина металла: {prof.metalThickness.toLocaleString('ru-RU')} мм
+                            </Badge>
+                          )}
                           <Badge size="xs" variant="outline" color="teal">
                             📐 Панели: {prof.allowedThicknesses.join(' / ')} мм
                           </Badge>

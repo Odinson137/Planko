@@ -46,7 +46,7 @@ export interface WallJointLine {
   id: string;                       // Уникальный идентификатор шва
   p1: Point2D;                      // Начальная точка отрезка
   p2: Point2D;                      // Конечная точка отрезка
-  width: number;                    // Толщина шва в мм (0, 0.8, 5, 8, 10...)
+  width: number;                    // Монтажный зазор в мм; толщина металла хранится в каталоге профилей
   isLED: boolean;                   // Включена ли LED-подсветка
   profileArticle?: string;          // Артикул AllWall (DL-13, MC-06 и т.д.)
   profileColor?: string;            // HEX цвет профиля
@@ -139,7 +139,7 @@ export interface WallZone {
   id: string;
   materialId: string;
   orientation: LayoutOrientation;
-  jointProfileType: ProfileType;   // тип шва по умолчанию (8 мм)
+  jointProfileType: ProfileType;   // тип шва по умолчанию (3 мм)
 }
 
 export interface Wall {
@@ -189,7 +189,7 @@ export function createDefaultWall(id: string, name: string = 'Стена 1', roo
       id: `zone-${id}`,
       materialId: MATERIAL_NONE_ID,
       orientation: 'VERTICAL',
-      jointProfileType: 'JOINT_8',
+      jointProfileType: 'JOINT_3',
     },
   };
 }

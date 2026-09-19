@@ -3,7 +3,7 @@ import { Project } from '../../core/models/Project';
 import { Wall, RadiusType } from '../../core/models/Wall';
 import { LayoutEngine, LayoutCalculationResult } from '../../core/layout/LayoutEngine';
 import { NestingEngine, NestingPartInput, ProjectNestingResult, NestingSheet, NestingCutout } from '../../core/layout/NestingEngine';
-import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport, PROFILE_CATEGORIES_INFO } from '../../core/layout/ProfileSpecificationEngine';
+import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport } from '../../core/layout/ProfileSpecificationEngine';
 import { MATERIAL_NONE_ID } from '../../core/models/Material';
 import { Point2D, PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
 
@@ -229,30 +229,33 @@ export class PdfExportService {
 
     const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allParts);
 
-    // --- СТРАНИЦА 1: Сводная ведомость панелей и профилей проекта ---
-    const canvas1 = document.createElement('canvas');
-    canvas1.width = 2970;
-    canvas1.height = 2100;
-    const ctx1 = canvas1.getContext('2d')!;
-    this.renderInstallerCoverPage(ctx1, canvas1.width, canvas1.height, project, nestingResult, projectProfiles);
-    pdf.addImage(canvas1.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 297, 210);
-
-    // --- ПОСЛЕДУЮЩИЕ СТРАНИЦЫ: 2D чертежи каркаса и профилей каждой стены ---
-    for (let wIdx = 0; wIdx < project.walls.length; wIdx++) {
-      pdf.addPage('a4', 'landscape');
-
-      const wall = project.walls[wIdx];
-      const wallReport = projectProfiles.wallReports.find((r) => r.wallId === wall.id) || projectProfiles.wallReports[wIdx];
-
-      const canvasWall = document.createElement('canvas');
-      canvasWall.width = 2970;
-      canvasWall.height = 2100;
-      const ctxWall = canvasWall.getContext('2d')!;
-
-      this.renderInstallerWallPage(ctxWall, canvasWall.width, canvasWall.height, project, wall, wallReport, wIdx + 2, project.walls.length + 1);
-
-      pdf.addImage(canvasWall.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 297, 210);
+    // Variants and finishes create more rows than the old category-only report.
+    const coverPageCount = Math.max(1, Math.ceil(projectProfiles.byCategorySummary.length / 16));
+    const wallPages = project.walls.flatMap((wall) => {
+      const report = projectProfiles.wallReports.find((r) => r.wallId === wall.id)!;
+      return Array.from({ length: Math.max(1, Math.ceil(report.items.length / 8)) }, (_, index) => ({
+        wall, report: { ...report, items: report.items.slice(index * 8, (index + 1) * 8) },
+      }));
+    });
+    const totalPages = coverPageCount + wallPages.length;
+    for (let index = 0; index < coverPageCount; index++) {
+      if (index > 0) pdf.addPage('a4', 'landscape');
+      const canvas = document.createElement('canvas');
+      canvas.width = 2970;
+      canvas.height = 2100;
+      this.renderInstallerCoverPage(canvas.getContext('2d')!, canvas.width, canvas.height, project, nestingResult, {
+        ...projectProfiles, byCategorySummary: projectProfiles.byCategorySummary.slice(index * 16, (index + 1) * 16),
+      }, index + 1, totalPages);
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 297, 210);
     }
+    wallPages.forEach(({ wall, report }, index) => {
+      pdf.addPage('a4', 'landscape');
+      const canvas = document.createElement('canvas');
+      canvas.width = 2970;
+      canvas.height = 2100;
+      this.renderInstallerWallPage(canvas.getContext('2d')!, canvas.width, canvas.height, project, wall, report, coverPageCount + index + 1, totalPages);
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 297, 210);
+    });
 
     const filename = `${project.name || 'Проект'}_Монтажная_Спецификация.pdf`;
     pdf.save(filename);
@@ -366,7 +369,7 @@ export class PdfExportService {
 
       this.drawNestingSheetsOnCanvas(
         ctx,
-        sheetsForThisWall.length > 0 ? sheetsForThisWall : nesting.allSheets.map((s) => ({ sheet: s, otherWallNames: [] })),
+        sheetsForThisWall,
         borrowedSheets,
         wall.id,
         sheetsAreaX,
@@ -410,7 +413,7 @@ export class PdfExportService {
 
       this.drawNestingSheetsOnCanvas(
         ctx,
-        sheetsForThisWall.length > 0 ? sheetsForThisWall : nesting.allSheets.map((s) => ({ sheet: s, otherWallNames: [] })),
+        sheetsForThisWall,
         borrowedSheets,
         wall.id,
         sheetsAreaX,
@@ -447,8 +450,8 @@ export class PdfExportService {
     const sharedSheets = sheetsForThisWall.filter((item) => item.otherWallNames.length > 0);
 
     if (wallJoints.length > 0) {
-      const meaningfulJoint = wallJoints.find((j) => j.width >= 6) || wallJoints.find((j) => j.width > 0) || { width: 8 };
-      const jointGap = Math.round(meaningfulJoint.width || 8);
+      const meaningfulJoint = wallJoints.find((j) => j.width > 0 && !j.isOuterEdge) || wallJoints.find((j) => j.width > 0) || { width: 3 };
+      const jointGap = (meaningfulJoint.width || 3).toLocaleString('ru-RU');
       ctx.fillStyle = '#334155';
       ctx.fillText(`! Стыки и зазоры обрамления: ширина швов ${jointGap} мм (профиль AllWall / теневой открытый паз).`, marginX, 2045);
     } else if (sharedSheets.length > 0) {
@@ -979,7 +982,7 @@ export class PdfExportService {
         ctx.lineWidth = 6;
       } else {
         ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 3.5;
+        ctx.lineWidth = Math.max(1.5, (j.visibleWidth ?? j.width) * scale);
       }
       ctx.stroke();
       ctx.restore();
@@ -1424,9 +1427,9 @@ export class PdfExportService {
       const matName = sheet.materialName || firstPart?.materialName || 'Панель AllWall';
       const thickness = sheet.thickness || firstPart?.thickness || 5;
 
-      const sheetNumber = startIndex + idx + 1;
+      const sheetLabel = sheet.sheetLabel || `Лист ${sheet.sheetIndex || (startIndex + idx + 1)}`;
       const decorBadge = decorCode ? `[${decorCode}] ` : '';
-      const titleText = `Лист ${sheetNumber}: ${decorBadge}${matName}`;
+      const titleText = `${sheetLabel}: ${decorBadge}${matName}`;
 
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
@@ -2971,7 +2974,9 @@ export class PdfExportService {
     h: number,
     project: Project,
     nesting: ProjectNestingResult,
-    profiles: ProjectProfilesReport
+    profiles: ProjectProfilesReport,
+    pageNumber: number = 1,
+    totalPages: number = 1
   ): void {
     const marginX = 90;
 
@@ -3075,7 +3080,7 @@ export class PdfExportService {
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 28px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('2. Спецификация профилей и фурнитуры (Стандарт 3000 мм)', marginX, tbl2Y - 25);
+    ctx.fillText('2. Спецификация профилей и фурнитуры', marginX, tbl2Y - 25);
     ctx.restore();
 
     const colW2 = [
@@ -3091,13 +3096,13 @@ export class PdfExportService {
       marginX,
       tbl2Y,
       totalAvailW,
-      ['Тип профиля', 'Артикул AllWall', 'Видимая ширина', 'Погонаж', 'Хлыстов 3м'],
+      ['Тип профиля', 'Артикул / цвет', 'Ширина / металл', 'Погонаж', 'Хлысты'],
       profiles.byCategorySummary.map((p) => [
         p.name,
-        p.article,
-        `${PROFILE_CATEGORIES_INFO[p.category].defaultWidth} мм`,
+        `${p.article}${p.profileColor ? ' / ' + p.profileColor : ''}`,
+        `${p.visibleWidth} мм / ${p.metalThickness !== undefined ? p.metalThickness.toLocaleString('ru-RU') + ' мм' : '—'}`,
         `${p.totalLinearMeters} м`,
-        `${p.stockBarsCount} шт.`,
+        `${p.stockBarsCount} × ${p.stockLengthMm / 1000} м`,
       ]),
       colW2
     );
@@ -3108,7 +3113,7 @@ export class PdfExportService {
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#64748b';
     ctx.font = '22px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('Лист 1 (Сводный)', w - marginX, 2040);
+    ctx.fillText(`Лист ${pageNumber} / ${totalPages} (Сводный)`, w - marginX, 2040);
     ctx.restore();
   }
 
@@ -3179,7 +3184,7 @@ export class PdfExportService {
 
     ctx.font = '18px "Segoe UI", Arial, sans-serif';
     ctx.fillStyle = '#64748b';
-    ctx.fillText(`Всего погонажа: ${report.totalLinearMeters} м   •   Хлыстов 3м: ${report.totalStockBars} шт.`, sideX + 32, sideY + 86);
+    ctx.fillText(`Всего погонажа: ${report.totalLinearMeters} м   •   Хлыстов: ${report.totalStockBars} шт.`, sideX + 32, sideY + 86);
 
     // Список профилей (карточки с безопасными отступами)
     let curY = sideY + 120;
@@ -3204,12 +3209,14 @@ export class PdfExportService {
       // Название профиля
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
-      ctx.fillText(item.name, sideX + 48, curY + 34);
+      ctx.fillText(item.name, sideX + 48, curY + 34, sideW - 90);
 
       // Артикул и ширина
       ctx.fillStyle = '#64748b';
       ctx.font = '16px "Segoe UI", Arial, sans-serif';
-      ctx.fillText(`Артикул: ${item.article}   •   Ширина: ${PROFILE_CATEGORIES_INFO[item.category].defaultWidth} мм`, sideX + 48, curY + 68);
+      ctx.fillText(`${item.article} • Видимая: ${item.visibleWidth} мм • Металл: ${item.metalThickness !== undefined ? item.metalThickness.toLocaleString('ru-RU') + ' мм' : '—'}`, sideX + 48, curY + 62, sideW - 90);
+
+      ctx.fillText(`Цвет: ${item.profileColor || 'Не указан'}`, sideX + 48, curY + 83);
 
       // Метраж
       ctx.fillStyle = '#1e293b';
@@ -3220,7 +3227,7 @@ export class PdfExportService {
       ctx.fillStyle = '#2563eb';
       ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText(`${item.stockBarsCount} шт. (3м)`, sideX + sideW - 44, curY + 104);
+      ctx.fillText(`${item.stockBarsCount} шт. (${item.stockLengthMm / 1000}м)`, sideX + sideW - 44, curY + 104);
       ctx.textAlign = 'left';
 
       curY += cardH + cardGap;
@@ -3241,7 +3248,7 @@ export class PdfExportService {
 
     const legendItems = [
       { color: '#f59e0b', label: 'LED подсветка (10 мм паз под RGB ленту)' },
-      { color: '#2563eb', label: 'Соединительный профиль (0.8 мм)' },
+      { color: '#2563eb', label: 'Соединительный профиль (3 мм / 7 мм)' },
       { color: '#ef4444', label: 'Торцевой закрывающий профиль' },
       { color: '#06b6d4', label: 'Угловой профиль (откосы/углы)' },
     ];
@@ -3293,7 +3300,7 @@ export class PdfExportService {
 
     let curX = x;
     headers.forEach((h, i) => {
-      ctx.fillText(h, curX + 20, y + headerH / 2);
+      ctx.fillText(h, curX + 20, y + headerH / 2, colWidths[i] - 40);
       curX += colWidths[i];
     });
 
@@ -3310,7 +3317,7 @@ export class PdfExportService {
 
       let rowX = x;
       row.forEach((val, cIdx) => {
-        ctx.fillText(val, rowX + 20, ry + rowH / 2);
+        ctx.fillText(val, rowX + 20, ry + rowH / 2, colWidths[cIdx] - 40);
         rowX += colWidths[cIdx];
       });
     });

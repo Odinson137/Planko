@@ -1,7 +1,7 @@
 import { Wall } from '../models/Wall';
 import { LayoutEngine, LayoutCalculationResult, CalculatedJointLine } from './LayoutEngine';
 import { Material, DEFAULT_MATERIALS } from '../models/Material';
-import { findProfileByArticle } from '../models/Profile';
+import { DEFAULT_PROFILES, findProfileByArticle } from '../models/Profile';
 
 export type StandardProfileCategory = 'H_JOINT_08' | 'LED_10' | 'END_CAP' | 'CORNER' | 'BASEBOARD' | 'OTHER';
 
@@ -18,12 +18,12 @@ export interface ProfileCategoryInfo {
 export const PROFILE_CATEGORIES_INFO: Record<StandardProfileCategory, ProfileCategoryInfo> = {
   H_JOINT_08: {
     type: 'H_JOINT_08',
-    name: 'Соединительный профиль (0.8 мм)',
+    name: 'Соединительный профиль (3 мм / 7 мм)',
     article: 'MC-06 / DL-17',
-    defaultWidth: 0.8,
+    defaultWidth: 3.0,
     colorHex: '#3b82f6', // Синий
     stockLengthMm: 3000,
-    description: 'Тонкий межпанельный стыковочный профиль для соединения плит',
+    description: 'Тонкий межпанельный стыковочный профиль (видимая часть 3 мм / 7 мм, металл 0.8 мм)',
   },
   LED_10: {
     type: 'LED_10',
@@ -74,6 +74,10 @@ export const PROFILE_CATEGORIES_INFO: Record<StandardProfileCategory, ProfileCat
 
 export interface WallProfileItemSummary {
   category: StandardProfileCategory;
+  visibleWidth: number;
+  metalThickness?: number;
+  stockLengthMm: number;
+  profileColor?: string;
   name: string;
   article: string;
   colorHex: string;
@@ -100,6 +104,27 @@ export interface ProjectProfilesReport {
   wallReports: WallProfilesReport[];
 }
 
+type ProfileIdentity = Pick<WallProfileItemSummary, 'category' | 'name' | 'article' | 'colorHex' | 'visibleWidth' | 'metalThickness' | 'stockLengthMm' | 'profileColor'>;
+
+function profileKey(item: ProfileIdentity): string {
+  return JSON.stringify([item.category, item.article, item.visibleWidth, item.metalThickness, item.stockLengthMm, item.profileColor?.toLowerCase()]);
+}
+
+function profileIdentity(category: StandardProfileCategory, joint?: Partial<CalculatedJointLine>): ProfileIdentity {
+  const info = PROFILE_CATEGORIES_INFO[category];
+  const profile = joint?.profileArticle ? findProfileByArticle(joint.profileArticle) : undefined;
+  return {
+    category,
+    name: profile?.name ?? (category === 'H_JOINT_08' ? 'Соединительный профиль' : info.name),
+    article: profile?.article ?? joint?.profileArticle ?? 'Не выбран',
+    colorHex: info.colorHex,
+    visibleWidth: profile?.visibleWidth ?? joint?.width ?? info.defaultWidth,
+    metalThickness: profile?.metalThickness,
+    stockLengthMm: profile?.stockLength ?? info.stockLengthMm,
+    profileColor: joint?.profileColor ?? profile?.defaultColorHex,
+  };
+}
+
 export class ProfileSpecificationEngine {
   public static categorizeJoint(joint: CalculatedJointLine): StandardProfileCategory {
     if (joint.isLED) {
@@ -122,7 +147,7 @@ export class ProfileSpecificationEngine {
       return 'END_CAP';
     }
 
-    if (joint.width <= 1.5) {
+    if (joint.width >= 0.5 && joint.width <= 7.5) {
       return 'H_JOINT_08';
     }
 
@@ -130,7 +155,7 @@ export class ProfileSpecificationEngine {
       return 'LED_10';
     }
 
-    return 'H_JOINT_08';
+    return 'OTHER';
   }
 
   /**
@@ -145,20 +170,55 @@ export class ProfileSpecificationEngine {
     const layout: LayoutCalculationResult = LayoutEngine.calculateWallLayout(wall, defaultMaterial, allMaterials, wallIndexOrNumber);
     const activeJoints = layout.joints.filter((j) => j.width > 0 || j.isLED);
 
-    const map = new Map<StandardProfileCategory, { lengths: number[]; count: number }>();
+    const map = new Map<string, { identity: ProfileIdentity; lengths: number[]; count: number }>();
 
     activeJoints.forEach((j) => {
       const cat = this.categorizeJoint(j);
-      const entry = map.get(cat) || { lengths: [], count: 0 };
+      const identity = profileIdentity(cat, j);
+      const key = profileKey(identity);
+      const entry = map.get(key) || { identity, lengths: [], count: 0 };
       entry.lengths.push(j.length);
       entry.count++;
-      map.set(cat, entry);
+      map.set(key, entry);
     });
 
     // Учет профилей обрамления проемов (двери, окна, ниши)
     if (wall.openings && wall.openings.length > 0) {
       wall.openings.forEach((op) => {
         if (op.isCutout === false) return;
+        if (op.framing) {
+          for (const side of ['left', 'right', 'top', 'bottom'] as const) {
+            if (side === 'bottom' && op.type === 'DOOR' && op.y <= 5) continue;
+            const edge = op.framing[side];
+            if (!edge || (edge.width <= 0 && !edge.profileArticle && !edge.isLED)) continue;
+            const joint = { ...edge, isOuterEdge: true } as CalculatedJointLine;
+            const identity = profileIdentity(this.categorizeJoint(joint), joint);
+            const key = profileKey(identity);
+            const entry = map.get(key) || { identity, lengths: [], count: 0 };
+            entry.lengths.push(side === 'top' || side === 'bottom' ? op.width : op.height);
+            entry.count++;
+            map.set(key, entry);
+          }
+          const slopes = op.slopes;
+          const type = slopes?.jointProfileType;
+          if (slopes?.enabled && type && type !== 'NONE') {
+            const profile = DEFAULT_PROFILES[type];
+            const article = type === 'JOINT_3' ? 'MC-06' : type === 'JOINT_7' ? 'MC-06-7' : undefined;
+            const category = type === 'CORNER' ? 'CORNER' : type === 'LED_10' ? 'LED_10' : type === 'JOINT_8' ? 'BASEBOARD' : 'H_JOINT_08';
+            const identity = profileIdentity(category, { width: profile.width, profileArticle: article });
+            const key = profileKey(identity);
+            const entry = map.get(key) || { identity, lengths: [], count: 0 };
+            const depth = (side: 'top' | 'bottom' | 'left' | 'right') => slopes.fitToOpeningDepth ? (op.depth ?? 150) : (slopes[side].depth ?? slopes.depth);
+            for (const [a, b] of [['top', 'left'], ['top', 'right'], ['bottom', 'left'], ['bottom', 'right']] as const) {
+              if (slopes[a].enabled && slopes[b].enabled) {
+                entry.lengths.push(Math.max(depth(a), depth(b)));
+                entry.count++;
+              }
+            }
+            if (entry.count) map.set(key, entry);
+          }
+          return;
+        }
         const hasSlopes = op.slopes?.enabled !== false;
         const opCat: StandardProfileCategory = hasSlopes ? 'CORNER' : 'END_CAP';
 
@@ -167,10 +227,12 @@ export class ProfileSpecificationEngine {
           : (op.width + op.height) * 2;
 
         if (perim > 0) {
-          const entry = map.get(opCat) || { lengths: [], count: 0 };
+          const identity = profileIdentity(opCat);
+          const key = profileKey(identity);
+          const entry = map.get(key) || { identity, lengths: [], count: 0 };
           entry.lengths.push(perim);
           entry.count += (op.type === 'DOOR' && op.y <= 5 ? 3 : 4);
-          map.set(opCat, entry);
+          map.set(key, entry);
         }
       });
     }
@@ -179,22 +241,18 @@ export class ProfileSpecificationEngine {
     let totalWallMeters = 0;
     let totalWallBars = 0;
 
-    map.forEach((data, cat) => {
-      const info = PROFILE_CATEGORIES_INFO[cat];
+    map.forEach((data) => {
       const sumMm = data.lengths.reduce((acc, l) => acc + l, 0);
       const meters = Math.round((sumMm / 1000) * 100) / 100;
       
       // Расчет 3-метровых хлыстов без наценки
-      const barsCount = Math.max(1, Math.ceil(meters / 3.0));
+      const barsCount = Math.max(1, Math.ceil(sumMm / data.identity.stockLengthMm));
 
       totalWallMeters += meters;
       totalWallBars += barsCount;
 
       items.push({
-        category: cat,
-        name: info.name,
-        article: info.article,
-        colorHex: info.colorHex,
+        ...data.identity,
         totalLengthMm: sumMm,
         totalLinearMeters: meters,
         stockBarsCount: barsCount,
@@ -232,7 +290,7 @@ export class ProfileSpecificationEngine {
     materials: Material[]
   ): ProjectProfilesReport {
     const wallReports: WallProfilesReport[] = [];
-    const aggregated = new Map<StandardProfileCategory, { lengths: number[]; count: number }>();
+    const aggregated = new Map<string, { identity: ProfileIdentity; lengths: number[]; count: number }>();
 
     walls.forEach((wall, idx) => {
       const defMat = materials.find((m) => m.id === wall.zone.materialId) || materials[0];
@@ -240,10 +298,11 @@ export class ProfileSpecificationEngine {
       wallReports.push(report);
 
       report.items.forEach((item) => {
-        const entry = aggregated.get(item.category) || { lengths: [], count: 0 };
+        const key = profileKey(item);
+        const entry = aggregated.get(key) || { identity: item, lengths: [], count: 0 };
         entry.lengths.push(item.totalLengthMm);
         entry.count += item.segmentsCount;
-        aggregated.set(item.category, entry);
+        aggregated.set(key, entry);
       });
     });
 
@@ -251,20 +310,16 @@ export class ProfileSpecificationEngine {
     let projectTotalMeters = 0;
     let projectTotalBars = 0;
 
-    aggregated.forEach((data, cat) => {
-      const info = PROFILE_CATEGORIES_INFO[cat];
+    aggregated.forEach((data) => {
       const sumMm = data.lengths.reduce((acc, l) => acc + l, 0);
       const meters = Math.round((sumMm / 1000) * 100) / 100;
-      const barsCount = Math.max(1, Math.ceil(meters / 3.0));
+      const barsCount = Math.max(1, Math.ceil(sumMm / data.identity.stockLengthMm));
 
       projectTotalMeters += meters;
       projectTotalBars += barsCount;
 
       byCategorySummary.push({
-        category: cat,
-        name: info.name,
-        article: info.article,
-        colorHex: info.colorHex,
+        ...data.identity,
         totalLengthMm: sumMm,
         totalLinearMeters: meters,
         stockBarsCount: barsCount,

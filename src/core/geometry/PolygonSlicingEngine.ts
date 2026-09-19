@@ -1,6 +1,7 @@
 import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
+import { DEFAULT_JOINT_GAP_MM } from '../models/Profile';
 import { MATERIAL_NONE_ID, Material } from '../models/Material';
 
 export interface Point2D {
@@ -2037,7 +2038,7 @@ export class PolygonSlicingEngine {
   public static sliceWallPanelIntoStrips(
     panel: WallPanelPiece,
     stripWidth: number,
-    seamGap: number = 8
+    seamGap: number = DEFAULT_JOINT_GAP_MM
   ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
     const xs = panel.points.map((p) => p.x);
     const ys = panel.points.map((p) => p.y);
@@ -2472,7 +2473,7 @@ export class PolygonSlicingEngine {
   public static cutOpeningFromWallPanels(
     panels: WallPanelPiece[],
     opening: { id: string; name?: string; x: number; y: number; width: number; height: number },
-    _seamGap: number = 8
+    _seamGap: number = DEFAULT_JOINT_GAP_MM
   ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
     const resultPanels: WallPanelPiece[] = [];
 
@@ -2583,13 +2584,13 @@ export class PolygonSlicingEngine {
     });
   }
   /**
-   * Нарезает деталь на листы максимального формата материала (по ширине и высоте) с сохранением швов 8 мм.
+   * Нарезает деталь на листы максимального формата материала (по ширине и высоте) с заданным монтажным зазором.
    */
   public static slicePanelByMaxSheetDimensions(
     panel: WallPanelPiece,
     maxW: number,
     maxH: number,
-    seamGap: number = 8
+    seamGap: number = DEFAULT_JOINT_GAP_MM
   ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
     if (!panel || !panel.points || panel.points.length < 3) {
       return { newPanels: [panel], joints: [] };

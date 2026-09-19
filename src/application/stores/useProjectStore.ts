@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming } from '../../core/models/Opening';
-import { ProfileType, findProfileByArticle } from '../../core/models/Profile';
+import { ProfileType, findProfileByArticle, DEFAULT_PROFILES, DEFAULT_JOINT_GAP_MM, getProfileMountingGap } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
@@ -11,7 +11,7 @@ import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
-export type JointPreset = 'NONE' | '0.8' | '5' | '8' | '10' | 'LED_10';
+export type JointPreset = 'NONE' | '0.8' | '3' | '7' | '5' | '8' | '10' | 'LED_10';
 
 export interface SelectedCellCoord {
   columnIndex: number;
@@ -537,7 +537,7 @@ function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined 
             id: jId,
             p1: { x: op.x, y: op.y },
             p2: { x: op.x, y: op.y + op.height },
-            width: customConfig?.width ?? 8,
+            width: customConfig?.width ?? DEFAULT_JOINT_GAP_MM,
             orientation: 'VERTICAL',
             isLED: customConfig?.isLED ?? false,
             takeSide: customConfig?.takeSide ?? 'LEFT',
@@ -548,7 +548,7 @@ function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined 
             id: jId,
             p1: { x: op.x + op.width, y: op.y },
             p2: { x: op.x + op.width, y: op.y + op.height },
-            width: customConfig?.width ?? 8,
+            width: customConfig?.width ?? DEFAULT_JOINT_GAP_MM,
             orientation: 'VERTICAL',
             isLED: customConfig?.isLED ?? false,
             takeSide: customConfig?.takeSide ?? 'RIGHT',
@@ -559,7 +559,7 @@ function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined 
             id: jId,
             p1: { x: op.x, y: op.y + op.height },
             p2: { x: op.x + op.width, y: op.y + op.height },
-            width: customConfig?.width ?? 8,
+            width: customConfig?.width ?? DEFAULT_JOINT_GAP_MM,
             orientation: 'HORIZONTAL',
             isLED: customConfig?.isLED ?? false,
             takeSide: customConfig?.takeSide ?? 'TOP',
@@ -946,7 +946,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       const nextCustomJoints = { ...wall.customJoints };
       const groupId = `group-joint-${Date.now()}`;
-      const targetWidth = validation.widths[0] ?? 8;
+      const targetWidth = validation.widths[0] ?? DEFAULT_JOINT_GAP_MM;
       const targetLED = validation.ledStates[0] ?? false;
       const orientation = validation.orientation || 'HORIZONTAL';
 
@@ -1026,7 +1026,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       const baseConfig = wall.customJoints[baseId] || {
         id: baseId,
         orientation: baseId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-        width: 8,
+        width: 3,
         isLED: false,
         takeSide: 'BOTH',
       };
@@ -1069,7 +1069,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall || state.selectedJointIds.length === 0) return state;
 
-      let width = 8;
+      let width = DEFAULT_JOINT_GAP_MM;
       let isLED = false;
       let defaultProfileArticle: string | undefined = undefined;
 
@@ -1079,8 +1079,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           isLED = false;
           defaultProfileArticle = undefined;
           break;
-        case '0.8':
-          width = 0.8;
+        case '7':
+          width = 7;
+          defaultProfileArticle = 'MC-06-7';
+          break;
+        case '3':
+        case '0.8': // Legacy preset refers to metal thickness, not visible width.
+          width = 3;
           isLED = false;
           defaultProfileArticle = 'MC-06';
           break;
@@ -1137,7 +1142,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = findOrSynthesizeJoint(wall, jId);
-          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
@@ -1179,7 +1184,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (!wall || state.selectedJointIds.length === 0) return state;
 
       const profile = findProfileByArticle(article);
-      const width = profile ? profile.visibleWidth : 8;
+      const width = profile ? getProfileMountingGap(profile) : DEFAULT_JOINT_GAP_MM;
       const isLED = profile ? (profile.isLEDCompatible ?? false) : false;
       const profileColor = colorHex || profile?.defaultColorHex || '#212529';
 
@@ -1216,7 +1221,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = findOrSynthesizeJoint(wall, jId);
-          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
@@ -1302,7 +1307,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         const existing = nextCustomJoints[id];
         const currentArticle = existing?.profileArticle;
         const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
-        const isMatch = currentProfile && currentProfile.visibleWidth === clampedW;
+        const isMatch = currentProfile && clampedW > 0;
         const profileArticle = isMatch ? currentArticle : undefined;
         const isLED = isMatch ? (currentProfile.isLEDCompatible ?? false) : false;
 
@@ -1323,7 +1328,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           if (state.selectedJointIds.includes(j.id)) {
             const currentArticle = j.profileArticle;
             const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
-            const isMatch = currentProfile && currentProfile.visibleWidth === clampedW;
+            const isMatch = currentProfile && clampedW > 0;
             return {
               ...j,
               width: clampedW,
@@ -1339,7 +1344,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = findOrSynthesizeJoint(wall, jId);
-          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
@@ -1387,7 +1392,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           ...(current || {
             id,
             orientation: id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-            width: 8,
+            width: 3,
             isLED: false,
           }),
           takeSide,
@@ -1411,7 +1416,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
           const targetJoint = findOrSynthesizeJoint(wall, jId);
-          const jointW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 8;
+          const jointW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? 3;
           const oldTakeSide =
             wall.customJoints[jId]?.takeSide ||
             targetJoint?.takeSide ||
@@ -1465,7 +1470,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         const current = nextCustomJoints[id] || {
           id,
           orientation: id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-          width: 8,
+          width: 3,
           isLED: false,
         };
         nextCustomJoints[id] = {
@@ -1612,7 +1617,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         }
       }
 
-      const standardSeam = 8;
+      const standardSeam = DEFAULT_PROFILES[wall.zone.jointProfileType]?.width ?? DEFAULT_JOINT_GAP_MM;
 
       // 0. ПРОВЕРЯЕМ, ВЫБРАНЫ ЛИ РАЗРЕЗАННЫЕ ДЕТАЛИ (subPieces)
       const selectedSubPieceIds = state.selectedPieceIds.filter(
@@ -2450,7 +2455,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             const current = nextJoints[jointId] || {
               id: jointId,
               orientation: jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-              width: 8,
+              width: 3,
               isLED: false,
             };
             nextJoints[jointId] = {
@@ -2474,7 +2479,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
           let nextPanels = w.panels;
           const targetJoint = findOrSynthesizeJoint(w, jointId);
-          const jointW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const jointW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const oldTakeSide =
             w.customJoints[jointId]?.takeSide ||
             targetJoint?.takeSide ||
@@ -2524,7 +2529,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const updateJointItem = (existing: any) => {
             const currentArticle = existing?.profileArticle;
             const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
-            const isMatch = currentProfile && currentProfile.visibleWidth === clamped;
+            const isMatch = currentProfile && clamped > 0;
             const profileArticle = isMatch ? currentArticle : undefined;
             const isLED = isMatch ? (currentProfile.isLEDCompatible ?? false) : false;
 
@@ -2555,7 +2560,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
                 const currentArticle = j.profileArticle;
                 const currentProfile = currentArticle ? findProfileByArticle(currentArticle) : undefined;
-                const isMatch = currentProfile && currentProfile.visibleWidth === clamped;
+                const isMatch = currentProfile && clamped > 0;
                 return {
                   ...j,
                   width: clamped,
@@ -2569,7 +2574,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
           let nextPanels = w.panels;
           const targetJoint = findOrSynthesizeJoint(w, jointId);
-          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
@@ -2624,7 +2629,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             const current = nextJoints[jointId] || {
               id: jointId,
               orientation: jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-              width: 8,
+              width: 3,
               isLED: false,
             };
             nextJoints[jointId] = {
@@ -2663,7 +2668,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const targetGroupId = w.customJoints[jointId]?.groupId || w.customJoints[baseId]?.groupId;
           const orientation = jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL';
 
-          let width = 8;
+          let width = DEFAULT_JOINT_GAP_MM;
           let isLED = false;
           let defaultProfileArticle: string | undefined = undefined;
 
@@ -2673,8 +2678,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               isLED = false;
               defaultProfileArticle = undefined;
               break;
-            case '0.8':
-              width = 0.8;
+            case '7':
+              width = 7;
+              defaultProfileArticle = 'MC-06-7';
+              break;
+            case '3':
+            case '0.8': // Legacy metal-thickness preset.
+              width = 3;
               isLED = false;
               defaultProfileArticle = 'MC-06';
               break;
@@ -2741,7 +2751,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
           let nextPanels = w.panels;
           const targetJoint = findOrSynthesizeJoint(w, jointId);
-          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
@@ -2782,7 +2792,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const orientation = jointId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL';
 
           const profile = findProfileByArticle(article);
-          const width = profile ? profile.visibleWidth : 8;
+          const width = profile ? getProfileMountingGap(profile) : DEFAULT_JOINT_GAP_MM;
           const isLED = profile ? (profile.isLEDCompatible ?? false) : false;
           const profileColor = colorHex || profile?.defaultColorHex || '#212529';
 
@@ -2830,7 +2840,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
           let nextPanels = w.panels;
           const targetJoint = findOrSynthesizeJoint(w, jointId);
-          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? 8;
+          const oldW = w.customJoints[jointId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
           const currentTakeSide = nextJoints[jointId]?.takeSide || targetJoint?.takeSide;
 
           if (nextPanels && nextPanels.length > 0 && targetJoint) {
@@ -2890,7 +2900,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             nextJoints[jointId] = {
               id: jointId,
               orientation,
-              width: 8,
+              width: 3,
               isLED: false,
               profileColor: colorHex,
             };
@@ -2964,7 +2974,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       .find((w) => w.id === wallId)
       ?.panels?.find((p) => p.id === panelId)?.edges?.[edge as any]?.profileArticle;
     const currentProfile = profile ? findProfileByArticle(profile) : undefined;
-    const isMatch = currentProfile && currentProfile.visibleWidth === clamped;
+    const isMatch = currentProfile && clamped > 0;
     const profileArticle = isMatch ? profile : undefined;
     const isLED = isMatch ? (currentProfile?.isLEDCompatible ?? false) : false;
 
@@ -2983,7 +2993,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     colorHex?: string
   ) => {
     const profile = findProfileByArticle(article);
-    const width = profile ? profile.visibleWidth : 8;
+    const width = profile ? getProfileMountingGap(profile) : DEFAULT_JOINT_GAP_MM;
     const isLED = profile ? (profile.isLEDCompatible ?? false) : false;
     const profileColor = colorHex || profile?.defaultColorHex || '#212529';
 
@@ -3288,11 +3298,40 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           };
 
           nextPanels[pIdx] = updated;
+
+          const nextCustomPanels = { ...wall.customPanels };
+          if (nextCustomPanels[columnIndex]) {
+            const curConf = nextCustomPanels[columnIndex];
+            if (curConf.segments && curConf.segments[segmentIndex]) {
+              const segs = [...curConf.segments];
+              segs[segmentIndex] = {
+                ...segs[segmentIndex],
+                ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+                ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+                ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+                ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+                ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory as any } : {}),
+                ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType as any } : {}),
+              };
+              nextCustomPanels[columnIndex] = { ...curConf, segments: segs };
+            } else {
+              nextCustomPanels[columnIndex] = {
+                ...curConf,
+                ...(properties.materialId ? { customMaterialId: properties.materialId } : {}),
+                ...(properties.customColor !== undefined ? { customColor: properties.customColor } : {}),
+                ...(properties.customDecorCode !== undefined ? { customDecorCode: properties.customDecorCode } : {}),
+                ...(properties.customThickness !== undefined ? { customThickness: properties.customThickness } : {}),
+                ...(properties.customTextureCategory !== undefined ? { customTextureCategory: properties.customTextureCategory as any } : {}),
+                ...(properties.customReliefType !== undefined ? { customReliefType: properties.customReliefType as any } : {}),
+              };
+            }
+          }
+
           return {
             project: {
               ...state.project,
               walls: state.project.walls.map((w) =>
-                w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints } : w
+                w.id === wallId ? { ...w, panels: nextPanels, joints: nextJoints, customPanels: nextCustomPanels } : w
               ),
             },
           };
@@ -4731,7 +4770,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                             id: `joint-cut-${Date.now()}-${newJoints.length + 1}`,
                             p1: segP1,
                             p2: segP2,
-                            width: 8,
+                            width: 3,
                             isLED: false,
                             orientation,
                           });
@@ -4851,7 +4890,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             nextCustomJoints[jointKey] = {
               id: jointKey,
               orientation: 'VERTICAL',
-              width: 8,
+              width: 3,
               isLED: false,
             };
           }
@@ -4912,7 +4951,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               nextCustomJoints[jKey] = {
                 id: jKey,
                 orientation: 'HORIZONTAL',
-                width: 8,
+                width: 3,
                 isLED: false,
               };
             }
@@ -4940,7 +4979,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               nextCustomJoints[jKey] = {
                 id: jKey,
                 orientation: 'HORIZONTAL',
-                width: 8,
+                width: 3,
                 isLED: false,
               };
             }
@@ -5401,7 +5440,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 isVoid: false,
                 partLabel: '1.1',
               };
-              const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(basePanel, 1220, 8);
+              const sliced = PolygonSlicingEngine.sliceWallPanelIntoStrips(basePanel, 1220, DEFAULT_JOINT_GAP_MM);
               const sanitized = PolygonSlicingEngine.subtractOpeningsFromWallPanels(
                 sliced.newPanels,
                 sliced.joints,
@@ -5413,7 +5452,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 customJoints: {},
                 panels: sanitized.panels,
                 joints: sanitized.joints,
-                zone: { ...w.zone, materialId: 'mat-sheet-1220', jointProfileType: 'JOINT_8' },
+                zone: { ...w.zone, materialId: 'mat-sheet-1220', jointProfileType: 'JOINT_3' },
               };
             }
 
@@ -5449,7 +5488,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 customJoints: {},
                 panels: sanitized.panels,
                 joints: sanitized.joints,
-                zone: { ...w.zone, materialId: 'mat-slat-16', jointProfileType: 'JOINT_8' },
+                zone: { ...w.zone, materialId: 'mat-slat-16', jointProfileType: 'JOINT_3' },
               };
             }
 
@@ -5738,7 +5777,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       else if (nextPanels && nextPanels.length > 0 && opening.isCutout !== false) {
-        const cutResult = PolygonSlicingEngine.cutOpeningFromWallPanels(nextPanels, opening, 8);
+        const cutResult = PolygonSlicingEngine.cutOpeningFromWallPanels(nextPanels, opening, DEFAULT_JOINT_GAP_MM);
         nextPanels = cutResult.newPanels;
         nextJoints = [...nextJoints, ...(cutResult.joints || [])];
       }
@@ -6141,14 +6180,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       const maxW = mat?.width && mat.width > 50 ? mat.width : 1220;
       const maxH = mat?.height && mat.height > 50 ? mat.height : 2800;
 
-      const sliced = PolygonSlicingEngine.slicePanelByMaxSheetDimensions(targetPanel, maxW, maxH, 8);
+      const sliced = PolygonSlicingEngine.slicePanelByMaxSheetDimensions(targetPanel, maxW, maxH, DEFAULT_PROFILES[wall.zone.jointProfileType]?.width ?? DEFAULT_JOINT_GAP_MM);
       if (!sliced.newPanels || sliced.newPanels.length <= 1) {
         return state;
       }
 
       const remainingPanels = nextPanels.filter((p) => p.id !== targetPanel.id);
       const updatedPanels = [...remainingPanels, ...sliced.newPanels];
-      const updatedJoints = [...nextJoints, ...sliced.joints];
+      const cutProfile = wall.zone.jointProfileType === 'JOINT_7' ? 'MC-06-7'
+        : wall.zone.jointProfileType === 'JOINT_3' || wall.zone.jointProfileType === 'H_JOINT' ? 'MC-06' : undefined;
+      const updatedJoints = [...nextJoints, ...sliced.joints.map((joint) => ({ ...joint, profileArticle: cutProfile }))];
 
       return {
         selectedPieceIds: [sliced.newPanels[0].id],

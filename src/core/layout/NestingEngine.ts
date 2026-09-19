@@ -176,8 +176,13 @@ export class NestingEngine {
     // Сортируем все сформированные листы по порядку стен, на которых они впервые нужны
     rawSheets.sort((sA, sB) => {
       const getMinWall = (s: NestingSheet) => {
-        const wallNums = s.placedParts.map((p) => parseInt(p.part.partLabel?.split('.')[0] || '1', 10));
-        return Math.min(...wallNums, 1);
+        const wallNums = s.placedParts
+          .map((p) => {
+            const m = p.part.partLabel?.match(/^(\d+)/);
+            return m ? parseInt(m[1], 10) : 9999;
+          })
+          .filter((n) => !isNaN(n));
+        return wallNums.length > 0 ? Math.min(...wallNums) : 9999;
       };
       return getMinWall(sA) - getMinWall(sB);
     });

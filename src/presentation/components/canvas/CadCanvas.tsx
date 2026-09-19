@@ -902,7 +902,9 @@ export const CadCanvas: React.FC = () => {
                                     ? 'LED 10мм'
                                     : slopes.jointProfileType === 'CORNER'
                                     ? 'Уголок'
-                                    : 'Шов 8мм'
+                                    : slopes.jointProfileType === 'JOINT_3' ? 'Шов 3мм'
+                                    : slopes.jointProfileType === 'JOINT_7' ? 'Шов 7мм'
+                                    : 'Теневой шов 8мм'
                                 })`
                               : ''
                           }`
@@ -946,8 +948,8 @@ export const CadCanvas: React.FC = () => {
 
                 const isLED = joint.isLED;
                 const visualWidth = isJointsMode || isJointSelected
-                  ? Math.max(joint.width, 3.5 / zoom)
-                  : Math.max(joint.width, 1.5 / zoom);
+                  ? Math.max(joint.visibleWidth ?? joint.width, 3.5 / zoom)
+                  : Math.max(joint.visibleWidth ?? joint.width, 1.5 / zoom);
 
                 const fillColor = isJointSelected
                   ? '#339AF0'
@@ -1019,7 +1021,7 @@ export const CadCanvas: React.FC = () => {
                           <Text
                             x={6}
                             y={5}
-                            text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
+                            text={isLED ? '⚡ LED 10 мм' : `Зазор: ${joint.width} мм • Видимая: ${joint.visibleWidth ?? joint.width} мм`}
                             fontSize={11}
                             fill={t.canvasBadgeText}
                             fontFamily="JetBrains Mono"
@@ -1104,7 +1106,7 @@ export const CadCanvas: React.FC = () => {
                         <Text
                           x={6}
                           y={5}
-                          text={isLED ? '⚡ LED 10 мм' : `Шов: ${joint.width} мм`}
+                          text={isLED ? '⚡ LED 10 мм' : `Зазор: ${joint.width} мм • Видимая: ${joint.visibleWidth ?? joint.width} мм`}
                           fontSize={11}
                           fill={t.canvasBadgeText}
                           fontFamily="JetBrains Mono"

@@ -51,6 +51,8 @@ import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { findDecorByCode } from '../../../core/models/AllWallCatalog';
 import {
   ALLWALL_PROFILES_CATALOG,
+  DEFAULT_PROFILES,
+  getProfileMountingGap,
   findProfileByArticle,
 } from '../../../core/models/Profile';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
@@ -71,6 +73,10 @@ const ALL_PROFILE_WIDTH_OPTIONS = [
     })),
 ];
 
+const getGapOptions = (width: number) => ALL_PROFILE_WIDTH_OPTIONS.some((option) => Number(option.value) === width)
+  ? ALL_PROFILE_WIDTH_OPTIONS
+  : [...ALL_PROFILE_WIDTH_OPTIONS, { value: String(width), label: `${width} мм (заданный зазор)` }];
+
 const PROFILE_TYPE_OPTIONS = [
   { value: 'ALL', label: 'Все типы профилей' },
   { value: 'JOINT', label: '🔗 Соединительные' },
@@ -81,12 +87,11 @@ const PROFILE_TYPE_OPTIONS = [
   { value: 'SHADOW', label: '🌑 Теневые' },
 ];
 
-const getFilteredProfilesStrict = (width: number, type: string) => {
+const getProfilesForGap = (width: number, type: string) => {
   if (width === 0) return [];
 
   return ALLWALL_PROFILES_CATALOG.filter((p) => {
-    // 1. Четкое равенство по видимой ширине
-    if (p.visibleWidth !== width) return false;
+    // Product variants remain available when the mounting gap is customized.
 
     // 2. Фильтр по типу профиля
     if (type !== 'ALL' && p.functionalRole !== type) return false;
@@ -319,10 +324,10 @@ export const RightSidebar: React.FC = () => {
                 {/* Выбор ширины зазора / профиля */}
                 <Select
                   size="xs"
-                  label="Ширина зазора / профиля"
+                  label="Монтажный зазор (мм)"
                   placeholder="Выберите ширину..."
                   value={String(currentWidth)}
-                  data={ALL_PROFILE_WIDTH_OPTIONS}
+                  data={getGapOptions(currentWidth)}
                   allowDeselect={false}
                   onChange={(val) => {
                     const w = val ? Number(val) : 0;
@@ -332,18 +337,6 @@ export const RightSidebar: React.FC = () => {
                       profileArticle: w === 0 ? undefined : profileArticle,
                     });
                   }}
-                />
-
-                <NumberInput
-                  size="xs"
-                  label="Точная ширина зазора (мм)"
-                  value={currentWidth}
-                  min={0}
-                  max={50}
-                  step={1}
-                  onChange={(v) =>
-                    setOpeningFramingSide(currentWall.id, currentOpening.id, side, { width: Number(v) || 0 })
-                  }
                 />
 
                 {currentWidth !== 0 && (
@@ -367,18 +360,21 @@ export const RightSidebar: React.FC = () => {
                       searchable
                       clearable
                       value={profileArticle || null}
-                      data={getFilteredProfilesStrict(currentWidth, selectedProfileType).map((p) => ({
+                      data={getProfilesForGap(currentWidth, selectedProfileType).map((p) => ({
                         value: p.article,
                         label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
                       }))}
                       onChange={(val) =>
                         setOpeningFramingSide(currentWall.id, currentOpening.id, side, {
                           profileArticle: val || undefined,
-                          width: val ? (findProfileByArticle(val)?.visibleWidth ?? currentWidth) : currentWidth,
+                          width: val ? ((findProfileByArticle(val) ? getProfileMountingGap(findProfileByArticle(val)!) : currentWidth)) : currentWidth,
                         })
                       }
                     />
 
+                    {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм</Text>}
+                    <NumberInput size="xs" label="Точный монтажный зазор (мм)" description="Зазор между деталями по сечению профиля; не толщина металла." min={0} max={100} step={0.1} decimalScale={2} value={currentWidth}
+                      onChange={(v) => setOpeningFramingSide(currentWall.id, currentOpening.id, side, { width: Number(v) || 0 })} />
                     <div>
                       <Text size="xs" fw={500} mb={4}>
                         Цвет профиля AllWall:
@@ -532,10 +528,10 @@ export const RightSidebar: React.FC = () => {
             {/* Выбор ширины зазора / профиля */}
             <Select
               size="xs"
-              label="Ширина зазора / профиля"
+              label="Монтажный зазор (мм)"
               placeholder="Выберите ширину..."
               value={String(currentWidth)}
-              data={ALL_PROFILE_WIDTH_OPTIONS}
+              data={getGapOptions(currentWidth)}
               allowDeselect={false}
               onChange={(val) => {
                 const w = val ? Number(val) : 0;
@@ -543,20 +539,7 @@ export const RightSidebar: React.FC = () => {
               }}
             />
 
-            {/* Точный ввод ширины */}
-            <NumberInput
-              size="xs"
-              label="Точная ширина зазора / паза (мм)"
-              description="Ширина автоматически вычитается из размера панели"
-              min={0}
-              max={100}
-              step={1}
-              value={currentWidth}
-              onChange={(val) => {
-                const w = typeof val === 'number' ? val : 0;
-                setPanelEdgeWidth(currentWall.id, targetPanelId, side, w);
-              }}
-            />
+
 
             {/* Фильтры и выбор профиля при width > 0 */}
             {currentWidth !== 0 && (
@@ -588,7 +571,7 @@ export const RightSidebar: React.FC = () => {
                   searchable
                   clearable
                   value={profileArticle || null}
-                  data={getFilteredProfilesStrict(currentWidth, selectedProfileType).map((p) => ({
+                  data={getProfilesForGap(currentWidth, selectedProfileType).map((p) => ({
                     value: p.article,
                     label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
                   }))}
@@ -601,6 +584,9 @@ export const RightSidebar: React.FC = () => {
                   }}
                 />
 
+                {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм</Text>}
+                <NumberInput size="xs" label="Точный монтажный зазор (мм)" description="Зазор между деталями по сечению профиля; не толщина металла." min={0} max={100} step={0.1} decimalScale={2} value={currentWidth}
+                  onChange={(v) => setPanelEdgeJoint(currentWall.id, targetPanelId, side, { width: Number(v) || 0 })} />
                 {/* Выбор цвета профиля AllWall */}
                 <div>
                   <Text size="xs" fw={500} mb={4}>
@@ -748,7 +734,7 @@ export const RightSidebar: React.FC = () => {
             {/* ФИЛЬТР 1: Селектор всех размеров шва (для всех) */}
             <Select
               size="xs"
-              label="Ширина шва / профиля (для всех)"
+              label="Монтажный зазор (для всех)"
               placeholder="Выберите ширину..."
               value={validation.sameWidth ? String(validation.widths[0]) : null}
               data={ALL_PROFILE_WIDTH_OPTIONS}
@@ -863,7 +849,7 @@ export const RightSidebar: React.FC = () => {
                   placeholder="Привязать артикул AllWall..."
                   searchable
                   clearable
-                  data={getFilteredProfilesStrict(
+                  data={getProfilesForGap(
                     validation.sameWidth ? validation.widths[0] : 0,
                     selectedProfileType
                   ).map((p) => ({
@@ -912,7 +898,7 @@ export const RightSidebar: React.FC = () => {
     const baseId = selectedJointId.split('-part-')[0].split('-merged-')[0].split('-seg-')[0];
     const customConfig = currentWall.customJoints[selectedJointId] || currentWall.customJoints[baseId];
 
-    const currentWidth = customConfig !== undefined ? customConfig.width : (selectedJoint?.width ?? 8);
+    const currentWidth = customConfig !== undefined ? customConfig.width : (selectedJoint?.width ?? 3);
     const isLED = customConfig !== undefined ? customConfig.isLED : (selectedJoint?.isLED ?? false);
     const profileArticle = customConfig?.profileArticle || selectedJoint?.profileArticle;
     const profileColor = customConfig?.profileColor || selectedJoint?.profileColor || '#212529';
@@ -981,7 +967,7 @@ export const RightSidebar: React.FC = () => {
               label="Ширина шва / профиля"
               placeholder="Выберите ширину..."
               value={String(currentWidth)}
-              data={ALL_PROFILE_WIDTH_OPTIONS}
+              data={getGapOptions(currentWidth)}
               allowDeselect={false}
               onChange={(val) => {
                 const w = val ? Number(val) : 0;
@@ -993,6 +979,8 @@ export const RightSidebar: React.FC = () => {
               }}
             />
 
+            <NumberInput size="xs" label="Точный монтажный зазор (мм)" description="Толщина металла указана отдельно в карточке профиля." min={0} max={100} step={0.1} decimalScale={2} value={currentWidth}
+              onChange={(v) => setJointWidth(currentWall.id, selectedJointId, Number(v) || 0)} />
             {/* Направление взятия зазора (Стрелки) */}
             <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
               <Stack gap={6}>
@@ -1128,7 +1116,7 @@ export const RightSidebar: React.FC = () => {
                   searchable
                   clearable
                   value={profileArticle || null}
-                  data={getFilteredProfilesStrict(currentWidth, selectedProfileType).map((p) => ({
+                  data={getProfilesForGap(currentWidth, selectedProfileType).map((p) => ({
                     value: p.article,
                     label: `${p.article} • ${p.name} (${p.visibleWidth} мм)`,
                   }))}
@@ -1196,8 +1184,9 @@ export const RightSidebar: React.FC = () => {
                       </Text>
                       <Group gap={4} mt={2}>
                         <Badge size="xs" variant="outline" color="cyan">
-                          Ширина: {activeProfileObj.visibleWidth} мм
+                          Видимая ширина: {activeProfileObj.visibleWidth} мм
                         </Badge>
+                        {activeProfileObj.metalThickness !== undefined && <Badge size="xs" variant="outline" color="indigo">Металл: {activeProfileObj.metalThickness.toLocaleString('ru-RU')} мм</Badge>}
                         <Badge size="xs" variant="outline" color="teal">
                           Панели: {activeProfileObj.allowedThicknesses.join('/')} мм
                         </Badge>
@@ -1863,7 +1852,9 @@ export const RightSidebar: React.FC = () => {
                                   { value: 'NONE', label: '🔘 Без профиля (встык 0 мм)' },
                                   { value: 'CORNER', label: '📐 Внутренний угловой профиль (2 мм)' },
                                   { value: 'LED_10', label: '💡 LED-профиль (10 мм подсветка)' },
-                                  { value: 'JOINT_8', label: '⬛ Шов 8 мм (стандартный зазор)' },
+                                  { value: 'JOINT_3', label: '⬛ Шов 3 мм (стандартный профиль)' },
+                                  { value: 'JOINT_7', label: '⬛ Шов 7 мм (декоративный профиль)' },
+                                  { value: 'JOINT_8', label: '⬛ Теневой паз (8 мм)' },
                                 ]}
                               />
                             </div>
@@ -2265,15 +2256,12 @@ export const RightSidebar: React.FC = () => {
     const selectedCustomPanel = currentWall.customPanels[activeColumnIndex];
     const selectedSegment = selectedCustomPanel?.segments?.[activeSegmentIndex];
 
-    const selectedPanelWidth =
-      actualPanelPiece !== undefined
-        ? actualPanelPiece.width
-        : (selectedCustomPanel?.customWidth ?? currentMaterial?.width ?? 1220);
+    const activeSubPieces =
+      selectedSegment?.subPieces ||
+      selectedCustomPanel?.subPieces ||
+      [];
 
-    const selectedPanelHeight =
-      actualPanelPiece !== undefined
-        ? actualPanelPiece.height
-        : (selectedSegment?.height ?? currentWall.height);
+    const activeSub = (selectedSubPieceId && activeSubPieces.find((sp) => sp.id === selectedSubPieceId)) || null;
 
     const selectedPanelMaterialId =
       actualPanelPiece?.materialId ??
@@ -2281,6 +2269,67 @@ export const RightSidebar: React.FC = () => {
       selectedCustomPanel?.customMaterialId ??
       currentWall.zone.materialId ??
       MATERIAL_NONE_ID;
+
+    const effectiveMaterialId = activeSub
+      ? (activeSub.materialId || selectedPanelMaterialId)
+      : (actualPanelPiece?.materialId || selectedPanelMaterialId);
+
+    const targetMat = project.materials.find((m) => m.id === effectiveMaterialId);
+
+    const sheetMaxW = targetMat?.width && targetMat.width > 50 ? targetMat.width : (currentMaterial?.width && currentMaterial.width > 50 ? currentMaterial.width : 1220);
+    const sheetMaxH = targetMat?.height && targetMat.height > 50 ? targetMat.height : (currentMaterial?.height && currentMaterial.height > 50 ? currentMaterial.height : 2800);
+
+    const selectedPanelWidth =
+      actualPanelPiece !== undefined
+        ? actualPanelPiece.width
+        : (selectedCustomPanel?.customWidth ?? sheetMaxW);
+
+    const selectedPanelHeight =
+      actualPanelPiece !== undefined
+        ? actualPanelPiece.height
+        : (selectedSegment?.height ?? currentWall.height);
+
+    const effectiveIsVoid = effectiveMaterialId === MATERIAL_NONE_ID || !targetMat || Boolean(targetMat.isVoid);
+
+    const effectiveColor = activeSub
+      ? (activeSub.color || targetMat?.color || '#d6cbbe')
+      : (actualPanelPiece?.materialColor || selectedSegment?.customColor || selectedCustomPanel?.customColor || targetMat?.color || currentMaterial?.color || '#d6cbbe');
+
+    const effectiveDecorCode = activeSub
+      ? (activeSub.decorCode !== undefined ? activeSub.decorCode : (targetMat?.decorCode || ''))
+      : (actualPanelPiece?.decorCode !== undefined ? actualPanelPiece.decorCode : (selectedSegment?.customDecorCode !== undefined ? selectedSegment.customDecorCode : (selectedCustomPanel?.customDecorCode !== undefined ? selectedCustomPanel.customDecorCode : (targetMat?.decorCode || currentMaterial?.decorCode || ''))));
+
+    const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
+      ? targetMat.thicknessOptions
+      : [targetMat?.thickness || 5];
+
+    const currentThick = activeSub?.thickness || actualPanelPiece?.thickness || selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
+
+    const decorsList = targetMat?.availableDecors || [];
+
+    const baseNum = (selectedCustomPanel?.segments && selectedCustomPanel.segments.length > 1)
+      ? `${currentWallNumber}.${activeColumnIndex + 1}.${activeSegmentIndex + 1}`
+      : `${currentWallNumber}.${activeColumnIndex + 1}`;
+
+    const activePartLabel = activeSub
+      ? activeSub.partLabel
+      : (actualPanelPiece?.partLabel || selectedSegment?.partLabel || baseNum);
+
+    // Bounding box / Dimensions
+    const subXs = activeSub ? activeSub.points.map((p) => p.x) : [];
+    const subYs = activeSub ? activeSub.points.map((p) => p.y) : [];
+    const activeW = activeSub ? Math.round(Math.max(...subXs) - Math.min(...subXs)) : selectedPanelWidth;
+    const activeH = activeSub ? Math.round(Math.max(...subYs) - Math.min(...subYs)) : selectedPanelHeight;
+    const activeAreaSqM = activeSub
+      ? Math.round((PolygonSlicingEngine.calculatePolygonArea(activeSub.points) / 1_000_000) * 1000) / 1000
+      : Math.round(((activeW * activeH) / 1_000_000) * 1000) / 1000;
+
+    const activeNote =
+      activeSub?.note ??
+      actualPanelPiece?.note ??
+      selectedSegment?.note ??
+      selectedCustomPanel?.note ??
+      '';
 
     return (
       <Stack
@@ -2297,383 +2346,323 @@ export const RightSidebar: React.FC = () => {
       >
         <ScrollArea style={{ flex: 1 }}>
           <Stack gap="md" p="xs">
-            {(() => {
-              const activeSubPieces =
-                selectedSegment?.subPieces ||
-                selectedCustomPanel?.subPieces ||
-                [];
+            <Stack gap="md">
+              <Group justify="space-between" align="center">
+                <div>
+                  <Title order={6} c={effectiveIsVoid ? 'gray.4' : 'green.4'}>
+                    ПАНЕЛЬ: {activePartLabel}
+                  </Title>
+                  <Text size="xs" c="dimmed">
+                    {effectiveIsVoid ? 'Пустое пространство' : `Площадь: ${activeAreaSqM} м²`}
+                  </Text>
+                </div>
+                <Group gap={6}>
+                  <Badge size="xs" color={effectiveIsVoid ? 'gray' : 'green'}>
+                    {effectiveIsVoid ? 'Пустота' : 'Плита'}
+                  </Badge>
+                  <Tooltip label="Снять выделение">
+                    <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectPanel(null, null)}>
+                      <X size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+              </Group>
 
-              const activeSub = (selectedSubPieceId && activeSubPieces.find((sp) => sp.id === selectedSubPieceId)) || null;
-              const activeMaterialId = activeSub ? (activeSub.materialId || selectedPanelMaterialId) : selectedPanelMaterialId;
-              const activeMat = project.materials.find((m) => m.id === activeMaterialId);
-              const isCurrentVoid = activeMaterialId === MATERIAL_NONE_ID || !activeMat || Boolean(activeMat.isVoid);
-              const baseNum = (selectedCustomPanel?.segments && selectedCustomPanel.segments.length > 1)
-                ? `${currentWallNumber}.${activeColumnIndex + 1}.${activeSegmentIndex + 1}`
-                : `${currentWallNumber}.${activeColumnIndex + 1}`;
+              {/* Переключение между деталями раскроя */}
+              {activeSubPieces.length > 1 && (
+                <div>
+                  <Text size="xs" fw={600} c="dimmed" mb={4}>
+                    Детали раскроя ({activeSubPieces.length} шт):
+                  </Text>
+                  <Group gap={4} style={{ flexWrap: 'wrap' }}>
+                    {activeSubPieces.map((sp, spIdx) => {
+                      const isThisActive = activeSub?.id === sp.id;
+                      const spMat = project.materials.find((m) => m.id === sp.materialId);
+                      const isSpVoid = sp.isVoid || !spMat || spMat.isVoid || sp.materialId === MATERIAL_NONE_ID;
+                      return (
+                        <Button
+                          key={sp.id}
+                          size="compact-xs"
+                          variant={isThisActive ? 'filled' : 'default'}
+                          color={isSpVoid ? 'gray' : 'blue'}
+                          leftSection={
+                            !isSpVoid && sp.color ? (
+                              <ColorSwatch color={sp.color} size={10} />
+                            ) : undefined
+                          }
+                          onClick={() => selectSubPiece(sp.id)}
+                        >
+                          {sp.partLabel || `${baseNum}.${spIdx + 1}`}
+                        </Button>
+                      );
+                    })}
+                  </Group>
+                </div>
+              )}
 
-              const activePartLabel = activeSub
-                ? activeSub.partLabel
-                : (actualPanelPiece?.partLabel || selectedSegment?.partLabel || baseNum);
+              <Divider color={t.border} />
 
-              // Bounding box / Dimensions
-              const subXs = activeSub ? activeSub.points.map((p) => p.x) : [];
-              const subYs = activeSub ? activeSub.points.map((p) => p.y) : [];
-              const activeW = activeSub ? Math.round(Math.max(...subXs) - Math.min(...subXs)) : selectedPanelWidth;
-              const activeH = activeSub ? Math.round(Math.max(...subYs) - Math.min(...subYs)) : selectedPanelHeight;
-              const activeAreaSqM = activeSub
-                ? Math.round((PolygonSlicingEngine.calculatePolygonArea(activeSub.points) / 1_000_000) * 1000) / 1000
-                : Math.round(((activeW * activeH) / 1_000_000) * 1000) / 1000;
+              {/* 1. Маркировка и комментарий детали */}
+              <Stack gap="xs">
+                <TextInput
+                  size="xs"
+                  label="Маркировка детали (номер)"
+                  value={activePartLabel || ''}
+                  onChange={(e) => {
+                    const val = e.currentTarget.value;
+                    const targetPanelId = actualPanelPiece?.id || activeSub?.id;
+                    if (targetPanelId) {
+                      updateWallPanelNote(currentWall.id, targetPanelId, activeNote);
+                    }
+                    if (activeSub) {
+                      updateSubPieceLabel(
+                        currentWall.id,
+                        activeColumnIndex,
+                        activeSegmentIndex,
+                        activeSub.id,
+                        val
+                      );
+                    } else {
+                      updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                        partLabel: val,
+                      });
+                    }
+                  }}
+                  styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
+                />
 
-              const activeNote =
-                activeSub?.note ??
-                actualPanelPiece?.note ??
-                selectedSegment?.note ??
-                selectedCustomPanel?.note ??
-                '';
+                <TextInput
+                  size="xs"
+                  label="Комментарий (для карты раскроя)"
+                  placeholder="например: Для барной стойки, Откос..."
+                  value={activeNote || ''}
+                  onChange={(e) => {
+                    const val = e.currentTarget.value;
+                    const targetPanelId = actualPanelPiece?.id || activeSub?.id;
+                    if (targetPanelId) {
+                      updateWallPanelNote(currentWall.id, targetPanelId, val);
+                    }
+                    if (activeSub) {
+                      updateSubPieceNote(
+                        currentWall.id,
+                        activeColumnIndex,
+                        activeSegmentIndex,
+                        activeSub.id,
+                        val
+                      );
+                    } else {
+                      updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                        note: val,
+                      });
+                    }
+                  }}
+                  styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
+                />
 
-              return (
-                <Stack gap="md">
-                  <Group justify="space-between" align="center">
-                    <div>
-                      <Title order={6} c={isCurrentVoid ? 'gray.4' : 'green.4'}>
-                        ПАНЕЛЬ: {activePartLabel}
-                      </Title>
-                      <Text size="xs" c="dimmed">
-                        {isCurrentVoid ? 'Пустое пространство' : `Площадь: ${activeAreaSqM} м²`}
-                      </Text>
-                    </div>
-                    <Group gap={6}>
-                      <Badge size="xs" color={isCurrentVoid ? 'gray' : 'green'}>
-                        {isCurrentVoid ? 'Пустота' : 'Плита'}
-                      </Badge>
-                      <Tooltip label="Снять выделение">
-                        <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectPanel(null, null)}>
-                          <X size={14} />
-                        </ActionIcon>
-                      </Tooltip>
-                    </Group>
+                <Group grow gap="xs">
+                  <TextInput
+                    size="xs"
+                    label="Ширина"
+                    value={`${activeW} мм`}
+                    readOnly
+                    styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
+                  />
+                  <TextInput
+                    size="xs"
+                    label="Высота"
+                    value={`${activeH} мм`}
+                    readOnly
+                    styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
+                  />
+                </Group>
+              </Stack>
+            </Stack>
+
+            <Divider color={t.border} />
+
+            <Stack gap="xs">
+              {/* Выбор модели панели AllWall */}
+              <Group justify="space-between" align="center">
+                <Text size="xs" fw={600} c="dimmed">
+                  Модель панели AllWall:
+                </Text>
+                {effectiveIsVoid && <Badge size="xs" color="gray">Пустота</Badge>}
+              </Group>
+
+              <Select
+                size="xs"
+                value={effectiveMaterialId}
+                onChange={(val) => {
+                  if (!val) return;
+                  if (val === MATERIAL_NONE_ID) {
+                    clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex);
+                    return;
+                  }
+                  const chosenModel = project.materials.find((m) => m.id === val);
+                  const firstDecor = chosenModel?.availableDecors?.[0];
+                  setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                    materialId: val,
+                    customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
+                    customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
+                    customDecorCode: firstDecor?.code || chosenModel?.decorCode || '',
+                    customTextureCategory: chosenModel?.textureCategory || 'WOOD',
+                    customReliefType: chosenModel?.reliefType || 'FLAT',
+                  });
+                }}
+                data={[
+                  {
+                    group: 'Сплошные панели AllWall',
+                    items: project.materials
+                      .filter((m) => m.type === 'SHEET' && !m.isVoid)
+                      .map((m) => ({ value: m.id, label: `📄 ${m.name}` })),
+                  },
+                  {
+                    group: 'Реечные панели GW10–GW99',
+                    items: project.materials
+                      .filter((m) => m.type === 'SLAT' && !m.isVoid)
+                      .map((m) => ({ value: m.id, label: `🪵 ${m.name}` })),
+                  },
+                  {
+                    group: 'HQ-панели (Глянец & Золото)',
+                    items: project.materials
+                      .filter((m) => m.type === 'HQ' && !m.isVoid)
+                      .map((m) => ({ value: m.id, label: `✨ ${m.name}` })),
+                  },
+                  {
+                    group: 'Специальные зоны',
+                    items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
+                  },
+                ]}
+                styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
+              />
+
+              {!effectiveIsVoid && (
+                <>
+                  {/* Толщина */}
+                  <Group justify="space-between" align="center" mt={4}>
+                    <Text size="xs" fw={600} c="dimmed">
+                      Толщина панели:
+                    </Text>
+                    <Badge size="xs" color="blue" variant="light">
+                      {currentThick} мм
+                    </Badge>
                   </Group>
 
-                  {/* Переключение между деталями раскроя */}
-                  {activeSubPieces.length > 1 && (
-                    <div>
-                      <Text size="xs" fw={600} c="dimmed" mb={4}>
-                        Детали раскроя ({activeSubPieces.length} шт):
+                  {thicknessOpts.length > 1 ? (
+                    <SegmentedControl
+                      size="xs"
+                      value={String(currentThick)}
+                      onChange={(val) =>
+                        setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                          customThickness: Number(val),
+                        })
+                      }
+                      data={thicknessOpts.map((t) => ({ label: `${t} мм`, value: String(t) }))}
+                    />
+                  ) : (
+                    <Paper p={6} radius="sm" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
+                      <Text size="xs" c="dimmed">
+                        Фиксированная глубина профиля: <strong style={{ color: '#74C0FC' }}>{thicknessOpts[0]} мм</strong>
                       </Text>
-                      <Group gap={4} style={{ flexWrap: 'wrap' }}>
-                        {activeSubPieces.map((sp, spIdx) => {
-                          const isThisActive = activeSub?.id === sp.id;
-                          const spMat = project.materials.find((m) => m.id === sp.materialId);
-                          const isSpVoid = sp.isVoid || !spMat || spMat.isVoid || sp.materialId === MATERIAL_NONE_ID;
+                    </Paper>
+                  )}
+
+                  {/* Декор и цвет AllWall */}
+                  <Group justify="space-between" align="center" mt={4}>
+                    <Text size="xs" fw={600} c="dimmed">
+                      Декор и цвет AllWall:
+                    </Text>
+                    {effectiveDecorCode && (
+                      <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
+                        {effectiveDecorCode}
+                      </Badge>
+                    )}
+                  </Group>
+
+                  <Group grow gap="xs">
+                    <TextInput
+                      size="xs"
+                      placeholder="Код декора (7029, 5134...)"
+                      value={effectiveDecorCode}
+                      onChange={(e) => {
+                        const val = e.currentTarget.value.trim();
+                        const found = findDecorByCode(val);
+                        setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                          customDecorCode: val,
+                          ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
+                        });
+                      }}
+                      leftSection={<Search size={14} />}
+                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
+                    />
+                    <ColorInput
+                      size="xs"
+                      placeholder="Цвет (#HEX)"
+                      value={effectiveColor}
+                      onChange={(colorVal) => {
+                        setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                          customColor: colorVal,
+                        });
+                      }}
+                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
+                    />
+                  </Group>
+
+                  {/* Свотчи декоров AllWall */}
+                  {decorsList.length > 0 && (
+                    <div>
+                      <Text size="xs" c="dimmed" mb={4}>
+                        Фирменная палитра модели ({decorsList.length}):
+                      </Text>
+                      <Group gap={6} style={{ flexWrap: 'wrap' }}>
+                        {decorsList.map((decor) => {
+                          const isSelected =
+                            (effectiveDecorCode && decor.code && effectiveDecorCode.trim() === decor.code.trim()) ||
+                            (effectiveColor && decor.color && effectiveColor.toLowerCase().trim() === decor.color.toLowerCase().trim());
                           return (
-                            <Button
-                              key={sp.id}
-                              size="compact-xs"
-                              variant={isThisActive ? 'filled' : 'default'}
-                              color={isSpVoid ? 'gray' : 'blue'}
-                              leftSection={
-                                !isSpVoid && sp.color ? (
-                                  <ColorSwatch color={sp.color} size={10} />
-                                ) : undefined
+                            <Tooltip
+                              key={decor.code}
+                              label={
+                                <div style={{ textAlign: 'center' }}>
+                                  <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
+                                    {decor.code}
+                                  </Badge>
+                                  <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
+                                </div>
                               }
-                              onClick={() => selectSubPiece(sp.id)}
+                              withArrow
                             >
-                              {sp.partLabel || `${baseNum}.${spIdx + 1}`}
-                            </Button>
+                              <div
+                                onClick={() =>
+                                  setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                                    materialId: effectiveMaterialId,
+                                    customColor: decor.color,
+                                    customDecorCode: decor.code,
+                                    customTextureCategory: decor.category,
+                                  })
+                                }
+                                style={{
+                                  cursor: 'pointer',
+                                  padding: 2,
+                                  borderRadius: '50%',
+                                  border: isSelected ? '2px solid #339af0' : '2px solid transparent',
+                                  transform: isSelected ? 'scale(1.2)' : 'scale(1)',
+                                  transition: 'all 0.15s ease',
+                                }}
+                              >
+                                <ColorSwatch color={decor.color} size={18} />
+                              </div>
+                            </Tooltip>
                           );
                         })}
                       </Group>
                     </div>
                   )}
+                </>
+              )}
+            </Stack>
 
-                  <Divider color={t.border} />
 
-                  {/* 1. Маркировка и комментарий детали */}
-                  <Stack gap="xs">
-                    <TextInput
-                      size="xs"
-                      label="Маркировка детали (номер)"
-                      value={activePartLabel || ''}
-                      onChange={(e) => {
-                        const val = e.currentTarget.value;
-                        const targetPanelId = actualPanelPiece?.id || activeSub?.id;
-                        if (targetPanelId) {
-                          updateWallPanelNote(currentWall.id, targetPanelId, activeNote);
-                        }
-                        if (activeSub) {
-                          updateSubPieceLabel(
-                            currentWall.id,
-                            activeColumnIndex,
-                            activeSegmentIndex,
-                            activeSub.id,
-                            val
-                          );
-                        } else {
-                          updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                            partLabel: val,
-                          });
-                        }
-                      }}
-                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
-                    />
-
-                    <TextInput
-                      size="xs"
-                      label="Комментарий (для карты раскроя)"
-                      placeholder="например: Для барной стойки, Откос..."
-                      value={activeNote || ''}
-                      onChange={(e) => {
-                        const val = e.currentTarget.value;
-                        const targetPanelId = actualPanelPiece?.id || activeSub?.id;
-                        if (targetPanelId) {
-                          updateWallPanelNote(currentWall.id, targetPanelId, val);
-                        }
-                        if (activeSub) {
-                          updateSubPieceNote(
-                            currentWall.id,
-                            activeColumnIndex,
-                            activeSegmentIndex,
-                            activeSub.id,
-                            val
-                          );
-                        } else {
-                          updatePanelSegment(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                            note: val,
-                          });
-                        }
-                      }}
-                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
-                    />
-
-                    <Group grow gap="xs">
-                      <TextInput
-                        size="xs"
-                        label="Ширина"
-                        value={`${activeW} мм`}
-                        readOnly
-                        styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
-                      />
-                      <TextInput
-                        size="xs"
-                        label="Высота"
-                        value={`${activeH} мм`}
-                        readOnly
-                        styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
-                      />
-                    </Group>
-                  </Stack>
-                </Stack>
-              );
-            })()}
-
-            <Divider color={t.border} />
-
-            {(() => {
-              const activeSubPieces =
-                selectedSegment?.subPieces ||
-                selectedCustomPanel?.subPieces ||
-                [];
-
-              const activeSub = (selectedSubPieceId && activeSubPieces.find((sp) => sp.id === selectedSubPieceId)) || null;
-              const effectiveMaterialId = activeSub ? (activeSub.materialId || selectedPanelMaterialId) : selectedPanelMaterialId;
-              const targetMat = project.materials.find((m) => m.id === effectiveMaterialId);
-              const effectiveIsVoid = effectiveMaterialId === MATERIAL_NONE_ID || !targetMat || Boolean(targetMat.isVoid);
-              const effectiveColor = activeSub
-                ? (activeSub.color || targetMat?.color || '#d6cbbe')
-                : (selectedSegment?.customColor || selectedCustomPanel?.customColor || targetMat?.color || currentMaterial?.color || '#d6cbbe');
-              const effectiveDecorCode = activeSub
-                ? (activeSub.decorCode !== undefined ? activeSub.decorCode : (targetMat?.decorCode || ''))
-                : (selectedSegment?.customDecorCode !== undefined ? selectedSegment.customDecorCode : (selectedCustomPanel?.customDecorCode !== undefined ? selectedCustomPanel.customDecorCode : (targetMat?.decorCode || currentMaterial?.decorCode || '')));
-
-              const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
-                ? targetMat.thicknessOptions
-                : [targetMat?.thickness || 5];
-              const currentThick = activeSub?.thickness || selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
-              const decorsList = targetMat?.availableDecors || [];
-
-              return (
-                <Stack gap="xs">
-                  {/* Выбор модели панели AllWall */}
-                  <Group justify="space-between" align="center">
-                    <Text size="xs" fw={600} c="dimmed">
-                      Модель панели AllWall:
-                    </Text>
-                    {effectiveIsVoid && <Badge size="xs" color="gray">Пустота</Badge>}
-                  </Group>
-
-                  <Select
-                    size="xs"
-                    value={effectiveMaterialId}
-                    onChange={(val) => {
-                      if (!val) return;
-                      if (val === MATERIAL_NONE_ID) {
-                        clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex);
-                        return;
-                      }
-                      const chosenModel = project.materials.find((m) => m.id === val);
-                      const firstDecor = chosenModel?.availableDecors?.[0];
-                      setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                        materialId: val,
-                        customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
-                        customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
-                        customDecorCode: firstDecor?.code || chosenModel?.decorCode || '',
-                        customTextureCategory: chosenModel?.textureCategory || 'WOOD',
-                        customReliefType: chosenModel?.reliefType || 'FLAT',
-                      });
-                    }}
-                    data={[
-                      {
-                        group: 'Сплошные панели AllWall',
-                        items: project.materials
-                          .filter((m) => m.type === 'SHEET' && !m.isVoid)
-                          .map((m) => ({ value: m.id, label: `📄 ${m.name}` })),
-                      },
-                      {
-                        group: 'Реечные панели GW10–GW99',
-                        items: project.materials
-                          .filter((m) => m.type === 'SLAT' && !m.isVoid)
-                          .map((m) => ({ value: m.id, label: `🪵 ${m.name}` })),
-                      },
-                      {
-                        group: 'HQ-панели (Глянец & Золото)',
-                        items: project.materials
-                          .filter((m) => m.type === 'HQ' && !m.isVoid)
-                          .map((m) => ({ value: m.id, label: `✨ ${m.name}` })),
-                      },
-                      {
-                        group: 'Специальные зоны',
-                        items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
-                      },
-                    ]}
-                    styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
-                  />
-
-                  {!effectiveIsVoid && (
-                    <>
-                      {/* Толщина */}
-                      <Group justify="space-between" align="center" mt={4}>
-                        <Text size="xs" fw={600} c="dimmed">
-                          Толщина панели:
-                        </Text>
-                        <Badge size="xs" color="blue" variant="light">
-                          {currentThick} мм
-                        </Badge>
-                      </Group>
-
-                      {thicknessOpts.length > 1 ? (
-                        <SegmentedControl
-                          size="xs"
-                          value={String(currentThick)}
-                          onChange={(val) =>
-                            setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                              customThickness: Number(val),
-                            })
-                          }
-                          data={thicknessOpts.map((t) => ({ label: `${t} мм`, value: String(t) }))}
-                        />
-                      ) : (
-                        <Paper p={6} radius="sm" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
-                          <Text size="xs" c="dimmed">
-                            Фиксированная глубина профиля: <strong style={{ color: '#74C0FC' }}>{thicknessOpts[0]} мм</strong>
-                          </Text>
-                        </Paper>
-                      )}
-
-                      {/* Декор и цвет AllWall */}
-                      <Group justify="space-between" align="center" mt={4}>
-                        <Text size="xs" fw={600} c="dimmed">
-                          Декор и цвет AllWall:
-                        </Text>
-                        {effectiveDecorCode && (
-                          <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                            {effectiveDecorCode}
-                          </Badge>
-                        )}
-                      </Group>
-
-                      <Group grow gap="xs">
-                        <TextInput
-                          size="xs"
-                          placeholder="Код декора (7029, 5134...)"
-                          value={effectiveDecorCode}
-                          onChange={(e) => {
-                            const val = e.currentTarget.value.trim();
-                            const found = findDecorByCode(val);
-                            setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                              customDecorCode: val,
-                              ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
-                            });
-                          }}
-                          leftSection={<Search size={14} />}
-                          styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
-                        />
-                        <ColorInput
-                          size="xs"
-                          placeholder="Цвет (#HEX)"
-                          value={effectiveColor}
-                          onChange={(colorVal) => {
-                            setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                              customColor: colorVal,
-                            });
-                          }}
-                          styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
-                        />
-                      </Group>
-
-                      {/* Свотчи декоров AllWall */}
-                      {decorsList.length > 0 && (
-                        <div>
-                          <Text size="xs" c="dimmed" mb={4}>
-                            Фирменная палитра модели ({decorsList.length}):
-                          </Text>
-                          <Group gap={6} style={{ flexWrap: 'wrap' }}>
-                            {decorsList.map((decor) => {
-                              const isSelected =
-                                effectiveDecorCode === decor.code ||
-                                (effectiveColor && effectiveColor.toLowerCase() === decor.color.toLowerCase());
-                              return (
-                                <Tooltip
-                                  key={decor.code}
-                                  label={
-                                    <div style={{ textAlign: 'center' }}>
-                                      <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                                        {decor.code}
-                                      </Badge>
-                                      <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
-                                    </div>
-                                  }
-                                  withArrow
-                                >
-                                  <div
-                                    onClick={() =>
-                                      setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                                        customColor: decor.color,
-                                        customDecorCode: decor.code,
-                                        customTextureCategory: decor.category,
-                                      })
-                                    }
-                                    style={{
-                                      cursor: 'pointer',
-                                      padding: 2,
-                                      borderRadius: '50%',
-                                      border: isSelected ? '2px solid #339af0' : '2px solid transparent',
-                                      transform: isSelected ? 'scale(1.2)' : 'scale(1)',
-                                      transition: 'all 0.15s ease',
-                                    }}
-                                  >
-                                    <ColorSwatch color={decor.color} size={18} />
-                                  </div>
-                                </Tooltip>
-                              );
-                            })}
-                          </Group>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </Stack>
-              );
-            })()}
 
             {/* ТЕХНОЛОГИЧЕСКАЯ КАРТА ГИБКИ ЛИСТА (ЧПУ / КЕРФ-ПРОПИЛЫ) */}
             {actualPanelPiece?.bendsInfo && actualPanelPiece.bendsInfo.length > 0 && (
@@ -2744,10 +2733,6 @@ export const RightSidebar: React.FC = () => {
               </Paper>
             )}
 
-
-
-
-
             {/* ИНСТРУМЕНТЫ РАСКРОЯ И ДЕЛЕНИЯ ПАНЕЛИ */}
             <Stack gap="xs">
               <Text size="xs" fw={700} c="dimmed">
@@ -2756,7 +2741,7 @@ export const RightSidebar: React.FC = () => {
 
               {/* Кнопка нарезки по формату листа */}
               <Tooltip
-                label={`Нарезать деталь на листы макс. формата (${currentMaterial?.width || 1220} × ${currentMaterial?.height || 2800} мм) с зазорами 8 мм`}
+                label={`Нарезать деталь на листы макс. формата (${sheetMaxW} × ${sheetMaxH} мм) с зазорами ${DEFAULT_PROFILES[currentWall.zone.jointProfileType]?.width ?? 3} мм`}
                 withArrow
               >
                 <Button
@@ -2837,7 +2822,6 @@ export const RightSidebar: React.FC = () => {
     );
   }
 
-  // =========================================================================
   // РЕЖИМ 4: Ничего не выбрано (контекст ВСЕЙ СТЕНЫ)
   // =========================================================================
   return (

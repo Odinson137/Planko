@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node tests/run.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",

@@ -1,18 +1,44 @@
-export type ProfileType = 'JOINT_8' | 'H_JOINT' | 'LED_10' | 'END' | 'CORNER';
+export type ProfileType = 'JOINT_3' | 'JOINT_7' | 'JOINT_8' | 'H_JOINT' | 'LED_10' | 'END' | 'CORNER';
+
+// Mounting gap is a layout allowance, not the metal wall thickness.
+// Until a manufacturer's section specifies otherwise, preserve the visible-width allowance.
+export const DEFAULT_JOINT_GAP_MM = 3;
+export function getProfileMountingGap(profile: { visibleWidth: number; mountingGap?: number }): number {
+  return profile.mountingGap ?? profile.visibleWidth;
+}
 
 export interface Profile {
   id: string;
   name: string;
   type: ProfileType;
-  width: number;        // видимая ширина шва/профиля на стене в мм (8.0 мм, 0.8 мм, 10 мм и т.д.)
+  width: number;        // видимая ширина шва/профиля на стене в мм (3.0 мм, 7.0 мм, 10 мм и т.д.)
+  metalThickness?: number; // толщина стенки металла в мм (например 0.8 мм)
   stockLength: number;  // стандартная длина хлыста (3000 мм)
   color: string;
 }
 
 export const DEFAULT_PROFILES: Record<ProfileType, Profile> = {
+  JOINT_3: {
+    id: 'prof-joint-3',
+    name: 'Стандартный шов (3 мм)',
+    type: 'JOINT_3',
+    width: 3.0,
+    metalThickness: 0.8,
+    stockLength: 3000,
+    color: '#343a40',
+  },
+  JOINT_7: {
+    id: 'prof-joint-7',
+    name: 'Декоративный шов (7 мм)',
+    type: 'JOINT_7',
+    width: 7.0,
+    metalThickness: 0.8,
+    stockLength: 3000,
+    color: '#343a40',
+  },
   JOINT_8: {
     id: 'prof-joint-8',
-    name: 'Стандартный шов (8 мм)',
+    name: 'Теневой шов (8 мм)',
     type: 'JOINT_8',
     width: 8.0,
     stockLength: 3000,
@@ -20,9 +46,10 @@ export const DEFAULT_PROFILES: Record<ProfileType, Profile> = {
   },
   H_JOINT: {
     id: 'prof-h-joint',
-    name: 'Соединительный профиль (0.8 мм)',
+    name: 'Соединительный профиль 3 мм (металл 0.8 мм)',
     type: 'H_JOINT',
-    width: 0.8,
+    width: 3.0,
+    metalThickness: 0.8,
     stockLength: 3000,
     color: '#495057',
   },
@@ -92,7 +119,9 @@ export interface AllWallProfileItem {
   category: AllWallProfileCategory;   // Категория каталога
   functionalRole: ProfileFunctionalRole; // Функциональная роль для монтажа
   stockLength: number;                // Длина хлыста в мм (стандарт 3000 мм, 2700 мм, 2500 мм)
-  visibleWidth: number;               // Видимая ширина на стене в мм (0.8 мм, 10 мм, 15 мм и т.д.)
+  visibleWidth: number;               // Видимая ширина на стене в мм (3.0 мм, 7.0 мм, 10 мм, 15 мм и т.д.)
+  mountingGap?: number;               // Монтажный зазор по сечению; не толщина металла
+  metalThickness?: number;            // Толщина стенки металла в мм (например 0.8 мм)
   allowedThicknesses: number[];       // Допустимые толщины стыкуемых панелей [5, 8], [5] или [8]
   availableColors: AllWallProfileColor[]; // Доступная цветовая палитра
   defaultColorHex: string;            // HEX цвет по умолчанию
@@ -294,15 +323,29 @@ export const ALLWALL_PROFILES_CATALOG: AllWallProfileItem[] = [
   },
   {
     article: 'MC-06',
-    name: 'Тонкий соединительный профиль 0.8 мм MC-06',
+    name: 'Соединительный профиль 3 мм MC-06 (0.8 мм)',
     category: 'CONNECTOR',
     functionalRole: 'JOINT',
     stockLength: 3000,
-    visibleWidth: 0.8,
+    visibleWidth: 3.0,
+    metalThickness: 0.8,
     allowedThicknesses: [5, 8],
     availableColors: [ALLWALL_PROFILE_COLORS.BLACK, ALLWALL_PROFILE_COLORS.GOLD, ALLWALL_PROFILE_COLORS.ROSE_GOLD],
     defaultColorHex: ALLWALL_PROFILE_COLORS.BLACK.hex,
-    description: 'Стандартный соединительный профиль с ультратонкой видимой ножкой 0.8 мм для бесшовного эффекта.',
+    description: 'Стандартный соединительный профиль с видимой планкой 3 мм (толщина стенки металла 0.8 мм).',
+  },
+  {
+    article: 'MC-06-7',
+    name: 'Соединительный профиль 7 мм MC-06 (0.8 мм)',
+    category: 'CONNECTOR',
+    functionalRole: 'JOINT',
+    stockLength: 3000,
+    visibleWidth: 7.0,
+    metalThickness: 0.8,
+    allowedThicknesses: [5, 8],
+    availableColors: [ALLWALL_PROFILE_COLORS.BLACK, ALLWALL_PROFILE_COLORS.GOLD, ALLWALL_PROFILE_COLORS.ROSE_GOLD],
+    defaultColorHex: ALLWALL_PROFILE_COLORS.BLACK.hex,
+    description: 'Соединительный профиль с акцентной видимой планкой 7 мм (толщина стенки металла 0.8 мм).',
   },
   {
     article: 'MC-07',
@@ -408,15 +451,29 @@ export const ALLWALL_PROFILES_CATALOG: AllWallProfileItem[] = [
   },
   {
     article: 'DL-17',
-    name: 'Тонкий соединительный шовный профиль 0.8 мм DL-17',
+    name: 'Шовный соединительный профиль 3 мм DL-17',
     category: 'DECORATIVE_TRIM',
     functionalRole: 'JOINT',
     stockLength: 3000,
-    visibleWidth: 0.8,
+    visibleWidth: 3.0,
+    metalThickness: 0.8,
     allowedThicknesses: [5, 8],
     availableColors: [ALLWALL_PROFILE_COLORS.BLACK, ALLWALL_PROFILE_COLORS.GOLD, ALLWALL_PROFILE_COLORS.ROSE_GOLD],
     defaultColorHex: ALLWALL_PROFILE_COLORS.BLACK.hex,
-    description: 'Плоский минималистичный межпанельный стык толщиной 0.8 мм.',
+    description: 'Плоский минималистичный межпанельный стык 3 мм (толщина металла 0.8 мм).',
+  },
+  {
+    article: 'DL-17-7',
+    name: 'Шовный соединительный профиль 7 мм DL-17',
+    category: 'DECORATIVE_TRIM',
+    functionalRole: 'JOINT',
+    stockLength: 3000,
+    visibleWidth: 7.0,
+    metalThickness: 0.8,
+    allowedThicknesses: [5, 8],
+    availableColors: [ALLWALL_PROFILE_COLORS.BLACK, ALLWALL_PROFILE_COLORS.GOLD, ALLWALL_PROFILE_COLORS.ROSE_GOLD],
+    defaultColorHex: ALLWALL_PROFILE_COLORS.BLACK.hex,
+    description: 'Декоративный межпанельный стык 7 мм (толщина металла 0.8 мм).',
   },
   {
     article: 'DL-15',
