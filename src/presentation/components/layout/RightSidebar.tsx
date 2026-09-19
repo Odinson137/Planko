@@ -1,3 +1,4 @@
+import { TextureEditor } from './TextureEditor';
 import React, { useState } from 'react';
 import {
   Stack,
@@ -225,6 +226,8 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   // РЕЖИМ 1.0a: Выбран ПРОЕМ в режиме 'JOINTS' (Обрамление и стыки проема)
   // =========================================================================
+  if (editMode === 'TEXTURES' && currentWall && layoutResult) return <TextureEditor wall={currentWall} layout={layoutResult} />;
+
   if (editMode === 'JOINTS' && currentOpening && currentWall) {
     const framing = ensureOpeningFraming(currentOpening);
     const side = selectedOpeningSide;

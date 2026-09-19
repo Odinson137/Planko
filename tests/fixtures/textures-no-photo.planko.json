@@ -1,0 +1,109 @@
+{
+  "id": "qa-texture-arbitrary",
+  "name": "Проверка угла без фото",
+  "materials": [
+    {
+      "id": "qa-5007",
+      "name": "Дуб без фото",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "textureCategory": "WOOD"
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall-5007",
+      "name": "Угол без фотографии",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-5007",
+        "materialId": "qa-5007",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "5007-0",
+          "materialId": "qa-5007",
+          "decorCode": "5134",
+          "textureCategory": "WOOD",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "patternAngleDeg": 0
+        },
+        {
+          "id": "5007-1",
+          "materialId": "qa-5007",
+          "decorCode": "5134",
+          "textureCategory": "WOOD",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "patternAngleDeg": 0
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-5007",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    }
+  ],
+  "selectedWallId": "wall-5007",
+  "selectedOpeningId": null,
+  "createdAt": "2026-09-19T00:00:00Z",
+  "updatedAt": "2026-09-19T00:00:00Z"
+}

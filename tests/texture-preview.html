@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><base href="/"><title>Проверка текстур и PDF</title>
+<style>body{font:16px sans-serif;margin:24px;background:#edf0f3}section{background:white;padding:16px;margin:16px 0}canvas{max-width:100%;height:auto}nav{display:flex;gap:12px}h1{font-size:24px}</style>
+<h1>Проверка шести текстур: исходный лист, деталь и рендер PDF</h1><p id="status">Загрузка…</p><main></main>
+<script type="module">
+import project from '/tests/fixtures/textures.planko.json';
+import { preloadPhotoTextures, getPiecePhotoTexture, sheetTexturePreview } from '/src/core/textures/PhotoTextures.ts';
+import { resolveTextureMapping, slopeTexturePiece } from '/src/core/textures/TextureMapping.ts';
+import { LayoutEngine } from '/src/core/layout/LayoutEngine.ts';
+import { NestingEngine } from '/src/core/layout/NestingEngine.ts';
+import { PdfExportService } from '/src/application/services/PdfExportService.ts';
+try {
+  await preloadPhotoTextures();
+  let count = 0;
+  for (const wall of project.walls) {
+    const material = project.materials.find(m=>m.id===wall.zone.materialId);
+    const layout = LayoutEngine.calculateWallLayout(wall,material,project.materials);
+    const section=document.createElement('section');
+    section.innerHTML=`<h2>${material.decorCode}</h2>`;
+    const row=document.createElement('nav');
+    const img=document.createElement('img');img.src=sheetTexturePreview(material.textureCategory,material.decorCode);img.height=260;img.alt=`Исходный лист ${material.decorCode}`;row.append(img);
+    for(const p of layout.panels){const canvas=getPiecePhotoTexture(p);const copy=document.createElement('canvas');copy.width=canvas.width;copy.height=canvas.height;copy.style.height='260px';copy.getContext('2d').drawImage(canvas,0,0);row.append(copy);}
+    section.append(row);
+    const canvas=document.createElement('canvas');canvas.width=2970;canvas.height=2100;
+    PdfExportService.renderAxonometric3DPage(canvas.getContext('2d'),2970,2100,project,wall,++count,6);section.append(canvas);
+    const parts=[...layout.panels,...layout.slopes.map(slopeTexturePiece)].map(p=>({...p,wallId:wall.id,wallName:wall.name,textureMapping:resolveTextureMapping(p)}));
+    const nesting=NestingEngine.optimizeProjectNesting(parts,1220,2800,project.materials);
+    const stock=document.createElement('canvas');stock.width=1600;stock.height=1200;
+    PdfExportService.drawNestingSheetsOnCanvas(stock.getContext('2d'),nesting.allSheets.map(sheet=>({sheet,otherWallNames:[]})),[],wall.id,0,0,1600,1200);section.append(stock);
+    document.querySelector('main').append(section);
+  }
+  document.querySelector('#status').textContent=`Готово: ${count} декоров, 3D-страницы PDF и карты раскроя.`;
+} catch(e){ document.querySelector('#status').textContent=`ОШИБКА: ${e.message}`;console.error(e); }
+</script></html>

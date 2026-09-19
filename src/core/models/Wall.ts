@@ -1,3 +1,4 @@
+import type { TextureMapping } from '../textures/TextureMapping';
 import { Opening } from './Opening';
 import { ProfileType } from './Profile';
 import { SlatProfileShape } from './AllWallCatalog';
@@ -34,6 +35,9 @@ export interface WallPanelPiece {
   reliefType?: SlatProfileShape;    // Форма рельефа ('FLAT', 'FLUTED', 'WAVE' и др.)
   textureCategory?: string;         // Категория текстуры ('WOOD', 'MARBLE', 'FABRIC' и др.)
   partLabel: string;                // Производственная маркировка ('1.1', '1.2.1', 'ПУСТО')
+  textureMapping?: TextureMapping;
+  textureStockWidth?: number;
+  textureStockHeight?: number;
   patternAngleDeg?: number;         // Угол поворота рисунка/волокон (0°, 45°, 90°)
   patternFlipX?: boolean;           // Зеркалирование текстуры по горизонтали
   isVoid?: boolean;                 // true для пустоты
@@ -67,6 +71,9 @@ export interface PanelSegmentConfig {
   customReliefType?: SlatProfileShape; // форма рельефа реек
   partLabel?: string;          // метка детали (например '1.1', '1.2' или 'ПУСТО')
   note?: string;               // комментарий/назначение детали
+  textureMapping?: TextureMapping;
+  textureStockWidth?: number;
+  textureStockHeight?: number;
   patternAngleDeg?: number;    // угол поворота рисунка/волокон (0, 45, 90, etc.)
   patternFlipX?: boolean;      // зеркалирование текстуры по горизонтали
   subPieces?: PolygonSubPiece[]; // массив полигональных частей, если панель была фигурно разрезана
@@ -116,6 +123,9 @@ export interface CustomPanelConfig {
   customDecorCode?: string;
   customTextureCategory?: string;
   customReliefType?: SlatProfileShape;
+  textureMapping?: TextureMapping;
+  textureStockWidth?: number;
+  textureStockHeight?: number;
   patternAngleDeg?: number;
   patternFlipX?: boolean;
   note?: string;

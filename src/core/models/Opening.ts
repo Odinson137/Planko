@@ -1,8 +1,10 @@
+import type { TextureMapping } from '../textures/TextureMapping';
 export type OpeningType = 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE';
 
 export type SlopeJointProfileType = 'NONE' | 'CORNER' | 'LED_10' | 'JOINT_3' | 'JOINT_7' | 'JOINT_8';
 
 export interface SlopeSideConfig {
+  textureMapping?: TextureMapping;
   enabled: boolean;          // Включена ли данная грань откоса
   depth: number;             // Ширина/глубина грани (мм)
   materialId?: string | null;// ID материала (null = как у стены / общий)
@@ -95,21 +97,25 @@ export function ensureOpeningSlopes(op: Opening): SlopeConfig {
     jointProfileType: op.slopes.jointProfileType || 'NONE',
     showUnfold2D: !!op.slopes.showUnfold2D,
     top: {
+      textureMapping: op.slopes.top?.textureMapping,
       enabled: op.slopes.top?.enabled ?? true,
       depth: op.slopes.top?.depth ?? baseDepth,
       materialId: op.slopes.top?.materialId ?? null,
     },
     bottom: {
+      textureMapping: op.slopes.bottom?.textureMapping,
       enabled: op.slopes.bottom?.enabled ?? !isDoor,
       depth: op.slopes.bottom?.depth ?? baseDepth,
       materialId: op.slopes.bottom?.materialId ?? null,
     },
     left: {
+      textureMapping: op.slopes.left?.textureMapping,
       enabled: op.slopes.left?.enabled ?? true,
       depth: op.slopes.left?.depth ?? baseDepth,
       materialId: op.slopes.left?.materialId ?? null,
     },
     right: {
+      textureMapping: op.slopes.right?.textureMapping,
       enabled: op.slopes.right?.enabled ?? true,
       depth: op.slopes.right?.depth ?? baseDepth,
       materialId: op.slopes.right?.materialId ?? null,

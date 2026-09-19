@@ -675,6 +675,9 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                                       {activeDecor.name}
                                     </Text>
                                   </Group>
+                                  <Text size="xs" c="dimmed" mt={4}>
+                                    {photoTextureUrl(activeDecor.category, activeDecor.code) ? 'Есть фотография текстуры' : 'Только цвет · без фотографии'}
+                                  </Text>
                                 </div>
                               </Group>
                               <Text size="xs" c="dimmed">
@@ -684,53 +687,47 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                           </Paper>
                         )}
 
-                        {/* Линейка свотчей с заводскими кодами AllWall */}
-                        <Text size="xs" c="dimmed" mb={4}>
-                          Доступные декоры ({model.decors.length} шт):
-                        </Text>
-                        <Group gap={6} mb="md" style={{ flexWrap: 'wrap' }}>
-                          {model.decors.slice(0, 14).map((decor) => {
-                            const isSelected = activeDecor?.code === decor.code;
+                        <Stack gap="xs" mb="md">
+                          {[
+                            { label: 'С фото', withPhoto: true },
+                            { label: 'Без фото', withPhoto: false },
+                          ].map(({ label, withPhoto }) => {
+                            const decors = model.decors.filter(decor => Boolean(photoTextureUrl(decor.category, decor.code)) === withPhoto);
+                            if (!decors.length) return null;
                             return (
-                              <Tooltip
-                                key={decor.code}
-                                label={
-                                  <div style={{ textAlign: 'center' }}>
-                                    <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                                      {decor.code}
-                                    </Badge>
-                                    <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
-                                  </div>
-                                }
-                                withArrow
-                              >
-                                <div
-                                  onClick={() =>
-                                    setSelectedDecorByModel((prev) => ({
-                                      ...prev,
-                                      [model.id]: decor,
-                                    }))
-                                  }
-                                  style={{
-                                    cursor: 'pointer',
-                                    padding: 2,
-                                    borderRadius: '50%',
-                                    border: isSelected ? '2px solid #339af0' : '2px solid transparent',
-                                    transform: isSelected ? 'scale(1.15)' : 'scale(1)',
-                                    transition: 'all 0.15s ease',
-                                  }}
-                                >
-                                  {photoTextureUrl(decor.category, decor.code) ? <img src={photoTextureUrl(decor.category, decor.code)} alt={decor.name} style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: '50%' }} /> : <ColorSwatch color={decor.color} size={18} />}
-                                </div>
-                              </Tooltip>
+                              <div key={label}>
+                                <Text size="xs" c="dimmed" mb={6}>{label} · {decors.length}</Text>
+                                <Group gap={8} align="flex-start" style={{ flexWrap: 'wrap' }}>
+                                  {decors.map(decor => {
+                                    const isSelected = activeDecor?.code === decor.code;
+                                    const photo = photoTextureUrl(decor.category, decor.code);
+                                    return (
+                                      <Tooltip key={decor.code} label={`${decor.name} · ${photo ? 'Есть фотография текстуры' : 'Только цвет, без фотографии'}`} withArrow>
+                                        <button
+                                          type="button"
+                                          aria-label={`${decor.code} ${decor.name} — ${photo ? 'с фото' : 'без фото'}`}
+                                          aria-pressed={isSelected}
+                                          onClick={() => setSelectedDecorByModel(prev => ({ ...prev, [model.id]: decor }))}
+                                          style={{
+                                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                                            cursor: 'pointer', padding: 4, margin: 0, minWidth: 48,
+                                            borderRadius: 8, border: isSelected ? '2px solid #339af0' : '2px solid transparent',
+                                            background: isSelected ? t.bgCardSubtle : 'transparent', color: t.textPrimary,
+                                          }}
+                                        >
+                                          <span style={{ display: 'block', width: 32, height: 32, borderRadius: 6, overflow: 'hidden', background: decor.color, boxShadow: 'inset 0 0 0 1px #0002' }}>
+                                            {photo && <img src={photo} alt="" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />}
+                                          </span>
+                                          <span style={{ fontSize: 10, lineHeight: '14px', fontWeight: isSelected ? 700 : 400 }}>{decor.code}</span>
+                                        </button>
+                                      </Tooltip>
+                                    );
+                                  })}
+                                </Group>
+                              </div>
                             );
                           })}
-                          {model.decors.length > 14 && (
-                            <Text size="xs" c="dimmed">
-                              +{model.decors.length - 14}
-                            </Text>
-                          )}
-                        </Group>
+                        </Stack>
                       </div>
 
                       {/* Нижние действия */}

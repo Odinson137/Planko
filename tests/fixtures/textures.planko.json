@@ -1,0 +1,642 @@
+{
+  "id": "qa-textures",
+  "name": "Проверка шести текстур",
+  "materials": [
+    {
+      "id": "qa-5007",
+      "name": "Фото 5007",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#aaaaaa",
+      "decorCode": "5007",
+      "textureCategory": "WOOD"
+    },
+    {
+      "id": "qa-5189",
+      "name": "Фото 5189",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#aaaaaa",
+      "decorCode": "5189",
+      "textureCategory": "WOOD"
+    },
+    {
+      "id": "qa-7112",
+      "name": "Фото 7112",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#aaaaaa",
+      "decorCode": "7112",
+      "textureCategory": "FABRIC"
+    },
+    {
+      "id": "qa-8016-3",
+      "name": "Фото 8016-3",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#aaaaaa",
+      "decorCode": "8016-3",
+      "textureCategory": "STONE"
+    },
+    {
+      "id": "qa-8812-15",
+      "name": "Фото 8812-15",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#aaaaaa",
+      "decorCode": "8812-15",
+      "textureCategory": "MIRROR"
+    },
+    {
+      "id": "qa-2223-30",
+      "name": "Фото 2223-30",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#aaaaaa",
+      "decorCode": "2223-30",
+      "textureCategory": "MIRROR"
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall-5007",
+      "name": "Фото 5007",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-5007",
+        "materialId": "qa-5007",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "5007-0",
+          "materialId": "qa-5007",
+          "decorCode": "5007",
+          "textureCategory": "WOOD",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 0
+          }
+        },
+        {
+          "id": "5007-1",
+          "materialId": "qa-5007",
+          "decorCode": "5007",
+          "textureCategory": "WOOD",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 610,
+            "offsetY": 1000,
+            "angleDeg": 180
+          }
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-5007",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    },
+    {
+      "id": "wall-5189",
+      "name": "Фото 5189",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-5189",
+        "materialId": "qa-5189",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "5189-0",
+          "materialId": "qa-5189",
+          "decorCode": "5189",
+          "textureCategory": "WOOD",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 0
+          }
+        },
+        {
+          "id": "5189-1",
+          "materialId": "qa-5189",
+          "decorCode": "5189",
+          "textureCategory": "WOOD",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 610,
+            "offsetY": 1000,
+            "angleDeg": 180
+          }
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-5189",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    },
+    {
+      "id": "wall-7112",
+      "name": "Фото 7112",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-7112",
+        "materialId": "qa-7112",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "7112-0",
+          "materialId": "qa-7112",
+          "decorCode": "7112",
+          "textureCategory": "FABRIC",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 0
+          }
+        },
+        {
+          "id": "7112-1",
+          "materialId": "qa-7112",
+          "decorCode": "7112",
+          "textureCategory": "FABRIC",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 610,
+            "offsetY": 1000,
+            "angleDeg": 180
+          }
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-7112",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    },
+    {
+      "id": "wall-8016-3",
+      "name": "Фото 8016-3",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-8016-3",
+        "materialId": "qa-8016-3",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "8016-3-0",
+          "materialId": "qa-8016-3",
+          "decorCode": "8016-3",
+          "textureCategory": "STONE",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 0
+          }
+        },
+        {
+          "id": "8016-3-1",
+          "materialId": "qa-8016-3",
+          "decorCode": "8016-3",
+          "textureCategory": "STONE",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 610,
+            "offsetY": 1000,
+            "angleDeg": 180
+          }
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-8016-3",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    },
+    {
+      "id": "wall-8812-15",
+      "name": "Фото 8812-15",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-8812-15",
+        "materialId": "qa-8812-15",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "8812-15-0",
+          "materialId": "qa-8812-15",
+          "decorCode": "8812-15",
+          "textureCategory": "MIRROR",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 0
+          }
+        },
+        {
+          "id": "8812-15-1",
+          "materialId": "qa-8812-15",
+          "decorCode": "8812-15",
+          "textureCategory": "MIRROR",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 610,
+            "offsetY": 1000,
+            "angleDeg": 180
+          }
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-8812-15",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    },
+    {
+      "id": "wall-2223-30",
+      "name": "Фото 2223-30",
+      "width": 1220,
+      "height": 2800,
+      "zone": {
+        "id": "zone-2223-30",
+        "materialId": "qa-2223-30",
+        "orientation": "VERTICAL",
+        "jointProfileType": "NONE"
+      },
+      "panels": [
+        {
+          "id": "2223-30-0",
+          "materialId": "qa-2223-30",
+          "decorCode": "2223-30",
+          "textureCategory": "MIRROR",
+          "partLabel": "1.1",
+          "points": [
+            {
+              "x": 0,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 1800
+            },
+            {
+              "x": 600,
+              "y": 2800
+            },
+            {
+              "x": 0,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 0
+          }
+        },
+        {
+          "id": "2223-30-1",
+          "materialId": "qa-2223-30",
+          "decorCode": "2223-30",
+          "textureCategory": "MIRROR",
+          "partLabel": "1.2",
+          "points": [
+            {
+              "x": 610,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 1800
+            },
+            {
+              "x": 1210,
+              "y": 2800
+            },
+            {
+              "x": 610,
+              "y": 2800
+            }
+          ],
+          "textureMapping": {
+            "offsetX": 610,
+            "offsetY": 1000,
+            "angleDeg": 180
+          }
+        }
+      ],
+      "joints": [],
+      "customPanels": {},
+      "bends": [],
+      "openings": [
+        {
+          "id": "op-2223-30",
+          "name": "Окно",
+          "type": "WINDOW",
+          "x": 300,
+          "y": 300,
+          "width": 500,
+          "height": 800,
+          "depth": 150,
+          "isCutout": true,
+          "isApplied": true
+        }
+      ],
+      "edgeProfiles": {},
+      "jointEdges": {},
+      "customJoints": {}
+    }
+  ],
+  "selectedWallId": "wall-5007",
+  "selectedOpeningId": null,
+  "createdAt": "2026-09-19T00:00:00Z",
+  "updatedAt": "2026-09-19T00:00:00Z"
+}

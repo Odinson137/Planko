@@ -1,3 +1,4 @@
+import type { TextureMapping } from '../textures/TextureMapping';
 import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
@@ -42,6 +43,9 @@ export interface PolygonSubPiece {
   reliefType?: SlatProfileShape;
   textureCategory?: string;
   partLabel?: string;
+  textureMapping?: TextureMapping;
+  textureStockWidth?: number;
+  textureStockHeight?: number;
   patternAngleDeg?: number;
   patternFlipX?: boolean;
   isVoid?: boolean;
@@ -2083,6 +2087,7 @@ export class PolygonSlicingEngine {
       thickness: sp.thickness || panel.thickness,
       reliefType: sp.reliefType || panel.reliefType,
       textureCategory: sp.textureCategory || panel.textureCategory,
+      textureMapping: sp.textureMapping ?? panel.textureMapping,
       patternAngleDeg: sp.patternAngleDeg !== undefined ? sp.patternAngleDeg : panel.patternAngleDeg,
       patternFlipX: sp.patternFlipX !== undefined ? sp.patternFlipX : panel.patternFlipX,
       isVoid: sp.isVoid !== undefined ? sp.isVoid : panel.isVoid,

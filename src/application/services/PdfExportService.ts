@@ -1,5 +1,6 @@
-import { getPhotoTexture, drawTextureFace } from '../../core/textures/PhotoTextures';
-import { TextureRegistry } from '../../core/textures/TextureRegistry';
+import { getPieceTexture } from '../../core/textures/PieceTextures';
+import { drawTextureFace } from '../../core/textures/PhotoTextures';
+import { resolveTextureMapping, slopeTexturePiece, pointOnSheet } from '../../core/textures/TextureMapping';
 import { jsPDF } from 'jspdf';
 import { Project } from '../../core/models/Project';
 import { Wall, RadiusType } from '../../core/models/Wall';
@@ -8,6 +9,7 @@ import { NestingEngine, NestingPartInput, ProjectNestingResult, NestingSheet, Ne
 import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport } from '../../core/layout/ProfileSpecificationEngine';
 import { MATERIAL_NONE_ID, Material } from '../../core/models/Material';
 import { Point2D, PolygonSlicingEngine } from '../../core/geometry/PolygonSlicingEngine';
+import { dimensionText } from './PartDrawing';
 
 export class PdfExportService {
   private static fitsMaterial(width: number, height: number, material?: Material): boolean {
@@ -68,6 +70,9 @@ export class PdfExportService {
             materialId: p.materialId,
             materialName: mat?.name || p.decorName || 'Панель AllWall',
             decorCode: p.decorCode,
+            textureCategory: p.textureCategory,
+            textureMapping: p.textureMapping ? resolveTextureMapping(p) : undefined,
+            patternFlipX: p.patternFlipX,
             color: p.materialColor,
             thickness: p.thickness,
             polygonPoints: p.polygonPoints,
@@ -87,8 +92,10 @@ export class PdfExportService {
             wallId: wall.id,
             wallName: wall.name,
             partLabel: sl.partLabel,
-            width: sl.width,
-            height: sl.depth,
+            width: slopeTexturePiece(sl).width,
+            height: slopeTexturePiece(sl).height,
+            textureCategory: sl.textureCategory,
+            textureMapping: sl.textureMapping,
             areaSqM: sl.areaSqM,
             materialId: sl.materialId,
             materialName: sl.materialName || slMat?.name,
@@ -103,7 +110,6 @@ export class PdfExportService {
 
     // Рассчитываем оптимальный раскрой
     const nestingResult: ProjectNestingResult = NestingEngine.optimizeProjectNesting(allPartsForNesting, undefined, undefined, project.materials);
-
     // Генерируем страницу для каждой стены с умной адаптивной компоновкой
     for (let wIdx = 0; wIdx < project.walls.length; wIdx++) {
       const wall = project.walls[wIdx];
@@ -203,6 +209,9 @@ export class PdfExportService {
             materialId: p.materialId,
             materialName: mat?.name || p.decorName || 'Панель AllWall',
             decorCode: p.decorCode || mat?.decorCode,
+            textureCategory: p.textureCategory,
+            textureMapping: p.textureMapping ? resolveTextureMapping(p) : undefined,
+            patternFlipX: p.patternFlipX,
             thickness: p.thickness || mat?.thickness || 5,
             color: p.materialColor || mat?.color,
             polygonPoints: p.polygonPoints,
@@ -219,8 +228,10 @@ export class PdfExportService {
             wallId: wall.id,
             wallName: wall.name,
             partLabel: sl.partLabel,
-            width: sl.width,
-            height: sl.depth,
+            width: slopeTexturePiece(sl).width,
+            height: slopeTexturePiece(sl).height,
+            textureCategory: sl.textureCategory,
+            textureMapping: sl.textureMapping,
             areaSqM: sl.areaSqM,
             materialId: sl.materialId,
             materialName: sl.materialName || slMat?.name,
@@ -500,8 +511,8 @@ export class PdfExportService {
     showMaterials: boolean = true,
     materials: Material[] = []
   ): void {
-    const padX = 80;
-    const padY = 45;
+    const padX = 180;
+    const padY = 95;
     const availW = boxW - padX * 2;
     const availH = boxH - padY * 2;
 
@@ -592,6 +603,7 @@ export class PdfExportService {
           : `${wall.name.match(/\d+/)?.[0] || '1'}.${pIdx + 1}`;
 
         ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
+        ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
         const labelW = Math.max(54, ctx.measureText(label).width + 20);
         const badgeH = 34;
 
@@ -603,6 +615,7 @@ export class PdfExportService {
         ctx.strokeRect(midX - labelW / 2, midY - badgeH / 2, labelW, badgeH);
 
         ctx.fillStyle = cannotPlace ? '#ffffff' : '#000000';
+        ctx.font = 'bold 22px "Segoe UI", Arial, sans-serif';
         ctx.fillText(label, midX, midY);
         if (cannotPlace) {
           ctx.font = 'bold 14px "Segoe UI", Arial, sans-serif';
@@ -1107,6 +1120,39 @@ export class PdfExportService {
       );
     }
 
+    // Additional architectural chains for widths above the floor and all split heights.
+    const parts = layout.panels.filter(p => !p.isVoid && p.materialId !== MATERIAL_NONE_ID);
+    const chainsFor = (axis: 'HORIZONTAL' | 'VERTICAL') => {
+      const groups = new Map<string, {start:number;end:number;label:string;isJoint?:boolean}[]>();
+      for (const p of parts) {
+        const start = axis === 'HORIZONTAL' ? p.x : p.y;
+        const end = start + (axis === 'HORIZONTAL' ? p.width : p.height);
+        const key = axis === 'HORIZONTAL' ? dimensionText(p.y+p.height) : `${dimensionText(p.x)}:${dimensionText(p.width)}`;
+        const items = groups.get(key) ?? [];
+        if(!items.some(s=>Math.abs(s.start-start)<0.01 && Math.abs(s.end-end)<0.01))
+          items.push({start,end,label:dimensionText(end-start)});
+        groups.set(key,items);
+      }
+      const covered = new Set<string>(axis === 'HORIZONTAL' ? bottomSegments.filter(s=>!s.isJoint).map(s=>`${dimensionText(s.start)}:${dimensionText(s.end)}`) : [`0:${dimensionText(wall.height)}`]);
+      return [...groups.values()].sort((a,b)=>b.length-a.length).flatMap(items=>{
+        const fresh=items.filter(s=>!covered.has(`${dimensionText(s.start)}:${dimensionText(s.end)}`)).sort((a,b)=>a.start-b.start);
+        fresh.forEach(s=>covered.add(`${dimensionText(s.start)}:${dimensionText(s.end)}`));
+        // Keep disconnected intervals separate so no unlabelled line implies a measured gap.
+        const runs: typeof items[] = [];
+        fresh.forEach(s=>{const run=runs.at(-1);const last=run?.at(-1);
+          if(last && s.start>=last.end-0.01 && s.start-last.end<=20){
+            if(s.start-last.end>0.01) run!.push({start:last.end,end:s.start,label:dimensionText(s.start-last.end),isJoint:true});
+            run!.push(s);
+          }else runs.push([s]);
+        });
+        return runs;
+      });
+    };
+    chainsFor('HORIZONTAL').forEach((segments,i)=>this.drawArchitecturalChain(ctx,originX,originY,scale,wall.height,
+      segments,'HORIZONTAL',originY-40-i*45,originY));
+    chainsFor('VERTICAL').forEach((segments,i)=>this.drawArchitecturalChain(ctx,originX,originY,scale,wall.height,
+      segments,'VERTICAL',originX+wall.width*scale+45+i*55,originX+wall.width*scale));
+
     // 5.3. Размеры у проемов (дверь, окно, фрамуга над дверью)
     wall.openings
       .filter((op) => op.isCutout !== false)
@@ -1558,10 +1604,10 @@ export class PdfExportService {
 
         const isDiagonalCut =
           isPolygon &&
-          rawPts!.some((pt, i) => {
+          ((p.textureAngleDeg !== undefined && p.textureAngleDeg % 90 !== 0) || rawPts!.some((pt, i) => {
             const next = rawPts![(i + 1) % rawPts!.length];
             return Math.abs(pt.x - next.x) > 5 && Math.abs(pt.y - next.y) > 5;
-          });
+          }));
 
         let polyCanvasPts: { x: number; y: number }[] = [];
 
@@ -1570,8 +1616,9 @@ export class PdfExportService {
           polyCanvasPts = rawPts!.map((pt) => {
             const localX = pt.x - minX;
             const localY = pt.y - minY;
-            const sheetLocalX = p.rotated ? localY : localX;
-            const sheetLocalY = p.rotated ? origW - localX : localY;
+            const mapped = p.textureAngleDeg === undefined ? undefined : pointOnSheet(localX, p.part.height-localY, p.part.width, p.part.height, p.textureAngleDeg);
+            const sheetLocalX = mapped ? mapped.x : (p.rotated ? localY : localX);
+            const sheetLocalY = mapped ? p.height - mapped.y : (p.rotated ? origW - localX : localY);
             return {
               x: sheetOriginX + (p.x + sheetLocalX) * scale,
               y: sheetOriginY + (sheet.sheetHeight - (p.y + sheetLocalY)) * scale,
@@ -1652,10 +1699,11 @@ export class PdfExportService {
 
         if (p.part.cutouts && p.part.cutouts.length > 0) {
           p.part.cutouts.forEach((cut) => {
-            const cutX = px + cut.x * scale;
-            const cutY = py + (p.height - (cut.y + cut.height)) * scale;
-            const cutW = cut.width * scale;
-            const cutH = cut.height * scale;
+            const corners = [[cut.x,cut.y],[cut.x+cut.width,cut.y],[cut.x+cut.width,cut.y+cut.height],[cut.x,cut.y+cut.height]].map(([x,y]) => NestingEngine.placedPoint(p,x,y));
+            const cutX = sheetOriginX + Math.min(...corners.map(c=>c.x))*scale;
+            const cutY = sheetOriginY + (sheet.sheetHeight-Math.max(...corners.map(c=>c.y)))*scale;
+            const cutW = (Math.max(...corners.map(c=>c.x))-Math.min(...corners.map(c=>c.x)))*scale;
+            const cutH = (Math.max(...corners.map(c=>c.y))-Math.min(...corners.map(c=>c.y)))*scale;
 
             if (cut.y <= 10) {
               hasBottomDoorCutout = true;
@@ -1664,7 +1712,12 @@ export class PdfExportService {
 
             // Очищаем область выреза белым фоном листа без линий, рамок, остатков и выносок
             ctx.fillStyle = '#ffffff';
-            ctx.fillRect(cutX, cutY, cutW, cutH);
+            if (p.textureAngleDeg !== undefined && p.textureAngleDeg % 90 !== 0) {
+              ctx.beginPath();
+              corners.forEach((c,i) => { const x=sheetOriginX+c.x*scale, y=sheetOriginY+(sheet.sheetHeight-c.y)*scale;
+                if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+              ctx.closePath(); ctx.fill();
+            } else ctx.fillRect(cutX, cutY, cutW, cutH);
           });
         }
 
@@ -1675,11 +1728,25 @@ export class PdfExportService {
             const bOffset = bend.bendOffsetInSheet;
             const bW = bend.bendWidth;
 
-            const bCanvasX = isRot ? px : px + bOffset * scale;
-            const bCanvasY = isRot ? py + (p.height - (bOffset + bW)) * scale : py;
-            const bCanvasW = isRot ? pw : bW * scale;
-            const bCanvasH = isRot ? bW * scale : ph;
+            const band = [[bOffset,0],[bOffset+bW,0],[bOffset,p.part.height],[bOffset+bW,p.part.height]].map(([x,y]) => NestingEngine.placedPoint(p,x,y));
+            const bCanvasX = sheetOriginX + Math.min(...band.map(c=>c.x))*scale;
+            const bCanvasY = sheetOriginY + (sheet.sheetHeight-Math.max(...band.map(c=>c.y)))*scale;
+            const bCanvasW = (Math.max(...band.map(c=>c.x))-Math.min(...band.map(c=>c.x)))*scale;
+            const bCanvasH = (Math.max(...band.map(c=>c.y))-Math.min(...band.map(c=>c.y)))*scale;
 
+            if (p.textureAngleDeg !== undefined && p.textureAngleDeg % 90 !== 0) {
+              const toCanvas = (x:number,y:number) => { const q=NestingEngine.placedPoint(p,x,y);
+                return {x:sheetOriginX+q.x*scale,y:sheetOriginY+(sheet.sheetHeight-q.y)*scale}; };
+              const points=[[bOffset,0],[bOffset+bW,0],[bOffset+bW,p.part.height],[bOffset,p.part.height]].map(([x,y])=>toCanvas(x,y));
+              ctx.save(); ctx.fillStyle='rgba(2,132,199,0.14)'; ctx.strokeStyle='#0284c7'; ctx.setLineDash([5,3]);
+              ctx.beginPath(); points.forEach((q,i)=>{if(i===0)ctx.moveTo(q.x,q.y);else ctx.lineTo(q.x,q.y);});
+              ctx.closePath(); ctx.fill(); ctx.stroke();
+              const lines=Math.min(8,Math.max(3,Math.floor(bend.radius/30)));
+              for(let i=1;i<lines;i++){const a=toCanvas(bOffset+bW*i/lines,0),b=toCanvas(bOffset+bW*i/lines,p.part.height);
+                ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+              ctx.restore();
+              return;
+            }
             ctx.save();
             // 1. Заливка зоны изгиба
             ctx.fillStyle = 'rgba(2, 132, 199, 0.14)';
@@ -1835,7 +1902,26 @@ export class PdfExportService {
             : `${p.part.partLabel}${isSlope ? ' Откос' : ''} (${p.part.wallName})`;
 
           // Если деталь узкая и вытянутая (например, планки откосов), пишем текст вертикально чтобы не было наложения
-          if (pw < 55 && ph > 60) {
+          if (p.textureAngleDeg !== undefined) {
+            // Keep source coordinates together with the label, including narrow slopes.
+            const vertical = pw < 55 && ph > 60;
+            const availableWidth = (vertical ? ph : pw) - 8;
+            const fontSize = Math.min(12, Math.max(5, ((vertical ? pw : ph) - 6) / 3));
+            const centerX = isDiagonalCut && polyCanvasPts.length >= 3
+              ? polyCanvasPts.reduce((sum, pt) => sum + pt.x, 0) / polyCanvasPts.length : px + pw / 2;
+            const centerY = isDiagonalCut && polyCanvasPts.length >= 3
+              ? polyCanvasPts.reduce((sum, pt) => sum + pt.y, 0) / polyCanvasPts.length
+              : hasBottomDoorCutout && doorCutoutTopCanvasY > py + 25 ? py + (doorCutoutTopCanvasY-py)/2 : py+ph/2;
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            if (vertical) ctx.rotate(-Math.PI / 2);
+            ctx.font = `bold ${fontSize}px "Segoe UI", Arial, sans-serif`;
+            ctx.fillText(label, 0, -fontSize, availableWidth);
+            ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
+            ctx.fillText(`${Math.round(p.width)}×${Math.round(p.height)}`, 0, 0, availableWidth);
+            ctx.fillText(`${p.textureAngleDeg}° · X ${Math.round(p.x)} · Y ${Math.round(sheet.sheetHeight-p.y-p.height)}`, 0, fontSize, availableWidth);
+            ctx.restore();
+          } else if (pw < 55 && ph > 60) {
             ctx.save();
             ctx.translate(px + pw / 2, py + ph / 2);
             ctx.rotate(-Math.PI / 2);
@@ -2019,7 +2105,12 @@ export class PdfExportService {
     ctx.restore();
 
     // Рендерим 3D проекцию стены со светлым окружением и текстурами
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(sceneX, sceneY, sceneW, sceneH, 20);
+    ctx.clip();
     this.drawWall3DScene(ctx, wall, project, sceneX, sceneY, sceneW, sceneH);
+    ctx.restore();
 
     // 3. Нижний информационный блок
     const wallIndex = project.walls.findIndex((w) => w.id === wall.id);
@@ -2429,24 +2520,44 @@ export class PdfExportService {
     const minZ = Math.min(...allPathPoints.map((p) => p.z), 0) - wallThick - 600;
     const maxZ = Math.max(...allPathPoints.map((p) => p.z), 0) + 1600;
 
-    const spanX = Math.max(1000, maxX - minX);
-    const spanZ = Math.max(1000, maxZ - minZ);
-    const scale = Math.min(boxW / (spanX * 1.3), boxH / (wallH * 1.8 + spanZ * 0.4), 0.52);
-
-    const midX = (minX + maxX) / 2;
-    const midZ = (minZ + maxZ) / 2;
-    const xRotMid = midX * Math.cos(radA) - midZ * Math.sin(radA);
-    const zRotMid = midX * Math.sin(radA) + midZ * Math.cos(radA);
-
-    const cx = boxX + boxW / 2 - xRotMid * scale;
-    const cy = boxY + boxH * 0.72 + (wallH / 2 * Math.cos(radE) - zRotMid * Math.sin(radE)) * scale * 0.4;
-
-    const project3D = (p: Point3D) => {
+    const projectUnscaled = (p: Point3D) => {
       const xRot = p.x * Math.cos(radA) - p.z * Math.sin(radA);
       const zRot = p.x * Math.sin(radA) + p.z * Math.cos(radA);
-      const screenX = cx + xRot * scale;
-      const screenY = cy - (p.y * Math.cos(radE) - zRot * Math.sin(radE)) * scale;
-      return { x: screenX, y: screenY };
+      return { x: xRot, y: zRot * Math.sin(radE) - p.y * Math.cos(radE) };
+    };
+
+    // Fit the projected scene, including the floor, instead of estimating its
+    // screen size from world dimensions and anchoring it near the bottom.
+    const boundsPoints = [
+      { x: minX, y: 0, z: minZ }, { x: maxX, y: 0, z: minZ },
+      { x: maxX, y: 0, z: maxZ }, { x: minX, y: 0, z: maxZ },
+    ];
+    const frontDepth = -Math.max(panelThick + 3, ...layout.panels.map((p) => p.thickness || panelThick));
+    pathSections.forEach((section) => {
+      const steps = section.isBend ? 32 : 1;
+      for (let step = 0; step <= steps; step++) {
+        const s = section.sStart + (section.sEnd - section.sStart) * step / steps;
+        for (const y of [0, wallH]) {
+          for (const depth of [frontDepth, wallThick]) {
+            boundsPoints.push(section.getPoint(s, y, depth));
+          }
+        }
+      }
+    });
+    const projectedBounds = boundsPoints.map(projectUnscaled);
+    const left = Math.min(...projectedBounds.map((p) => p.x));
+    const right = Math.max(...projectedBounds.map((p) => p.x));
+    const top = Math.min(...projectedBounds.map((p) => p.y));
+    const bottom = Math.max(...projectedBounds.map((p) => p.y));
+    const padding = 80;
+    const scale = Math.min((boxW - padding * 2) / Math.max(1, right - left),
+      (boxH - padding * 2) / Math.max(1, bottom - top), 0.52);
+    const cx = boxX + boxW / 2 - (left + right) / 2 * scale;
+    const cy = boxY + boxH / 2 - (top + bottom) / 2 * scale;
+
+    const project3D = (p: Point3D) => {
+      const point = projectUnscaled(p);
+      return { x: cx + point.x * scale, y: cy + point.y * scale };
     };
 
     // 2. Светлый плиточный пол
@@ -2467,7 +2578,7 @@ export class PdfExportService {
 
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 1.8;
-    for (let x = Math.floor(minX / 500) * 500; x <= maxX; x += 500) {
+    for (let x = Math.ceil(minX / 500) * 500; x <= maxX; x += 500) {
       const pA = project3D({ x, y: 0, z: minZ });
       const pB = project3D({ x, y: 0, z: maxZ });
       ctx.beginPath();
@@ -2475,7 +2586,7 @@ export class PdfExportService {
       ctx.lineTo(pB.x, pB.y);
       ctx.stroke();
     }
-    for (let z = Math.floor(minZ / 500) * 500; z <= maxZ; z += 500) {
+    for (let z = Math.ceil(minZ / 500) * 500; z <= maxZ; z += 500) {
       const pA = project3D({ x: minX, y: 0, z });
       const pB = project3D({ x: maxX, y: 0, z });
       ctx.beginPath();
@@ -2657,6 +2768,14 @@ export class PdfExportService {
           ctx.strokeStyle = isVoid ? '#e2e8f0' : '#475569';
           ctx.lineWidth = 1.5;
           ctx.stroke();
+          const texture = !isVoid && getPieceTexture(p);
+          if (texture) {
+            ctx.clip();
+            drawTextureFace(ctx, texture,
+              project3D(getPointAtS(s0, yBot, -thick)), project3D(getPointAtS(s1, yBot, -thick)),
+              project3D(getPointAtS(s1, yTop, -thick)), project3D(getPointAtS(s0, yTop, -thick)),
+              { x: (s0-p.x)/p.width, y: 0, width: (s1-s0)/p.width, height: 1 });
+          }
           ctx.restore();
         }
         return;
@@ -2741,10 +2860,9 @@ export class PdfExportService {
           ctx.stroke();
 
           // Текстурные волокна для дерева
-          const photo = !isVoid && getPhotoTexture(p.textureCategory || '', p.decorCode);
+          const photo = !isVoid && getPieceTexture(p);
           if (photo) {
-            const texture = TextureRegistry.getPatternCanvasWithTransform(p.textureCategory || '', baseColor, 'FLAT', p.decorCode, p.patternAngleDeg, p.patternFlipX);
-            drawTextureFace(ctx, texture, p0, p1, p2, p3);
+            drawTextureFace(ctx, photo, p0, p1, p2, p3, { x: (s0-p.x)/p.width, y: (p.y+p.height-inv.end)/p.height, width: (s1-s0)/p.width, height: (inv.end-inv.start)/p.height });
           }
           if (!photo && !isVoid && p.textureCategory === 'WOOD') {
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
@@ -3012,6 +3130,18 @@ export class PdfExportService {
         ctx.restore();
       }
     });
+    for (const sl of layout.slopes ?? []) {
+      const op = wall.openings.find(o => o.id === sl.openingId);
+      const texture = getPieceTexture(slopeTexturePiece(sl));
+      if (!op || !texture) continue;
+      const opDepth = op.depth ?? 150;
+      const front = -panelThick - 2 - Math.max(0, sl.depth-opDepth), back = Math.min(opDepth,sl.depth);
+      const point = (x: number, y: number, z: number) => project3D(getPointAtS(x,y,z));
+      if (sl.side === 'LEFT') drawTextureFace(ctx,texture,point(op.x,op.y,front),point(op.x,op.y,back),point(op.x,op.y+op.height,back),point(op.x,op.y+op.height,front));
+      if (sl.side === 'RIGHT') drawTextureFace(ctx,texture,point(op.x+op.width,op.y,front),point(op.x+op.width,op.y,back),point(op.x+op.width,op.y+op.height,back),point(op.x+op.width,op.y+op.height,front));
+      if (sl.side === 'TOP') drawTextureFace(ctx,texture,point(op.x,op.y+op.height,front),point(op.x+op.width,op.y+op.height,front),point(op.x+op.width,op.y+op.height,back),point(op.x,op.y+op.height,back));
+      if (sl.side === 'BOTTOM') drawTextureFace(ctx,texture,point(op.x,op.y,front),point(op.x+op.width,op.y,front),point(op.x+op.width,op.y,back),point(op.x,op.y,back));
+    }
   }
 
   /**

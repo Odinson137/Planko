@@ -1,3 +1,6 @@
+import { getPieceTexture } from '../../../core/textures/PieceTextures';
+import { slopeTexturePiece } from '../../../core/textures/TextureMapping';
+
 import React, { useEffect, useCallback, useMemo } from 'react';
 import { Stage, Layer, Rect, Text, Line, Group } from 'react-konva';
 import { useElementSize } from '@mantine/hooks';
@@ -233,7 +236,7 @@ export const CadCanvas: React.FC = () => {
               const isVoid = panel.isVoid;
               const isSlat = panel.materialType === 'SLAT';
               const patternCanvas = !isVoid && showTextures
-                ? TextureRegistry.getPatternCanvasWithTransform(
+                ? getPieceTexture(panel) ?? TextureRegistry.getPatternCanvasWithTransform(
                     panel.textureCategory || 'WOOD',
                     panel.materialColor || '#d6cbbe',
                     (panel.reliefType as any) || 'FLAT',
@@ -247,7 +250,7 @@ export const CadCanvas: React.FC = () => {
                 ? panel.polygonPoints!.flatMap((pt) => [pt.x, wallH - pt.y])
                 : [];
 
-              const isPanelsMode = editMode === 'PANELS';
+              const isPanelsMode = (editMode === 'PANELS' || editMode === 'TEXTURES');
               const isJointsMode = editMode === 'JOINTS';
 
               return (
@@ -631,7 +634,7 @@ export const CadCanvas: React.FC = () => {
             {/* Отрисовка интерактивных проемов */}
             {selectedWall.openings.map((op) => {
               const isApplied = op.isApplied ?? false;
-              const isPanelsMode = editMode === 'PANELS';
+              const isPanelsMode = (editMode === 'PANELS' || editMode === 'TEXTURES');
               const canDrag = isPanelsMode && !isApplied;
               const opX = op.x;
               const opY = wallH - (op.y + op.height);
@@ -717,7 +720,7 @@ export const CadCanvas: React.FC = () => {
                   {(() => {
                     if (op.isCutout === false) return null;
                     const slopes = ensureOpeningSlopes(op);
-                    if (!slopes.enabled || !slopes.showUnfold2D) return null;
+                    if (!slopes.enabled || !(slopes.showUnfold2D || editMode === 'TEXTURES')) return null;
 
                     const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
 
@@ -735,6 +738,14 @@ export const CadCanvas: React.FC = () => {
                       return mat?.color || '#2A2B2F';
                     };
 
+                    const slopeFill = (side: string) => {
+                      const slope = layout?.slopes?.find(s => s.openingId === op.id && s.side === side);
+                      const texture = showTextures && slope && getPieceTexture(slopeTexturePiece(slope));
+                      if (!texture || !slope) return {};
+                      const dims = slopeTexturePiece(slope);
+                      return { fillPriority: 'pattern' as const, fillPatternImage: texture as any,
+                        fillPatternScale: { x: dims.width / texture.width, y: dims.height / texture.height }, fillPatternRepeat: 'no-repeat' as const };
+                    };
                     const topD = getSideDepth(slopes.top.depth);
                     const bottomD = getSideDepth(slopes.bottom.depth);
                     const leftD = getSideDepth(slopes.left.depth);
@@ -749,6 +760,7 @@ export const CadCanvas: React.FC = () => {
                               width={op.width}
                               height={topD}
                               fill={getSideColor(slopes.top.materialId)}
+                              {...slopeFill('TOP')}
                               opacity={0.85}
                               stroke="#339AF0"
                               strokeWidth={1 / zoom}
@@ -773,6 +785,7 @@ export const CadCanvas: React.FC = () => {
                               width={op.width}
                               height={bottomD}
                               fill={getSideColor(slopes.bottom.materialId)}
+                              {...slopeFill('BOTTOM')}
                               opacity={0.85}
                               stroke="#339AF0"
                               strokeWidth={1 / zoom}
@@ -797,6 +810,7 @@ export const CadCanvas: React.FC = () => {
                               width={leftD}
                               height={op.height}
                               fill={getSideColor(slopes.left.materialId)}
+                              {...slopeFill('LEFT')}
                               opacity={0.85}
                               stroke="#339AF0"
                               strokeWidth={1 / zoom}
@@ -821,6 +835,7 @@ export const CadCanvas: React.FC = () => {
                               width={rightD}
                               height={op.height}
                               fill={getSideColor(slopes.right.materialId)}
+                              {...slopeFill('RIGHT')}
                               opacity={0.85}
                               stroke="#339AF0"
                               strokeWidth={1 / zoom}
@@ -1122,7 +1137,7 @@ export const CadCanvas: React.FC = () => {
             {selectedWall.bends?.map((bend) => {
               const arcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
               const isBendSelected = selectedWallBendId === bend.id;
-              const isPanelsMode = editMode === 'PANELS';
+              const isPanelsMode = (editMode === 'PANELS' || editMode === 'TEXTURES');
 
               return (
                 <Group

@@ -1,3 +1,5 @@
+import { ensureOpeningSlopes } from '../../core/models/Opening';
+import { TextureMapping, slopeTexturePiece, textureMappingError } from '../../core/textures/TextureMapping';
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
@@ -178,7 +180,7 @@ interface ProjectState {
   splitColumnVertically: (wallId: string, columnIndex: number, firstWidth: number) => void;
   splitPanelDiagonally: (wallId: string, columnIndex: number, segmentIndex: number | null, direction: 'BL_TR' | 'TL_BR') => void;
   applyPanelSlicingResult: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieces: PolygonSubPiece[], panelId?: string | null) => void;
-  setPiecePatternAngle: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string | null, angleDeg: number, flipX?: boolean) => void;
+  setTextureMappings: (wallId: string, updates: { id: string; mapping: TextureMapping }[]) => void;
   setSubPieceMaterial: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, materialId: string, decorCode?: string, decorName?: string, color?: string) => void;
   deleteSubPiece: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string) => void;
   updateSubPieceLabel: (wallId: string, columnIndex: number, segmentIndex: number | null, subPieceId: string, partLabel: string) => void;
@@ -1703,6 +1705,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 thickness: baseMat.thickness,
                 reliefType: baseMat.reliefType,
                 textureCategory: baseMat.textureCategory,
+                textureMapping: baseMat.textureMapping,
                 patternAngleDeg: baseMat.patternAngleDeg,
                 patternFlipX: baseMat.patternFlipX,
                 isVoid: allSameMat && baseMat.isVoid,
@@ -4696,7 +4699,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             thickness: sp.thickness || targetPanel.thickness,
             reliefType: sp.reliefType || targetPanel.reliefType,
             textureCategory: sp.textureCategory || targetPanel.textureCategory,
-            patternAngleDeg: sp.patternAngleDeg || targetPanel.patternAngleDeg,
+            textureMapping: sp.textureMapping ?? targetPanel.textureMapping,
+            patternAngleDeg: sp.patternAngleDeg ?? targetPanel.patternAngleDeg,
             patternFlipX: sp.patternFlipX || targetPanel.patternFlipX,
             partLabel:
               subPieces.length > 1
@@ -5054,7 +5058,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           thickness: sp.thickness || targetLayoutPiece.thickness,
           reliefType: (sp.reliefType || targetLayoutPiece.reliefType) as any,
           textureCategory: (sp.textureCategory || targetLayoutPiece.textureCategory) as any,
-          patternAngleDeg: sp.patternAngleDeg || targetLayoutPiece.patternAngleDeg,
+          textureMapping: sp.textureMapping ?? targetLayoutPiece.textureMapping,
+          patternAngleDeg: sp.patternAngleDeg ?? targetLayoutPiece.patternAngleDeg,
           patternFlipX: sp.patternFlipX || targetLayoutPiece.patternFlipX,
           partLabel: subPieces.length > 1 ? `${targetLayoutPiece.partLabel}.${idx + 1}` : targetLayoutPiece.partLabel,
         }));
@@ -5077,7 +5082,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             thickness: p.thickness,
             reliefType: p.reliefType as any,
             textureCategory: p.textureCategory as any,
-            patternAngleDeg: p.patternAngleDeg,
+            textureMapping: p.textureMapping,
+          patternAngleDeg: p.patternAngleDeg,
             patternFlipX: p.patternFlipX,
             partLabel: p.partLabel,
           }));
@@ -5154,89 +5160,40 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       };
     }),
 
-  setPiecePatternAngle: (
-    wallId: string,
-    columnIndex: number,
-    segmentIndex: number | null = 0,
-    subPieceId: string | null = null,
-    angleDeg: number = 0,
-    flipX: boolean = false
-  ) =>
-    set((state) => {
-      const wall = state.project.walls.find((w) => w.id === wallId);
-      if (!wall) return state;
-
-      if (wall.panels && wall.panels.length > 0) {
-        const targetId = subPieceId || state.selectedPieceIds[0] || state.selectedSubPieceId;
-        const nextPanels = wall.panels.map((p) =>
-          p.id === targetId || (targetId && p.id.includes(targetId))
-            ? { ...p, patternAngleDeg: angleDeg, patternFlipX: flipX }
-            : p
-        );
-        return {
-          project: {
-            ...state.project,
-            walls: state.project.walls.map((w) =>
-              w.id === wallId ? { ...w, panels: nextPanels } : w
-            ),
-          },
-        };
+  setTextureMappings: (wallId, updates) => set((state) => {
+    const wall = state.project.walls.find(w => w.id === wallId);
+    if (!wall) return state;
+    const mat = state.project.materials.find(m => m.id === wall.zone.materialId) || state.project.materials[0];
+    const layout = LayoutEngine.calculateWallLayout(wall, mat, state.project.materials);
+    const targets = [...layout.panels, ...(layout.slopes ?? []).map(slopeTexturePiece)];
+    for (const update of updates) {
+      const target = targets.find(t => t.id === update.id);
+      if (!target) throw new Error('Деталь была изменена. Выберите её заново.');
+      const error = textureMappingError({ ...target, textureMapping: { ...update.mapping, anchor: undefined }, patternFlipX: false });
+      if (error) throw new Error(`${target.partLabel}: ${error}`);
+    }
+    const converted = wall.panels?.length ? { panels: wall.panels, joints: wall.joints } : LayoutEngine.convertLegacyWallToPanels(wall, mat, state.project.materials);
+    const nextPanels = converted.panels.map(p => {
+      const update = updates.find(u => u.id === p.id);
+      if (!update) return p;
+      const xs = p.points.map(pt => pt.x), ys = p.points.map(pt => pt.y);
+      const bounds = layout.panels.find(t => t.id === p.id);
+      const anchor = bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+        : { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs)-Math.min(...xs), height: Math.max(...ys)-Math.min(...ys) };
+      return { ...p, textureMapping: { ...update.mapping, anchor }, patternAngleDeg: update.mapping.angleDeg, patternFlipX: false };
+    });
+    const openings = wall.openings.map(op => {
+      const slopes = ensureOpeningSlopes(op);
+      let changed = false;
+      for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+        const update = updates.find(u => u.id === `slope-${op.id}-${side}`);
+        if (update) { slopes[side] = { ...slopes[side], textureMapping: { ...update.mapping, anchor: undefined } }; changed = true; }
       }
-
-      const currentCustom = wall.customPanels[columnIndex] || { columnIndex, segments: [] };
-      const currentSegments = currentCustom.segments || [];
-      const sIdx = segmentIndex ?? 0;
-
-      const nextCustomPanels = { ...wall.customPanels };
-
-      if (subPieceId) {
-        const updateSubs = (subs: PolygonSubPiece[] | undefined) =>
-          subs?.map((sub) =>
-            sub.id === subPieceId
-              ? { ...sub, patternAngleDeg: angleDeg, patternFlipX: flipX }
-              : sub
-          );
-
-        if (currentSegments.length > 0 && currentSegments[sIdx]) {
-          const nextSegs = [...currentSegments];
-          nextSegs[sIdx] = {
-            ...nextSegs[sIdx],
-            subPieces: updateSubs(nextSegs[sIdx].subPieces),
-          };
-          nextCustomPanels[columnIndex] = { ...currentCustom, segments: nextSegs };
-        } else {
-          nextCustomPanels[columnIndex] = {
-            ...currentCustom,
-            subPieces: updateSubs(currentCustom.subPieces),
-          };
-        }
-      } else {
-        if (currentSegments.length > 0 && currentSegments[sIdx]) {
-          const nextSegs = [...currentSegments];
-          nextSegs[sIdx] = {
-            ...nextSegs[sIdx],
-            patternAngleDeg: angleDeg,
-            patternFlipX: flipX,
-          };
-          nextCustomPanels[columnIndex] = { ...currentCustom, segments: nextSegs };
-        } else {
-          nextCustomPanels[columnIndex] = {
-            ...currentCustom,
-            patternAngleDeg: angleDeg,
-            patternFlipX: flipX,
-          };
-        }
-      }
-
-      return {
-        project: {
-          ...state.project,
-          walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customPanels: nextCustomPanels } : w
-          ),
-        },
-      };
-    }),
+      return changed ? { ...op, slopes } : op;
+    });
+    return { isDirty: true, project: { ...state.project, updatedAt: new Date().toISOString(),
+      walls: state.project.walls.map(w => w.id === wallId ? { ...w, panels: nextPanels, joints: converted.joints, openings } : w) } };
+  }),
 
   setSubPieceMaterial: (
     wallId: string,
@@ -5762,6 +5719,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           thickness: p.thickness,
           reliefType: p.reliefType as any,
           textureCategory: p.textureCategory as any,
+          textureMapping: p.textureMapping,
           patternAngleDeg: p.patternAngleDeg,
           patternFlipX: p.patternFlipX,
         }));
@@ -6146,6 +6104,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           thickness: p.thickness,
           reliefType: p.reliefType as any,
           textureCategory: p.textureCategory as any,
+          textureMapping: p.textureMapping,
           patternAngleDeg: p.patternAngleDeg,
           patternFlipX: p.patternFlipX,
         }));

@@ -1,3 +1,4 @@
+import { TextureMapping, hasPhotoTexture, resolveTextureMapping, textureMappingError, textureFootprint, pointOnSheet } from '../textures/TextureMapping';
 import { Point2D } from '../geometry/PolygonSlicingEngine';
 import { PanelBendInfo } from '../models/Wall';
 import type { Material, MaterialType } from '../models/Material';
@@ -12,6 +13,10 @@ export interface NestingCutout {
 }
 
 export interface NestingPartInput {
+  textureMapping?: TextureMapping;
+  textureCategory?: string;
+  patternAngleDeg?: number;
+  patternFlipX?: boolean;
   id: string;
   wallId: string;
   wallName: string;
@@ -40,6 +45,7 @@ export interface PlacedNestingPart {
   width: number;      // фактическая ширина на листе
   height: number;     // фактическая высота на листе
   rotated: boolean;
+  textureAngleDeg?: number;
 }
 
 export interface NestingCutLine {
@@ -141,7 +147,7 @@ export class NestingEngine {
     // 1. Фильтруем пустые элементы и нулевые размеры
     const validParts = parts.map((part) => {
       const material = materials.find((m) => m.id === part.materialId);
-      return { ...part, materialType: material?.type ?? part.materialType,
+      return { ...part, textureCategory: part.textureCategory ?? material?.textureCategory, materialType: material?.type ?? part.materialType,
         stockWidth: material?.width ?? part.stockWidth ?? sheetW,
         stockHeight: material?.height ?? part.stockHeight ?? sheetH };
     }).filter(
@@ -153,7 +159,7 @@ export class NestingEngine {
     const getMaterialGroupKey = (p: NestingPartInput): string => {
       const thickness = p.thickness || 5;
       if (p.decorCode && p.decorCode.trim()) {
-        return `DECOR_${p.decorCode.trim()}_${thickness}`;
+        return `DECOR_${p.textureCategory ?? ""}_${p.decorCode.trim()}_${thickness}`;
       }
       if (p.materialId && p.materialId !== 'mat-none') {
         return `MAT_${p.materialId}_${thickness}`;
@@ -229,6 +235,54 @@ export class NestingEngine {
    * Прогоняет несколько стратегий сортировки и правил размещения (BSSF, BAF, BLSF, Bottom-Left)
    * с полной поддержкой вращения 90° и выбирает вариант с минимальным количеством листов и максимальной эффективностью.
    */
+  /** Fixed source regions are physical constraints, not optional packing hints. */
+  private static packTextureParts(parts: NestingPartInput[], materialId: string, materialName: string,
+    sheetW: number, sheetH: number): MaterialNestingResult {
+    const sheets: NestingSheet[] = [];
+    for (const input of parts) {
+      const part = { ...input };
+      const piece = { ...part, textureStockWidth: sheetW, textureStockHeight: sheetH };
+      const error = textureMappingError(piece);
+      if (error) throw new Error(`Деталь ${part.partLabel}: ${error}`);
+      const mapping = resolveTextureMapping(piece);
+      if (mapping.angleDeg % 90 !== 0 && !part.polygonPoints?.length) {
+        part.polygonPoints = [{x:0,y:0},{x:part.width,y:0},{x:part.width,y:part.height},{x:0,y:part.height}];
+      }
+      const footprint = textureFootprint(part.width, part.height, mapping.angleDeg);
+      if (part.materialType === 'SLAT' && (mapping.angleDeg % 180 !== 0 || Math.abs(mapping.offsetX) > 0.01)) {
+        throw new Error(`Деталь ${part.partLabel}: рейку нельзя поворачивать поперёк профиля или смещать по ширине.`);
+      }
+      const placed: PlacedNestingPart = { part, x: mapping.offsetX, y: sheetH - mapping.offsetY - footprint.height,
+        width: footprint.width, height: footprint.height, rotated: mapping.angleDeg % 180 !== 0, textureAngleDeg: mapping.angleDeg };
+      const collisionWidth = part.materialType === 'SLAT' ? sheetW : placed.width;
+      let sheet = sheets.find(s => s.placedParts.every(p =>
+        placed.x >= p.x + (p.part.materialType === 'SLAT' ? sheetW : p.width) + this.SAW_KERF - 0.01 ||
+        p.x >= placed.x + collisionWidth + this.SAW_KERF - 0.01 ||
+        placed.y >= p.y + p.height + this.SAW_KERF - 0.01 ||
+        p.y >= placed.y + placed.height + this.SAW_KERF - 0.01));
+      if (!sheet) {
+        sheet = { sheetIndex: sheets.length + 1, sheetLabel: `Лист ${sheets.length + 1}`, materialId, materialName,
+          decorCode: part.decorCode, color: part.color, thickness: part.thickness, sheetWidth: sheetW, sheetHeight: sheetH,
+          placedParts: [], cutLines: [], offcuts: [], usedAreaSqM: 0, totalAreaSqM: sheetW * sheetH / 1e6, efficiencyPct: 0 };
+        sheets.push(sheet);
+      }
+      sheet.placedParts.push(placed);
+    }
+    for (const sheet of sheets) {
+      sheet.cutLines = this.generateSheetCutLines(sheet.placedParts, sheetW, sheetH);
+      sheet.offcuts = this.calculateDisjointOffcuts(sheet.placedParts.map(p => ({ ...p,
+        x: Math.max(0,p.x-this.SAW_KERF), y: Math.max(0,p.y-this.SAW_KERF),
+        width: Math.min(sheetW,p.x+(p.part.materialType === 'SLAT' ? sheetW : p.width)+this.SAW_KERF)-Math.max(0,p.x-this.SAW_KERF),
+        height: Math.min(sheetH,p.y+p.height+this.SAW_KERF)-Math.max(0,p.y-this.SAW_KERF) })), sheetW, sheetH);
+      sheet.usedAreaSqM = sheet.placedParts.reduce((n, p) => n + this.getPartNetAreaSqM(p.part), 0);
+      sheet.efficiencyPct = Math.round(sheet.usedAreaSqM / sheet.totalAreaSqM * 100);
+    }
+    const totalPartsAreaSqM = parts.reduce((n, p) => n + this.getPartNetAreaSqM(p), 0);
+    const totalSheetsAreaSqM = sheets.length * sheetW * sheetH / 1e6;
+    return { materialId, materialName, sheets, totalSheets: sheets.length, totalParts: parts.length,
+      totalPartsAreaSqM, totalSheetsAreaSqM, overallEfficiencyPct: totalSheetsAreaSqM ? Math.round(totalPartsAreaSqM / totalSheetsAreaSqM * 100) : 0 };
+  }
+
   private static packMaterialParts(
     parts: NestingPartInput[],
     materialId: string,
@@ -236,6 +290,20 @@ export class NestingEngine {
     sheetW: number,
     sheetH: number
   ): MaterialNestingResult {
+    const fixed = parts.filter(p => p.textureMapping || hasPhotoTexture(p.textureCategory, p.decorCode));
+    if (fixed.length && fixed.length < parts.length) {
+      // Unconfigured parts remain freely optimizable; do not silently fix them at the origin.
+      const a = this.packTextureParts(fixed, materialId, materialName, sheetW, sheetH);
+      const b = this.packMaterialParts(parts.filter(p => !fixed.includes(p)), materialId, materialName, sheetW, sheetH);
+      const totalSheetsAreaSqM = a.totalSheetsAreaSqM + b.totalSheetsAreaSqM;
+      const totalPartsAreaSqM = a.totalPartsAreaSqM + b.totalPartsAreaSqM;
+      return { materialId, materialName, sheets: [...a.sheets, ...b.sheets], totalSheets: a.totalSheets+b.totalSheets,
+        totalParts: parts.length, totalPartsAreaSqM, totalSheetsAreaSqM,
+        overallEfficiencyPct: totalSheetsAreaSqM ? Math.round(totalPartsAreaSqM/totalSheetsAreaSqM*100) : 0 };
+    }
+    if (fixed.length) {
+      return this.packTextureParts(parts, materialId, materialName, sheetW, sheetH);
+    }
     if (parts.length === 0) {
       return {
         materialId,
@@ -702,6 +770,10 @@ export class NestingEngine {
     const lines: NestingCutLine[] = [];
 
     placed.forEach((p) => {
+      if (p.textureAngleDeg !== undefined) {
+        if (p.x > 0.01) lines.push({ p1: { x: p.x, y: p.y }, p2: { x: p.x, y: p.y+p.height }, length: p.height, orientation: 'VERTICAL', label: `${p.height}` });
+        if (p.y > 0.01) lines.push({ p1: { x: p.x, y: p.y }, p2: { x: p.x+p.width, y: p.y }, length: p.width, orientation: 'HORIZONTAL', label: `${p.width}` });
+      }
       // 1. Верхний рез
       if (p.y + p.height < sheetH - 1) {
         lines.push({
@@ -739,10 +811,10 @@ export class NestingEngine {
           const isVert = Math.abs(pt1.x - pt2.x) < 1e-2;
           const isHoriz = Math.abs(pt1.y - pt2.y) < 1e-2;
 
-          if (!isVert && !isHoriz) {
+          if ((!isVert && !isHoriz) || (p.textureAngleDeg !== undefined && p.textureAngleDeg % 90 !== 0)) {
             lines.push({
-              p1: { x: p.x + (pt1.x - minX), y: p.y + (pt1.y - minY) },
-              p2: { x: p.x + (pt2.x - minX), y: p.y + (pt2.y - minY) },
+              p1: this.placedPoint(p, pt1.x-minX, pt1.y-minY),
+              p2: this.placedPoint(p, pt2.x-minX, pt2.y-minY),
               length: Math.round(Math.hypot(pt2.x - pt1.x, pt2.y - pt1.y)),
               orientation: 'DIAGONAL',
               label: 'Наклонный рез',
@@ -753,6 +825,14 @@ export class NestingEngine {
     });
 
     return lines;
+  }
+
+  public static placedPoint(p: PlacedNestingPart, x: number, y: number): Point2D {
+    if (p.textureAngleDeg !== undefined) {
+      const mapped = pointOnSheet(x, p.part.height-y, p.part.width, p.part.height, p.textureAngleDeg);
+      return { x: p.x+mapped.x, y: p.y+p.height-mapped.y };
+    }
+    return p.rotated ? { x: p.x+y, y: p.y+p.part.width-x } : { x: p.x+x, y: p.y+y };
   }
 
   private static cleanFreeRects(rects: FreeRect[]): void {

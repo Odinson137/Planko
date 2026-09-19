@@ -1,3 +1,4 @@
+import type { TextureMapping } from '../textures/TextureMapping';
 import { findProfileByArticle } from '../models/Profile';
 import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
@@ -6,6 +7,10 @@ import { Point2D, PolygonSlicingEngine } from '../geometry/PolygonSlicingEngine'
 import { comparePanelsLeftToRightTopToBottom, renumberWallPanels } from './WallNumberingEngine';
 
 export interface CalculatedSlopePiece {
+  textureMapping?: TextureMapping;
+  textureCategory?: string;
+  textureStockWidth?: number;
+  textureStockHeight?: number;
   id: string;
   openingId: string;
   openingName: string;
@@ -45,6 +50,9 @@ export interface CalculatedPanelPiece {
   arcLength?: number;          // длина развертки дуги в мм
   bendsInfo?: PanelBendInfo[]; // информация обо всех сгибах, попадающих на этот лист
   polygonPoints?: Point2D[];   // абсолютные координаты вершин на стене в мм (если полигон)
+  textureMapping?: TextureMapping;
+  textureStockWidth?: number;
+  textureStockHeight?: number;
   patternAngleDeg?: number;    // угол поворота рисунка (0, 45, 90)
   patternFlipX?: boolean;      // зеркалирование рисунка
   subPieceId?: string;         // ID под-фрагмента
@@ -339,7 +347,8 @@ export class LayoutEngine {
           textureCategory: p.textureCategory || mat.textureCategory || 'WOOD',
           partLabel: defaultLabel,
           polygonPoints: cleanPoints,
-          patternAngleDeg: p.patternAngleDeg || 0,
+          textureMapping: p.textureMapping,
+          patternAngleDeg: p.patternAngleDeg ?? 0,
           patternFlipX: p.patternFlipX || false,
           areaSqM,
           note: p.note,
@@ -675,6 +684,7 @@ export class LayoutEngine {
                 textureCategory: sub.textureCategory || subMat.textureCategory || 'WOOD',
                 partLabel: subLabel,
                 polygonPoints: polyPoints,
+                textureMapping: sub.textureMapping ?? segConfig?.textureMapping ?? customConfig?.textureMapping,
                 patternAngleDeg: sub.patternAngleDeg !== undefined ? sub.patternAngleDeg : (segConfig?.patternAngleDeg || customConfig?.patternAngleDeg || 0),
                 patternFlipX: sub.patternFlipX !== undefined ? sub.patternFlipX : (segConfig?.patternFlipX || customConfig?.patternFlipX || false),
                 areaSqM,
@@ -799,6 +809,7 @@ export class LayoutEngine {
               radiusConfig: customConfig?.radiusConfig || (panelBendsInfo[0] ? { type: panelBendsInfo[0].type, radius: panelBendsInfo[0].radius, angleDeg: panelBendsInfo[0].angleDeg } : undefined),
               arcLength: arcLength ? Math.round(arcLength * 10) / 10 : undefined,
               bendsInfo: panelBendsInfo.length > 0 ? panelBendsInfo : undefined,
+              textureMapping: segConfig?.textureMapping ?? customConfig?.textureMapping,
               patternAngleDeg: patternAngle,
               patternFlipX: patternFlip,
               areaSqM: Math.round(((panelWidth * segmentHeight) / 1_000_000) * 1000) / 1000,
@@ -1146,6 +1157,10 @@ export class LayoutEngine {
           const mat = getSideMat(slopes.top.materialId);
           slopePieces.push({
             id: `slope-${op.id}-top`,
+            textureMapping: slopes.top.textureMapping,
+            textureCategory: mat.textureCategory,
+            textureStockWidth: mat.width,
+            textureStockHeight: mat.height,
             openingId: op.id,
             openingName: op.name || `Проем ${opIdx + 1}`,
             side: 'TOP',
@@ -1170,6 +1185,10 @@ export class LayoutEngine {
           const mat = getSideMat(slopes.left.materialId);
           slopePieces.push({
             id: `slope-${op.id}-left`,
+            textureMapping: slopes.left.textureMapping,
+            textureCategory: mat.textureCategory,
+            textureStockWidth: mat.width,
+            textureStockHeight: mat.height,
             openingId: op.id,
             openingName: op.name || `Проем ${opIdx + 1}`,
             side: 'LEFT',
@@ -1194,6 +1213,10 @@ export class LayoutEngine {
           const mat = getSideMat(slopes.right.materialId);
           slopePieces.push({
             id: `slope-${op.id}-right`,
+            textureMapping: slopes.right.textureMapping,
+            textureCategory: mat.textureCategory,
+            textureStockWidth: mat.width,
+            textureStockHeight: mat.height,
             openingId: op.id,
             openingName: op.name || `Проем ${opIdx + 1}`,
             side: 'RIGHT',
@@ -1218,6 +1241,10 @@ export class LayoutEngine {
           const mat = getSideMat(slopes.bottom.materialId);
           slopePieces.push({
             id: `slope-${op.id}-bottom`,
+            textureMapping: slopes.bottom.textureMapping,
+            textureCategory: mat.textureCategory,
+            textureStockWidth: mat.width,
+            textureStockHeight: mat.height,
             openingId: op.id,
             openingName: op.name || `Проем ${opIdx + 1}`,
             side: 'BOTTOM',
@@ -1373,7 +1400,10 @@ export class LayoutEngine {
     });
 
     return {
-      panels,
+      panels: panels.map(p => {
+        const mat = materialsMap.get(p.materialId) || defaultMaterial;
+        return { ...p, textureStockWidth: mat.width, textureStockHeight: mat.height };
+      }),
       joints: cleanFinalJoints.map((joint) => {
         const profile = joint.profileArticle ? findProfileByArticle(joint.profileArticle) : undefined;
         return { ...joint, visibleWidth: profile?.visibleWidth ?? joint.width, metalThickness: profile?.metalThickness };
@@ -1425,6 +1455,7 @@ export class LayoutEngine {
       reliefType: p.reliefType as any,
       textureCategory: p.textureCategory,
       partLabel: p.partLabel,
+      textureMapping: p.textureMapping,
       patternAngleDeg: p.patternAngleDeg,
       patternFlipX: p.patternFlipX,
       isVoid: p.isVoid,

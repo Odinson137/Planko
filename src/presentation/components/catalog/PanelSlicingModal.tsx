@@ -193,7 +193,8 @@ export const PanelSlicingModal: React.FC = () => {
         decorCode: isPanelVoid ? '' : (targetPanel?.decorCode || panelMaterial.decorCode),
         decorName: isPanelVoid ? 'Без материала' : (targetPanel?.decorName || panelMaterial.decorName),
         partLabel: isPanelVoid ? 'ПУСТО' : (targetPanel?.partLabel || `${wallNumber}.${colIdx + 1}.${segIdx + 1}`),
-        patternAngleDeg: targetPanel?.patternAngleDeg || 0,
+        textureMapping: targetPanel?.textureMapping,
+        patternAngleDeg: targetPanel?.patternAngleDeg ?? 0,
         patternFlipX: targetPanel?.patternFlipX || false,
         areaSqM: Math.round((PolygonSlicingEngine.calculatePolygonArea(initialPoly) / 1_000_000) * 1000) / 1000,
       };
@@ -221,7 +222,8 @@ export const PanelSlicingModal: React.FC = () => {
           decorCode: isPanelVoid ? '' : (customSeg?.customDecorCode || customCol?.customDecorCode || panelMaterial.decorCode),
           decorName: isPanelVoid ? 'Без материала' : panelMaterial.decorName,
           partLabel: isPanelVoid ? 'ПУСТО' : `${wallNumber}.${colIdx + 1}.${segIdx + 1}`,
-          patternAngleDeg: customSeg?.patternAngleDeg || customCol?.patternAngleDeg || 0,
+          textureMapping: customSeg?.textureMapping ?? customCol?.textureMapping,
+          patternAngleDeg: customSeg?.patternAngleDeg ?? customCol?.patternAngleDeg ?? 0,
           patternFlipX: customSeg?.patternFlipX || customCol?.patternFlipX || false,
           areaSqM: Math.round(((panelWidth * panelHeight) / 1_000_000) * 1000) / 1000,
         };

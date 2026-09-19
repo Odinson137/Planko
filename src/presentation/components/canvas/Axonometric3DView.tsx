@@ -1,11 +1,12 @@
-import { getPhotoTexture, drawTextureFace } from '../../../core/textures/PhotoTextures';
-import { TextureRegistry } from '../../../core/textures/TextureRegistry';
+import { getPieceTexture } from '../../../core/textures/PieceTextures';
+import { drawTextureFace } from '../../../core/textures/PhotoTextures';
+import { slopeTexturePiece } from '../../../core/textures/TextureMapping';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack } from '@mantine/core';
 import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
-import { LayoutEngine } from '../../../core/layout/LayoutEngine';
+import { LayoutEngine, CalculatedPanelPiece } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { RadiusType } from '../../../core/models/Wall';
 import { ensureOpeningSlopes } from '../../../core/models/Opening';
@@ -93,18 +94,21 @@ export const Axonometric3DView: React.FC = () => {
   // Отрисовка фотореалистичных текстур материалов на 3D-гранях панелей
   const draw3DMaterialTexture = (
     ctx: CanvasRenderingContext2D,
-    category: string,
+    panel: CalculatedPanelPiece,
     p0: Point2D,
     p1: Point2D,
     p2: Point2D,
     p3: Point2D,
-    decorCode?: string,
-    patternAngleDeg = 0,
-    patternFlipX = false
+    bounds: { x: number; y: number; width: number; height: number }
   ) => {
-    if (getPhotoTexture(category, decorCode)) {
-      const texture = TextureRegistry.getPatternCanvasWithTransform(category, "#ffffff", "FLAT", decorCode, patternAngleDeg, patternFlipX);
-      drawTextureFace(ctx, texture, p0, p1, p2, p3);
+    const category = panel.textureCategory || 'WOOD';
+    const texture = getPieceTexture(panel);
+    if (texture) {
+      drawTextureFace(ctx, texture, p0, p1, p2, p3, {
+        x: (bounds.x - panel.x) / panel.width,
+        y: (panel.y + panel.height - bounds.y - bounds.height) / panel.height,
+        width: bounds.width / panel.width, height: bounds.height / panel.height,
+      });
       return;
     }
     ctx.save();
@@ -883,7 +887,7 @@ export const Axonometric3DView: React.FC = () => {
                   ctx.stroke();
 
                   if (showTextures) {
-                    draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
+                    draw3DMaterialTexture(ctx, panel, p0, p1, p2, p3, { x: subS0, y: segYBot, width: subS1 - subS0, height: segYTop - segYBot });
                   }
                 }
               }
@@ -892,7 +896,7 @@ export const Axonometric3DView: React.FC = () => {
               const p1 = project3D(getPointAtS(s1, yBot, -thisPanelThick), cx, cy, scale);
               const p2 = project3D(getPointAtS(s1, yTop, -thisPanelThick), cx, cy, scale);
               const p3 = project3D(getPointAtS(s0, yTop, -thisPanelThick), cx, cy, scale);
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
+              draw3DMaterialTexture(ctx, panel, p0, p1, p2, p3, { x: s0, y: yBot, width: s1 - s0, height: yTop - yBot });
             }
           }
           ctx.restore();
@@ -941,7 +945,7 @@ export const Axonometric3DView: React.FC = () => {
             ctx.stroke();
 
             if (!isVoid && showTextures) {
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
+              draw3DMaterialTexture(ctx, panel, p0, p1, p2, p3, { x: s0, y: segYBot, width: s1 - s0, height: segYTop - segYBot });
             }
 
             // Верхний торец рейки
@@ -1067,7 +1071,7 @@ export const Axonometric3DView: React.FC = () => {
             ctx.stroke();
 
             if (!isVoid && showTextures) {
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
+              draw3DMaterialTexture(ctx, panel, p0, p1, p2, p3, { x: s0, y: segYBot, width: s1 - s0, height: segYTop - segYBot });
             }
 
             // Верхний торец панели
@@ -1201,6 +1205,12 @@ export const Axonometric3DView: React.FC = () => {
           ctx.closePath();
           ctx.fill();
 
+          if (showTextures) {
+            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'LEFT');
+            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
+            if (texture) drawTextureFace(ctx, texture, f0, b0, b3, f3);
+          }
+
           if (lZ.isProtruding) {
             ctx.fillStyle = adjustBrightness(col, 0.85);
             ctx.beginPath();
@@ -1230,6 +1240,12 @@ export const Axonometric3DView: React.FC = () => {
           ctx.lineTo(f2.x, f2.y);
           ctx.closePath();
           ctx.fill();
+
+          if (showTextures) {
+            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'TOP');
+            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
+            if (texture) drawTextureFace(ctx, texture, f3, f2, b2, b3);
+          }
 
           if (tZ.isProtruding) {
             ctx.fillStyle = adjustBrightness(col, 1.1);
@@ -1261,6 +1277,12 @@ export const Axonometric3DView: React.FC = () => {
           ctx.closePath();
           ctx.fill();
 
+          if (showTextures) {
+            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'RIGHT');
+            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
+            if (texture) drawTextureFace(ctx, texture, f1, b1, b2, f2);
+          }
+
           if (rZ.isProtruding) {
             ctx.fillStyle = adjustBrightness(col, 0.7);
             ctx.beginPath();
@@ -1291,6 +1313,12 @@ export const Axonometric3DView: React.FC = () => {
           ctx.lineTo(f1.x, f1.y);
           ctx.closePath();
           ctx.fill();
+
+          if (showTextures) {
+            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'BOTTOM');
+            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
+            if (texture) drawTextureFace(ctx, texture, f0, f1, b1, b0);
+          }
 
           // Если подоконник шире проема и выступает вперед в комнату:
           if (bZ.isProtruding) {

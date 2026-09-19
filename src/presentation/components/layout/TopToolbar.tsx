@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Modal,
   Group,
   Button,
   ActionIcon,
@@ -73,6 +74,7 @@ export const TopToolbar: React.FC = () => {
 
   const [catalogOpened, setCatalogOpened] = useState(false);
   const [isSavedRecently, setIsSavedRecently] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [exportingType, setExportingType] = useState<string | null>(null);
 
   const selectedWallId = project.selectedWallId;
@@ -89,6 +91,7 @@ export const TopToolbar: React.FC = () => {
       await PdfExportService.exportPanelsLayoutPdf(project);
     } catch (e) {
       console.error('Export panels layout failed', e);
+      setExportError(e instanceof Error ? e.message : 'Не удалось создать PDF.');
     } finally {
       setExportingType(null);
     }
@@ -100,6 +103,7 @@ export const TopToolbar: React.FC = () => {
       await PdfExportService.exportAxonometric3DPdf(project);
     } catch (e) {
       console.error('Export 3D failed', e);
+      setExportError(e instanceof Error ? e.message : 'Не удалось создать PDF.');
     } finally {
       setExportingType(null);
     }
@@ -111,6 +115,7 @@ export const TopToolbar: React.FC = () => {
       await PdfExportService.exportInstallerPdf(project);
     } catch (e) {
       console.error('Export installer doc failed', e);
+      setExportError(e instanceof Error ? e.message : 'Не удалось создать PDF.');
     } finally {
       setExportingType(null);
     }
@@ -130,6 +135,9 @@ export const TopToolbar: React.FC = () => {
 
   return (
     <>
+      <Modal opened={!!exportError} onClose={() => setExportError(null)} title="Экспорт требует исправления">
+        <Text size="sm">{exportError}</Text>
+      </Modal>
       <Group justify="space-between" px="md" py={6} style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.bgHeader }}>
         {/* Меню проектов, Сохранение и Экспорт */}
         <Group gap="xs">
@@ -272,7 +280,7 @@ export const TopToolbar: React.FC = () => {
                 value={editMode}
                 onChange={(val: any) => {
                   setEditMode(val);
-                  if (val === 'PANELS') {
+                  if (val === 'PANELS' || val === 'TEXTURES') {
                     selectJoint(null);
                   } else if (val === 'JOINTS') {
                     selectPanel(null, null, null);
@@ -282,6 +290,7 @@ export const TopToolbar: React.FC = () => {
                 data={[
                   { label: '📄 Панели', value: 'PANELS' },
                   { label: 'Стыки', value: 'JOINTS' },
+                  { label: 'Текстуры', value: 'TEXTURES' },
                 ]}
                 color={editMode === 'JOINTS' ? 'yellow' : 'blue'}
               />
@@ -397,8 +406,10 @@ export const TopToolbar: React.FC = () => {
             </ActionIcon>
           </Tooltip>
 
-          <Tooltip label={showTextures ? 'Текстуры материалов (ВКЛ)' : 'Текстуры материалов (ВЫКЛ / Сплошной цвет)'} position="bottom">
+          <Tooltip label={showTextures ? 'Скрыть текстуры — показывать только цвет' : 'Показать текстуры во всех режимах'} position="bottom">
             <ActionIcon
+              aria-label="Показывать текстуры"
+              aria-pressed={showTextures}
               variant={showTextures ? 'light' : 'subtle'}
               color={showTextures ? 'blue' : 'gray'}
               onClick={toggleTextures}

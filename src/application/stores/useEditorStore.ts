@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export type ActiveTool = 'SELECT' | 'PAN' | 'ADD_DOOR' | 'ADD_WINDOW' | 'ADD_TV_ZONE' | 'ADD_NICHE';
 
 export type ViewMode = '2D' | '3D';
-export type EditMode = 'PANELS' | 'JOINTS';
+export type EditMode = 'PANELS' | 'JOINTS' | 'TEXTURES';
 export type AppScreen = 'WELCOME' | 'EDITOR';
 
 interface EditorState {
@@ -50,7 +50,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showGrid: true,
   showDimensions: true,
   showProfiles: true,
-  showTextures: false,
+  showTextures: true,
   showLeftSidebar: true,
   saveNotification: null,
 
