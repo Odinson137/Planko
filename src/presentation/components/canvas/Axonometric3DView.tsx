@@ -1,3 +1,5 @@
+import { getPhotoTexture, drawTextureFace } from '../../../core/textures/PhotoTextures';
+import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack } from '@mantine/core';
 import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-react';
@@ -95,8 +97,16 @@ export const Axonometric3DView: React.FC = () => {
     p0: Point2D,
     p1: Point2D,
     p2: Point2D,
-    p3: Point2D
+    p3: Point2D,
+    decorCode?: string,
+    patternAngleDeg = 0,
+    patternFlipX = false
   ) => {
+    if (getPhotoTexture(category, decorCode)) {
+      const texture = TextureRegistry.getPatternCanvasWithTransform(category, "#ffffff", "FLAT", decorCode, patternAngleDeg, patternFlipX);
+      drawTextureFace(ctx, texture, p0, p1, p2, p3);
+      return;
+    }
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(p0.x, p0.y);
@@ -873,7 +883,7 @@ export const Axonometric3DView: React.FC = () => {
                   ctx.stroke();
 
                   if (showTextures) {
-                    draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+                    draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
                   }
                 }
               }
@@ -882,7 +892,7 @@ export const Axonometric3DView: React.FC = () => {
               const p1 = project3D(getPointAtS(s1, yBot, -thisPanelThick), cx, cy, scale);
               const p2 = project3D(getPointAtS(s1, yTop, -thisPanelThick), cx, cy, scale);
               const p3 = project3D(getPointAtS(s0, yTop, -thisPanelThick), cx, cy, scale);
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
             }
           }
           ctx.restore();
@@ -931,7 +941,7 @@ export const Axonometric3DView: React.FC = () => {
             ctx.stroke();
 
             if (!isVoid && showTextures) {
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
             }
 
             // Верхний торец рейки
@@ -1057,7 +1067,7 @@ export const Axonometric3DView: React.FC = () => {
             ctx.stroke();
 
             if (!isVoid && showTextures) {
-              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3);
+              draw3DMaterialTexture(ctx, panel.textureCategory || 'WOOD', p0, p1, p2, p3, panel.decorCode, panel.patternAngleDeg, panel.patternFlipX);
             }
 
             // Верхний торец панели

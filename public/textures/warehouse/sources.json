@@ -1,0 +1,38 @@
+{
+  "5007": {
+    "category": "WOOD",
+    "source": "Стеновые панели_29.06/5007 .jpg",
+    "kind": "surface-closeup",
+    "physicalScaleVerified": false
+  },
+  "5189": {
+    "category": "WOOD",
+    "source": "Стеновые панели_29.06/5189 .jpg",
+    "kind": "surface-closeup",
+    "physicalScaleVerified": false
+  },
+  "7112": {
+    "category": "FABRIC",
+    "source": "Стеновые панели_29.06/7112 .jpg",
+    "kind": "surface-closeup",
+    "physicalScaleVerified": false
+  },
+  "8016-3": {
+    "category": "STONE",
+    "source": "Стеновые панели_29.06/8016-3 .jpg",
+    "kind": "surface-closeup",
+    "physicalScaleVerified": false
+  },
+  "8812-15": {
+    "category": "MIRROR",
+    "source": "Стеновые панели/Зеркальная Серия/8812-15 фото.jpg",
+    "kind": "surface-closeup",
+    "physicalScaleVerified": false
+  },
+  "2223-30": {
+    "category": "MIRROR",
+    "source": "Стеновые панели/Зеркальная Серия/2223-30 .jpg",
+    "kind": "surface-closeup",
+    "physicalScaleVerified": false
+  }
+}

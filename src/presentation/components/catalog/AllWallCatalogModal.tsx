@@ -1,3 +1,4 @@
+import { photoTextureUrl } from '../../../core/textures/PhotoTextures';
 import React, { useState, useMemo } from 'react';
 import {
   Modal,
@@ -619,7 +620,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                           <Paper p="xs" mb="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle }}>
                             <Group justify="space-between" align="center">
                               <Group gap="xs">
-                                <ColorSwatch color={activeDecor.color} size={20} />
+                                {photoTextureUrl(activeDecor.category, activeDecor.code) ? <img src={photoTextureUrl(activeDecor.category, activeDecor.code)} alt={activeDecor.name} title="Фото поверхности; масштаб рисунка условный" style={{ width: 64, height: 80, objectFit: 'cover', borderRadius: 4 }} /> : <ColorSwatch color={activeDecor.color} size={20} />}
                                 <div>
                                   <Group gap={4}>
                                     <Badge
@@ -678,7 +679,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                                     transition: 'all 0.15s ease',
                                   }}
                                 >
-                                  <ColorSwatch color={decor.color} size={18} />
+                                  {photoTextureUrl(decor.category, decor.code) ? <img src={photoTextureUrl(decor.category, decor.code)} alt={decor.name} style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: '50%' }} /> : <ColorSwatch color={decor.color} size={18} />}
                                 </div>
                               </Tooltip>
                             );

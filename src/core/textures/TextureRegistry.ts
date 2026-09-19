@@ -1,3 +1,4 @@
+import { getPhotoTexture } from './PhotoTextures';
 import { SlatProfileShape } from '../models/AllWallCatalog';
 
 /**
@@ -35,7 +36,12 @@ export class TextureRegistry {
     ctx.fillRect(0, 0, width, height);
 
     // 2. Наложение непрерывной текстуры материала во всю высоту панели
-    this.drawMicroTexture(ctx, category, width, height);
+    const photo = getPhotoTexture(category, decorCode);
+    if (photo) {
+      ctx.drawImage(photo, 0, 0, width, height);
+    } else {
+      this.drawMicroTexture(ctx, category, width, height);
+    }
 
     // 3. Наложение 3D светотеневого рельефа (для реек GW90, GW30, STEP)
     if (reliefType && reliefType !== 'FLAT') {

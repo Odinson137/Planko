@@ -1,3 +1,5 @@
+import { getPhotoTexture, drawTextureFace } from '../../core/textures/PhotoTextures';
+import { TextureRegistry } from '../../core/textures/TextureRegistry';
 import { jsPDF } from 'jspdf';
 import { Project } from '../../core/models/Project';
 import { Wall, RadiusType } from '../../core/models/Wall';
@@ -2740,7 +2742,12 @@ export class PdfExportService {
           ctx.stroke();
 
           // Текстурные волокна для дерева
-          if (!isVoid && p.textureCategory === 'WOOD') {
+          const photo = !isVoid && getPhotoTexture(p.textureCategory || '', p.decorCode);
+          if (photo) {
+            const texture = TextureRegistry.getPatternCanvasWithTransform(p.textureCategory || '', baseColor, 'FLAT', p.decorCode, p.patternAngleDeg, p.patternFlipX);
+            drawTextureFace(ctx, texture, p0, p1, p2, p3);
+          }
+          if (!photo && !isVoid && p.textureCategory === 'WOOD') {
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
             ctx.lineWidth = 1.5;
             for (let f = 1; f < 5; f++) {
