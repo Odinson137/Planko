@@ -1,3 +1,4 @@
+import { PanelGapInput } from './PanelGapInput';
 import { TextureEditor } from './TextureEditor';
 import React, { useState } from 'react';
 import {
@@ -54,7 +55,6 @@ import { findDecorByCode } from '../../../core/models/AllWallCatalog';
 import {
   ALLWALL_PROFILES_CATALOG,
   DEFAULT_PROFILES,
-  getProfileMountingGap,
   findProfileByArticle,
 } from '../../../core/models/Profile';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
@@ -66,20 +66,6 @@ import {
   SlopeSideConfig,
 } from '../../../core/models/Opening';
 
-const ALL_PROFILE_WIDTH_OPTIONS = [
-  { value: '0', label: '0 мм (без профиля)' },
-  ...Array.from(new Set(ALLWALL_PROFILES_CATALOG.map((p) => p.visibleWidth)))
-    .sort((a, b) => a - b)
-    .map((w) => ({
-      value: String(w),
-      label: `${w} мм`,
-    })),
-];
-
-const getGapOptions = (width: number) => ALL_PROFILE_WIDTH_OPTIONS.some((option) => Number(option.value) === width)
-  ? ALL_PROFILE_WIDTH_OPTIONS
-  : [...ALL_PROFILE_WIDTH_OPTIONS, { value: String(width), label: `${width} мм (заданный зазор)` }];
-
 const PROFILE_TYPE_OPTIONS = [
   { value: 'ALL', label: 'Все типы профилей' },
   { value: 'JOINT', label: '🔗 Соединительные' },
@@ -90,18 +76,7 @@ const PROFILE_TYPE_OPTIONS = [
   { value: 'SHADOW', label: '🌑 Теневые' },
 ];
 
-const getProfilesForGap = (width: number, type: string) => {
-  if (width === 0) return [];
-
-  return ALLWALL_PROFILES_CATALOG.filter((p) => {
-    // Product variants remain available when the mounting gap is customized.
-
-    // 2. Фильтр по типу профиля
-    if (type !== 'ALL' && p.functionalRole !== type) return false;
-
-    return true;
-  });
-};
+const getProfilesByType = (type: string) => ALLWALL_PROFILES_CATALOG.filter(p => type === 'ALL' || p.functionalRole === type);
 
 const POPULAR_ROOM_PRESETS = [
   'Гостиная',
@@ -163,14 +138,12 @@ export const RightSidebar: React.FC = () => {
     validateSelectedJoints,
     mergeSelectedJoints,
     syncSelectedJointsParams,
-    setJointPresetForSelected,
     setJointWidthForSelected,
     setJointTakeSideForSelected,
     setJointProfileForSelected,
     setJointColorForSelected,
     setJointWidth,
     setJointTakeSide,
-    setJointPreset,
     setJointProfile,
     setJointColor,
     updatePanelSegment,
@@ -326,25 +299,10 @@ export const RightSidebar: React.FC = () => {
               </Text>
               <Stack gap="xs">
                 {/* Выбор ширины зазора / профиля */}
-                <Select
-                  size="xs"
-                  label="Монтажный зазор (мм)"
-                  placeholder="Выберите ширину..."
-                  value={String(currentWidth)}
-                  data={getGapOptions(currentWidth)}
-                  allowDeselect={false}
-                  onChange={(val) => {
-                    const w = val ? Number(val) : 0;
-                    setOpeningFramingSide(currentWall.id, currentOpening.id, side, {
-                      width: w,
-                      isLED: false,
-                      profileArticle: w === 0 ? undefined : profileArticle,
-                    });
-                  }}
-                />
+                <PanelGapInput key={`${currentOpening.id}-${side}`} value={currentWidth}
+                  onChange={width => setOpeningFramingSide(currentWall.id, currentOpening.id, side, { width })} />
 
-                {currentWidth !== 0 && (
-                  <>
+                <>
                     <Select
                       size="xs"
                       label="Тип профиля AllWall"
@@ -364,21 +322,18 @@ export const RightSidebar: React.FC = () => {
                       searchable
                       clearable
                       value={profileArticle || null}
-                      data={getProfilesForGap(currentWidth, selectedProfileType).map((p) => ({
+                      data={getProfilesByType(selectedProfileType).map((p) => ({
                         value: p.article,
                         label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
                       }))}
                       onChange={(val) =>
                         setOpeningFramingSide(currentWall.id, currentOpening.id, side, {
                           profileArticle: val || undefined,
-                          width: val ? ((findProfileByArticle(val) ? getProfileMountingGap(findProfileByArticle(val)!) : currentWidth)) : currentWidth,
                         })
                       }
                     />
 
                     {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм</Text>}
-                    <NumberInput size="xs" label="Точный монтажный зазор (мм)" description="Зазор между деталями по сечению профиля; не толщина металла." min={0} max={100} step={0.1} decimalScale={2} value={currentWidth}
-                      onChange={(v) => setOpeningFramingSide(currentWall.id, currentOpening.id, side, { width: Number(v) || 0 })} />
                     <div>
                       <Text size="xs" fw={500} mb={4}>
                         Цвет профиля AllWall:
@@ -415,7 +370,6 @@ export const RightSidebar: React.FC = () => {
                       </Group>
                     </div>
                   </>
-                )}
               </Stack>
             </Paper>
           </Stack>
@@ -527,24 +481,13 @@ export const RightSidebar: React.FC = () => {
             <Divider color={t.border} />
 
             {/* Выбор ширины зазора / профиля */}
-            <Select
-              size="xs"
-              label="Монтажный зазор (мм)"
-              placeholder="Выберите ширину..."
-              value={String(currentWidth)}
-              data={getGapOptions(currentWidth)}
-              allowDeselect={false}
-              onChange={(val) => {
-                const w = val ? Number(val) : 0;
-                setPanelEdgeWidth(currentWall.id, targetPanelId, side, w);
-              }}
-            />
+            <PanelGapInput key={`${targetPanelId}-${side}`} value={currentWidth}
+              onChange={width => setPanelEdgeWidth(currentWall.id, targetPanelId, side, width)} />
 
 
 
-            {/* Фильтры и выбор профиля при width > 0 */}
-            {currentWidth !== 0 && (
-              <>
+            {/* Фильтры и выбор профиля */}
+            <>
                 {/* Фильтр по типу профиля */}
                 <Select
                   size="xs"
@@ -572,22 +515,16 @@ export const RightSidebar: React.FC = () => {
                   searchable
                   clearable
                   value={profileArticle || null}
-                  data={getProfilesForGap(currentWidth, selectedProfileType).map((p) => ({
+                  data={getProfilesByType(selectedProfileType).map((p) => ({
                     value: p.article,
                     label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
                   }))}
                   onChange={(val) => {
-                    if (val) {
-                      setPanelEdgeProfile(currentWall.id, targetPanelId, side, val, profileColor);
-                    } else {
-                      setPanelEdgeJoint(currentWall.id, targetPanelId, side, { profileArticle: undefined });
-                    }
+                    setPanelEdgeProfile(currentWall.id, targetPanelId, side, val ?? '', profileColor);
                   }}
                 />
 
                 {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм</Text>}
-                <NumberInput size="xs" label="Точный монтажный зазор (мм)" description="Зазор между деталями по сечению профиля; не толщина металла." min={0} max={100} step={0.1} decimalScale={2} value={currentWidth}
-                  onChange={(v) => setPanelEdgeJoint(currentWall.id, targetPanelId, side, { width: Number(v) || 0 })} />
                 {/* Выбор цвета профиля AllWall */}
                 <div>
                   <Text size="xs" fw={500} mb={4}>
@@ -623,7 +560,6 @@ export const RightSidebar: React.FC = () => {
                   </Group>
                 </div>
               </>
-            )}
           </Stack>
         </ScrollArea>
       </Stack>
@@ -733,22 +669,9 @@ export const RightSidebar: React.FC = () => {
             <Divider color={t.border} />
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва (для всех) */}
-            <Select
-              size="xs"
-              label="Монтажный зазор (для всех)"
-              placeholder="Выберите ширину..."
-              value={validation.sameWidth ? String(validation.widths[0]) : null}
-              data={ALL_PROFILE_WIDTH_OPTIONS}
-              allowDeselect={false}
-              onChange={(val) => {
-                const w = val ? Number(val) : 0;
-                if (w === 0) {
-                  setJointPresetForSelected(currentWall.id, 'NONE');
-                } else {
-                  setJointWidthForSelected(currentWall.id, w);
-                }
-              }}
-            />
+            <PanelGapInput key={selectedJointIds.join(',')} label="Зазор между панелями (мм, для всех)"
+              value={validation.sameWidth ? validation.widths[0] : null}
+              onChange={width => setJointWidthForSelected(currentWall.id, width)} />
 
             {/* Направление взятия зазора (для группы) */}
             <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
@@ -818,9 +741,8 @@ export const RightSidebar: React.FC = () => {
               </Stack>
             </Paper>
 
-            {/* ФИЛЬТР 2 & НАСТРОЙКА: Отображаются ТОЛЬКО если ширина > 0 */}
-            {!(validation.sameWidth && validation.widths[0] === 0) && (
-              <>
+            {/* Профиль выбирается независимо от зазора */}
+            <>
                 {/* Фильтр по типу профиля */}
                 <Select
                   size="xs"
@@ -850,10 +772,7 @@ export const RightSidebar: React.FC = () => {
                   placeholder="Привязать артикул AllWall..."
                   searchable
                   clearable
-                  data={getProfilesForGap(
-                    validation.sameWidth ? validation.widths[0] : 0,
-                    selectedProfileType
-                  ).map((p) => ({
+                  data={getProfilesByType(selectedProfileType).map((p) => ({
                     value: p.article,
                     label: `${p.article} • ${p.name} (${p.visibleWidth} мм)`,
                   }))}
@@ -861,7 +780,7 @@ export const RightSidebar: React.FC = () => {
                     if (val) {
                       setJointProfileForSelected(currentWall.id, val);
                     } else {
-                      setJointPresetForSelected(currentWall.id, 'NONE');
+                      setJointProfileForSelected(currentWall.id, '');
                     }
                   }}
                 />
@@ -884,7 +803,6 @@ export const RightSidebar: React.FC = () => {
                   }}
                 />
               </>
-            )}
           </Stack>
         </ScrollArea>
       </Stack>
@@ -950,7 +868,7 @@ export const RightSidebar: React.FC = () => {
               </div>
               <Group gap={6}>
                 <Badge size="xs" color={isLED ? 'yellow' : 'blue'}>
-                  {isLED ? '⚡ LED 10 мм' : `Шов ${currentWidth} мм`}
+                  {isLED ? `⚡ LED · зазор ${currentWidth} мм` : `Зазор ${currentWidth} мм`}
                 </Badge>
                 <Tooltip label="Снять выделение">
                   <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectJoint(null)}>
@@ -963,25 +881,9 @@ export const RightSidebar: React.FC = () => {
             <Divider color={t.border} />
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва */}
-            <Select
-              size="xs"
-              label="Ширина шва / профиля"
-              placeholder="Выберите ширину..."
-              value={String(currentWidth)}
-              data={getGapOptions(currentWidth)}
-              allowDeselect={false}
-              onChange={(val) => {
-                const w = val ? Number(val) : 0;
-                if (w === 0) {
-                  setJointPreset(currentWall.id, selectedJointId, 'NONE');
-                } else {
-                  setJointWidth(currentWall.id, selectedJointId, w);
-                }
-              }}
-            />
+            <PanelGapInput key={selectedJointId} value={currentWidth}
+              onChange={width => setJointWidth(currentWall.id, selectedJointId, width)} />
 
-            <NumberInput size="xs" label="Точный монтажный зазор (мм)" description="Толщина металла указана отдельно в карточке профиля." min={0} max={100} step={0.1} decimalScale={2} value={currentWidth}
-              onChange={(v) => setJointWidth(currentWall.id, selectedJointId, Number(v) || 0)} />
             {/* Направление взятия зазора (Стрелки) */}
             <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
               <Stack gap={6}>
@@ -1087,9 +989,8 @@ export const RightSidebar: React.FC = () => {
               </Stack>
             </Paper>
 
-            {/* ФИЛЬТР 2: Тип, модель и цвет профиля (скрываются, если выбрано 0 мм) */}
-            {currentWidth !== 0 && (
-              <>
+            {/* ФИЛЬТР 2: Тип, модель и цвет профиля — независимо от зазора */}
+            <>
                 {/* Фильтр по типу профиля */}
                 <Select
                   size="xs"
@@ -1117,7 +1018,7 @@ export const RightSidebar: React.FC = () => {
                   searchable
                   clearable
                   value={profileArticle || null}
-                  data={getProfilesForGap(currentWidth, selectedProfileType).map((p) => ({
+                  data={getProfilesByType(selectedProfileType).map((p) => ({
                     value: p.article,
                     label: `${p.article} • ${p.name} (${p.visibleWidth} мм)`,
                   }))}
@@ -1196,7 +1097,6 @@ export const RightSidebar: React.FC = () => {
                   </Paper>
                 )}
               </>
-            )}
 
             {/* Информация о стыке */}
             {selectedJoint && (

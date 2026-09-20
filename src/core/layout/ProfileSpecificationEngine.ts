@@ -191,10 +191,14 @@ export class ProfileSpecificationEngine {
   ): WallProfilesReport {
     const layout: LayoutCalculationResult = LayoutEngine.calculateWallLayout(wall, defaultMaterial, allMaterials, wallIndexOrNumber);
     const activeJoints = layout.joints.filter((j) => j.width > 0 || j.isLED || j.profileArticle);
+    // Applied openings also store framing lines in wall.joints. Count their framing below only once.
+    const framingIds = new Set(wall.openings.filter(op => op.framing).flatMap(op =>
+      ['left', 'right', 'top', 'bottom'].map(side => `joint-op-${op.id}-${side}`)));
 
     const map = new Map<string, { identity: ProfileIdentity; lengths: number[]; count: number }>();
 
     activeJoints.forEach((j) => {
+      if (framingIds.has(j.sourceJointId ?? j.id)) return;
       const cat = this.categorizeJoint(j);
       const identity = profileIdentity(cat, j);
       const key = profileKey(identity);
