@@ -3,6 +3,17 @@ export type OpeningType = 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE';
 
 export type SlopeJointProfileType = 'NONE' | 'CORNER' | 'LED_10' | 'JOINT_3' | 'JOINT_7' | 'JOINT_8';
 
+export type SlopeSide = 'top' | 'bottom' | 'left' | 'right';
+export type SlopeJointId = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export interface SlopeJointConfig {
+  width: number; // Монтажный зазор; не зависит от видимой ширины профиля.
+  takeSide: 'BOTH' | 'FIRST' | 'SECOND'; // Первый / второй откос в паре.
+  profileArticle?: string;
+  profileColor?: string;
+  isLED: boolean;
+}
+export type SlopeJoints = Record<SlopeJointId, SlopeJointConfig>;
+
 export interface SlopeSideConfig {
   textureMapping?: TextureMapping;
   enabled: boolean;          // Включена ли данная грань откоса
@@ -18,6 +29,7 @@ export interface SlopeConfig {
   materialMode: 'SAME' | 'CUSTOM';   // Одинаковый материал для всех или раздельный
   materialId?: string | null;        // Общий материал откосов (null = материал стены)
   jointProfileType?: SlopeJointProfileType; // Профиль внутренних стыков между откосами
+  joints?: Partial<SlopeJoints>; // Индивидуальные настройки устойчивых пар откосов.
   showUnfold2D?: boolean;            // Показывать ли интерактивную развертку на 2D-чертеже
 
   top: SlopeSideConfig;              // Верхний откос
@@ -95,6 +107,7 @@ export function ensureOpeningSlopes(op: Opening): SlopeConfig {
     materialMode: op.slopes.materialMode || 'SAME',
     materialId: op.slopes.materialId ?? null,
     jointProfileType: op.slopes.jointProfileType || 'NONE',
+    joints: op.slopes.joints && Object.fromEntries(Object.entries(op.slopes.joints).map(([id, joint]) => [id, { ...joint }])),
     showUnfold2D: !!op.slopes.showUnfold2D,
     top: {
       textureMapping: op.slopes.top?.textureMapping,

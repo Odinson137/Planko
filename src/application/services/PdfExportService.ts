@@ -1,3 +1,5 @@
+import { drawOpeningSlopes } from './SlopeDrawing';
+import { slopeJointHasProfile } from '../../core/geometry/SlopeJointGeometry';
 import { getPieceTexture } from '../../core/textures/PieceTextures';
 import { drawTextureFace } from '../../core/textures/PhotoTextures';
 import { slopeTexturePiece } from '../../core/textures/TextureMapping';
@@ -998,6 +1000,18 @@ export class PdfExportService {
         }
       }
     });
+
+    for (const joint of layout.slopeJoints ?? []) {
+      if (!slopeJointHasProfile(joint)) continue;
+      const p = toC(joint.x, joint.y);
+      const dx = joint.sides[1] === 'left' ? 1 : -1, dy = joint.sides[0] === 'top' ? 1 : -1;
+      ctx.save(); ctx.strokeStyle = joint.isLED ? '#b7791f' : joint.profileColor ?? '#212529'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + dx * 22, p.y + dy * 22); ctx.stroke();
+      ctx.fillStyle = '#0f172a'; ctx.font = '11px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = dx > 0 ? 'left' : 'right';
+      ctx.fillText(`${joint.profileArticle || 'LED'} · ${joint.length.toLocaleString('ru-RU')} мм`, p.x + dx * 26, p.y + dy * 30);
+      ctx.restore();
+    }
 
     // 4. Стыки и профили
     layout.joints.forEach((j) => {
@@ -3137,18 +3151,11 @@ export class PdfExportService {
         ctx.restore();
       }
     });
-    for (const sl of layout.slopes ?? []) {
-      const op = wall.openings.find(o => o.id === sl.openingId);
-      const texture = getPieceTexture(slopeTexturePiece(sl));
-      if (!op || !texture) continue;
-      const opDepth = op.depth ?? 150;
-      const front = -panelThick - 2 - Math.max(0, sl.depth-opDepth), back = Math.min(opDepth,sl.depth);
-      const point = (x: number, y: number, z: number) => project3D(getPointAtS(x,y,z));
-      if (sl.side === 'LEFT') drawTextureFace(ctx,texture,point(op.x,op.y,front),point(op.x,op.y,back),point(op.x,op.y+op.height,back),point(op.x,op.y+op.height,front));
-      if (sl.side === 'RIGHT') drawTextureFace(ctx,texture,point(op.x+op.width,op.y,front),point(op.x+op.width,op.y,back),point(op.x+op.width,op.y+op.height,back),point(op.x+op.width,op.y+op.height,front));
-      if (sl.side === 'TOP') drawTextureFace(ctx,texture,point(op.x,op.y+op.height,front),point(op.x+op.width,op.y+op.height,front),point(op.x+op.width,op.y+op.height,back),point(op.x,op.y+op.height,back));
-      if (sl.side === 'BOTTOM') drawTextureFace(ctx,texture,point(op.x,op.y,front),point(op.x+op.width,op.y,front),point(op.x+op.width,op.y,back),point(op.x,op.y,back));
+    for (const op of wall.openings) {
+      drawOpeningSlopes(ctx, op, layout.slopes ?? [], layout.slopeJoints ?? [],
+        p => project3D(getPointAtS(p.x, p.y, p.z)), { textures: true, profiles: true });
     }
+
   }
 
   /**

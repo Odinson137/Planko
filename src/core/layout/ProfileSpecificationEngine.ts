@@ -1,7 +1,8 @@
+import { slopeJointHasProfile } from '../geometry/SlopeJointGeometry';
 import { Wall } from '../models/Wall';
 import { LayoutEngine, LayoutCalculationResult, CalculatedJointLine } from './LayoutEngine';
 import { Material, DEFAULT_MATERIALS } from '../models/Material';
-import { DEFAULT_PROFILES, findProfileByArticle } from '../models/Profile';
+import { findProfileByArticle } from '../models/Profile';
 
 export type StandardProfileCategory = 'H_JOINT_08' | 'LED_10' | 'END_CAP' | 'CORNER' | 'BASEBOARD' | 'OTHER';
 
@@ -132,7 +133,7 @@ function countStockBars(lengths: number[], stockLength: number): number {
   return fullBars + remaining.length;
 }
 
-function profileIdentity(category: StandardProfileCategory, joint?: Partial<CalculatedJointLine>): ProfileIdentity {
+function profileIdentity(category: StandardProfileCategory, joint?: Partial<Pick<CalculatedJointLine, 'width' | 'profileArticle' | 'profileColor'>>): ProfileIdentity {
   const info = PROFILE_CATEGORIES_INFO[category];
   const profile = joint?.profileArticle ? findProfileByArticle(joint.profileArticle) : undefined;
   return {
@@ -148,7 +149,7 @@ function profileIdentity(category: StandardProfileCategory, joint?: Partial<Calc
 }
 
 export class ProfileSpecificationEngine {
-  public static categorizeJoint(joint: CalculatedJointLine): StandardProfileCategory {
+  public static categorizeJoint(joint: Pick<CalculatedJointLine, 'width' | 'isLED' | 'isOuterEdge' | 'profileArticle'>): StandardProfileCategory {
     if (joint.isLED) {
       return 'LED_10';
     }
@@ -208,6 +209,17 @@ export class ProfileSpecificationEngine {
       map.set(key, entry);
     });
 
+    for (const slope of layout.slopeJoints ?? []) {
+      if (!slopeJointHasProfile(slope)) continue;
+      const joint = { ...slope, isOuterEdge: false };
+      const identity = profileIdentity(this.categorizeJoint(joint), joint);
+      const key = profileKey(identity);
+      const entry = map.get(key) || { identity, lengths: [], count: 0 };
+      entry.lengths.push(slope.length);
+      entry.count++;
+      map.set(key, entry);
+    }
+
     // Учет профилей обрамления проемов (двери, окна, ниши)
     if (wall.openings && wall.openings.length > 0) {
       wall.openings.forEach((op) => {
@@ -224,26 +236,6 @@ export class ProfileSpecificationEngine {
             entry.lengths.push(side === 'top' || side === 'bottom' ? op.width : op.height);
             entry.count++;
             map.set(key, entry);
-          }
-          const slopes = op.slopes;
-          const type = slopes?.jointProfileType;
-          if (slopes?.enabled && type && type !== 'NONE') {
-            const profile = DEFAULT_PROFILES[type];
-            const article = type === 'JOINT_3' ? 'MC-06' : type === 'JOINT_7' ? 'MC-06-7' : undefined;
-            const category = type === 'CORNER' ? 'CORNER' : type === 'LED_10' ? 'LED_10' : type === 'JOINT_8' ? 'BASEBOARD' : 'H_JOINT_08';
-            const identity = profileIdentity(category, { width: profile.width, profileArticle: article });
-            const key = profileKey(identity);
-            const entry = map.get(key) || { identity, lengths: [], count: 0 };
-            const depth = (side: 'top' | 'bottom' | 'left' | 'right') => slopes.fitToOpeningDepth
-              ? (op.depth ?? (op.type === 'WINDOW' ? 200 : 150))
-              : slopes.depthMode === 'SAME' ? slopes.depth : slopes[side].depth;
-            for (const [a, b] of [['top', 'left'], ['top', 'right'], ['bottom', 'left'], ['bottom', 'right']] as const) {
-              if (slopes[a].enabled && slopes[b].enabled) {
-                entry.lengths.push(Math.max(depth(a), depth(b)));
-                entry.count++;
-              }
-            }
-            if (entry.count) map.set(key, entry);
           }
           return;
         }

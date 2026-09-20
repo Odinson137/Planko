@@ -4,10 +4,15 @@ import { findProfileByArticle } from '../models/Profile';
 import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from '../models/Wall';
 import { Material, DEFAULT_MATERIALS, MATERIAL_NONE_ID } from '../models/Material';
 import { Opening, ensureOpeningSlopes } from '../models/Opening';
+import { calculateSlopeGeometry, slopeJointHasProfile, type CalculatedSlopeJoint } from '../geometry/SlopeJointGeometry';
 import { Point2D, PolygonSlicingEngine } from '../geometry/PolygonSlicingEngine';
 import { comparePanelsLeftToRightTopToBottom, renumberWallPanels } from './WallNumberingEngine';
 
 export interface CalculatedSlopePiece {
+  startInset?: number;
+  endInset?: number;
+  zStart?: number;
+  zEnd?: number;
   textureMapping?: TextureMapping;
   textureCategory?: string;
   textureStockWidth?: number;
@@ -89,6 +94,7 @@ export interface LayoutCalculationResult {
   panels: CalculatedPanelPiece[];
   joints: CalculatedJointLine[];
   slopes?: CalculatedSlopePiece[];
+  slopeJoints?: CalculatedSlopeJoint[];
   summary: {
     totalPanelsNeeded: number;
     profileLinearMeters: number;
@@ -1117,155 +1123,30 @@ export class LayoutEngine {
     // Расчет параметров и деталей откосов
     // =========================================================================
     const slopePieces: CalculatedSlopePiece[] = [];
-    let slopeProfileLinearMeters = 0;
+    const slopeJoints: CalculatedSlopeJoint[] = [];
     let slopeSeq = panels.filter((p) => !p.isVoid).length + 1;
-
     cutoutOpenings.forEach((op, opIdx) => {
       const slopes = ensureOpeningSlopes(op);
-      if (!slopes.enabled) return;
-
-      const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
-
-      const getSideDepth = (sideDepthConfig: number) => {
-        if (slopes.fitToOpeningDepth) return opDepth;
-        return slopes.depthMode === 'SAME' ? slopes.depth : sideDepthConfig;
-      };
-
-      const getSideMat = (sideMatId?: string | null) => {
-        const targetId =
-          slopes.materialMode === 'SAME'
-            ? slopes.materialId || wall.zone.materialId
-            : sideMatId || slopes.materialId || wall.zone.materialId;
-        const found = allMaterials.find((m) => m.id === targetId) || defaultMaterial;
-        return found;
-      };
-
-      // 1. Верхний откос
-      if (slopes.top.enabled) {
-        const d = getSideDepth(slopes.top.depth);
-        if (d > 0) {
-          const mat = getSideMat(slopes.top.materialId);
-          slopePieces.push({
-            id: `slope-${op.id}-top`,
-            textureMapping: slopes.top.textureMapping,
-            textureCategory: mat.textureCategory,
-            textureStockWidth: mat.width,
-            textureStockHeight: mat.height,
-            openingId: op.id,
-            openingName: op.name || `Проем ${opIdx + 1}`,
-            side: 'TOP',
-            sideLabel: 'Верхний откос',
-            width: op.width,
-            depth: d,
-            areaSqM: (op.width * d) / 1_000_000,
-            materialId: mat.id,
-            materialName: mat.name,
-            materialColor: mat.color,
-            decorCode: mat.decorCode,
-            thickness: mat.thickness,
-            partLabel: `${wallNumber}.${slopeSeq++}`,
-          });
-        }
-      }
-
-      // 2. Левый откос
-      if (slopes.left.enabled) {
-        const d = getSideDepth(slopes.left.depth);
-        if (d > 0) {
-          const mat = getSideMat(slopes.left.materialId);
-          slopePieces.push({
-            id: `slope-${op.id}-left`,
-            textureMapping: slopes.left.textureMapping,
-            textureCategory: mat.textureCategory,
-            textureStockWidth: mat.width,
-            textureStockHeight: mat.height,
-            openingId: op.id,
-            openingName: op.name || `Проем ${opIdx + 1}`,
-            side: 'LEFT',
-            sideLabel: 'Левый откос',
-            width: op.height,
-            depth: d,
-            areaSqM: (op.height * d) / 1_000_000,
-            materialId: mat.id,
-            materialName: mat.name,
-            materialColor: mat.color,
-            decorCode: mat.decorCode,
-            thickness: mat.thickness,
-            partLabel: `${wallNumber}.${slopeSeq++}`,
-          });
-        }
-      }
-
-      // 3. Правый откос
-      if (slopes.right.enabled) {
-        const d = getSideDepth(slopes.right.depth);
-        if (d > 0) {
-          const mat = getSideMat(slopes.right.materialId);
-          slopePieces.push({
-            id: `slope-${op.id}-right`,
-            textureMapping: slopes.right.textureMapping,
-            textureCategory: mat.textureCategory,
-            textureStockWidth: mat.width,
-            textureStockHeight: mat.height,
-            openingId: op.id,
-            openingName: op.name || `Проем ${opIdx + 1}`,
-            side: 'RIGHT',
-            sideLabel: 'Правый откос',
-            width: op.height,
-            depth: d,
-            areaSqM: (op.height * d) / 1_000_000,
-            materialId: mat.id,
-            materialName: mat.name,
-            materialColor: mat.color,
-            decorCode: mat.decorCode,
-            thickness: mat.thickness,
-            partLabel: `${wallNumber}.${slopeSeq++}`,
-          });
-        }
-      }
-
-      // 4. Нижний откос / Подоконник
-      if (slopes.bottom.enabled) {
-        const d = getSideDepth(slopes.bottom.depth);
-        if (d > 0) {
-          const mat = getSideMat(slopes.bottom.materialId);
-          slopePieces.push({
-            id: `slope-${op.id}-bottom`,
-            textureMapping: slopes.bottom.textureMapping,
-            textureCategory: mat.textureCategory,
-            textureStockWidth: mat.width,
-            textureStockHeight: mat.height,
-            openingId: op.id,
-            openingName: op.name || `Проем ${opIdx + 1}`,
-            side: 'BOTTOM',
-            sideLabel: op.type === 'WINDOW' ? 'Подоконник' : 'Нижний откос',
-            width: op.width,
-            depth: d,
-            areaSqM: (op.width * d) / 1_000_000,
-            materialId: mat.id,
-            materialName: mat.name,
-            materialColor: mat.color,
-            decorCode: mat.decorCode,
-            thickness: mat.thickness,
-            partLabel: `${wallNumber}.${slopeSeq++}`,
-          });
-        }
-      }
-
-      // Расчет погонажа профиля между откосами (внутренние углы коробки)
-      if (slopes.jointProfileType && slopes.jointProfileType !== 'NONE') {
-        const topD = getSideDepth(slopes.top.depth);
-        const bottomD = getSideDepth(slopes.bottom.depth);
-        const leftD = getSideDepth(slopes.left.depth);
-        const rightD = getSideDepth(slopes.right.depth);
-
-        // Внутренние углы:
-        if (slopes.top.enabled && slopes.left.enabled) slopeProfileLinearMeters += Math.max(topD, leftD) / 1000;
-        if (slopes.top.enabled && slopes.right.enabled) slopeProfileLinearMeters += Math.max(topD, rightD) / 1000;
-        if (slopes.bottom.enabled && slopes.left.enabled) slopeProfileLinearMeters += Math.max(bottomD, leftD) / 1000;
-        if (slopes.bottom.enabled && slopes.right.enabled) slopeProfileLinearMeters += Math.max(bottomD, rightD) / 1000;
+      const geometry = calculateSlopeGeometry(op);
+      slopeJoints.push(...geometry.joints.filter(j => j.available && j.sides.every(side => geometry.faces[side].length > 0)));
+      for (const side of ['top', 'left', 'right', 'bottom'] as const) {
+        const face = geometry.faces[side];
+        if (!face.enabled || face.length <= 0) continue;
+        const materialId = (slopes.materialMode === 'CUSTOM' ? slopes[side].materialId : null) || slopes.materialId || wall.zone.materialId;
+        const mat = allMaterials.find(m => m.id === materialId) || defaultMaterial;
+        const labels = { top: 'Верхний откос', left: 'Левый откос', right: 'Правый откос', bottom: op.type === 'WINDOW' ? 'Подоконник' : 'Нижний откос' };
+        slopePieces.push({
+          id: `slope-${op.id}-${side}`, openingId: op.id, openingName: op.name || `Проем ${opIdx + 1}`,
+          side: side.toUpperCase() as CalculatedSlopePiece['side'], sideLabel: labels[side],
+          width: face.length, depth: face.depth, startInset: face.startInset, endInset: face.endInset, zStart: face.zStart, zEnd: face.zEnd,
+          areaSqM: face.length * face.depth / 1_000_000, materialId: mat.id, materialName: mat.name, materialColor: mat.color,
+          decorCode: mat.decorCode, thickness: mat.thickness, textureCategory: mat.textureCategory,
+          textureMapping: slopes[side].textureMapping, textureStockWidth: mat.width, textureStockHeight: mat.height,
+          partLabel: `${wallNumber}.${slopeSeq++}`,
+        });
       }
     });
+    const slopeProfileLinearMeters = slopeJoints.filter(slopeJointHasProfile).reduce((sum, joint) => sum + joint.length, 0) / 1000;
 
     const totalSlopeAreaSqM = slopePieces.reduce((acc, p) => acc + p.areaSqM, 0);
 
@@ -1419,6 +1300,7 @@ export class LayoutEngine {
         return { ...joint, visibleWidth: profile?.visibleWidth ?? joint.width, metalThickness: profile?.metalThickness };
       }),
       slopes: slopePieces,
+      slopeJoints,
       summary: {
         totalPanelsNeeded: coveredPanels.length,
         profileLinearMeters: Math.round((profileLinearMeters + slopeProfileLinearMeters) * 10) / 10,

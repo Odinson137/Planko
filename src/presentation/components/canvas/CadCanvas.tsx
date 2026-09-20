@@ -1,7 +1,9 @@
+import { SlopeUnfoldLayer } from './SlopeUnfoldLayer';
+import { SlopeJointMarks } from './SlopeJointMarks';
+import { slopeJointHasProfile } from '../../../core/geometry/SlopeJointGeometry';
 import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
 import { getResolvedPanelEdges } from '../../../core/geometry/PanelJointBinding';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
-import { slopeTexturePiece } from '../../../core/textures/TextureMapping';
 
 import React, { useEffect, useCallback, useMemo } from 'react';
 import { Stage, Layer, Rect, Text, Line, Group } from 'react-konva';
@@ -719,145 +721,8 @@ export const CadCanvas: React.FC = () => {
                     });
                   }}
                 >
-                  {/* 2D РАЗВЕРТКА ОТКОСОВ (Если включен показ развертки) */}
-                  {(() => {
-                    if (op.isCutout === false) return null;
-                    const slopes = ensureOpeningSlopes(op);
-                    if (!slopes.enabled || !(slopes.showUnfold2D || editMode === 'TEXTURES')) return null;
-
-                    const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
-
-                    const getSideDepth = (sideDepthConfig: number) => {
-                      if (slopes.fitToOpeningDepth) return opDepth;
-                      return slopes.depthMode === 'SAME' ? slopes.depth : sideDepthConfig;
-                    };
-
-                    const getSideColor = (sideMatId?: string | null) => {
-                      const targetId =
-                        slopes.materialMode === 'SAME'
-                          ? slopes.materialId || selectedWall?.zone.materialId
-                          : sideMatId || slopes.materialId || selectedWall?.zone.materialId;
-                      const mat = project.materials.find((m) => m.id === targetId);
-                      return mat?.color || '#2A2B2F';
-                    };
-
-                    const slopeFill = (side: string) => {
-                      const slope = layout?.slopes?.find(s => s.openingId === op.id && s.side === side);
-                      const texture = showTextures && slope && getPieceTexture(slopeTexturePiece(slope));
-                      if (!texture || !slope) return {};
-                      const dims = slopeTexturePiece(slope);
-                      return { fillPriority: 'pattern' as const, fillPatternImage: texture as any,
-                        fillPatternScale: { x: dims.width / texture.width, y: dims.height / texture.height }, fillPatternRepeat: 'no-repeat' as const };
-                    };
-                    const topD = getSideDepth(slopes.top.depth);
-                    const bottomD = getSideDepth(slopes.bottom.depth);
-                    const leftD = getSideDepth(slopes.left.depth);
-                    const rightD = getSideDepth(slopes.right.depth);
-
-                    return (
-                      <Group listening={false}>
-                        {/* Верхняя развертка */}
-                        {slopes.top.enabled && topD > 0 && (
-                          <Group y={-topD}>
-                            <Rect
-                              width={op.width}
-                              height={topD}
-                              fill={getSideColor(slopes.top.materialId)}
-                              {...slopeFill('TOP')}
-                              opacity={0.85}
-                              stroke="#339AF0"
-                              strokeWidth={1 / zoom}
-                              dash={[6, 4]}
-                            />
-                            <Text
-                              x={10}
-                              y={Math.max(4, topD / 2 - 6)}
-                              text={`⬆ Верхний откос: ${op.width} × ${topD} мм`}
-                              fontSize={Math.max(10, 13 / Math.max(0.5, zoom))}
-                              fill="#E9ECEF"
-                              fontFamily="Inter"
-                              fontStyle="bold"
-                            />
-                          </Group>
-                        )}
-
-                        {/* Нижняя развертка / Подоконник */}
-                        {slopes.bottom.enabled && bottomD > 0 && (
-                          <Group y={op.height}>
-                            <Rect
-                              width={op.width}
-                              height={bottomD}
-                              fill={getSideColor(slopes.bottom.materialId)}
-                              {...slopeFill('BOTTOM')}
-                              opacity={0.85}
-                              stroke="#339AF0"
-                              strokeWidth={1 / zoom}
-                              dash={[6, 4]}
-                            />
-                            <Text
-                              x={10}
-                              y={Math.max(4, bottomD / 2 - 6)}
-                              text={`⬇ ${op.type === 'WINDOW' ? 'Подоконник' : 'Низ'}: ${op.width} × ${bottomD} мм`}
-                              fontSize={Math.max(10, 13 / Math.max(0.5, zoom))}
-                              fill="#E9ECEF"
-                              fontFamily="Inter"
-                              fontStyle="bold"
-                            />
-                          </Group>
-                        )}
-
-                        {/* Левая развертка */}
-                        {slopes.left.enabled && leftD > 0 && (
-                          <Group x={-leftD}>
-                            <Rect
-                              width={leftD}
-                              height={op.height}
-                              fill={getSideColor(slopes.left.materialId)}
-                              {...slopeFill('LEFT')}
-                              opacity={0.85}
-                              stroke="#339AF0"
-                              strokeWidth={1 / zoom}
-                              dash={[6, 4]}
-                            />
-                            <Text
-                              x={6}
-                              y={op.height / 2 - 10}
-                              text={`⬅ Левый\n${leftD}×${op.height}`}
-                              fontSize={Math.max(9, 12 / Math.max(0.5, zoom))}
-                              fill="#E9ECEF"
-                              fontFamily="Inter"
-                              fontStyle="bold"
-                            />
-                          </Group>
-                        )}
-
-                        {/* Правая развертка */}
-                        {slopes.right.enabled && rightD > 0 && (
-                          <Group x={op.width}>
-                            <Rect
-                              width={rightD}
-                              height={op.height}
-                              fill={getSideColor(slopes.right.materialId)}
-                              {...slopeFill('RIGHT')}
-                              opacity={0.85}
-                              stroke="#339AF0"
-                              strokeWidth={1 / zoom}
-                              dash={[6, 4]}
-                            />
-                            <Text
-                              x={6}
-                              y={op.height / 2 - 10}
-                              text={`➡ Правый\n${rightD}×${op.height}`}
-                              fontSize={Math.max(9, 12 / Math.max(0.5, zoom))}
-                              fill="#E9ECEF"
-                              fontFamily="Inter"
-                              fontStyle="bold"
-                            />
-                          </Group>
-                        )}
-                      </Group>
-                    );
-                  })()}
+                  {(ensureOpeningSlopes(op).showUnfold2D || editMode === 'TEXTURES') &&
+                    <SlopeUnfoldLayer opening={op} faces={layout?.slopes ?? []} zoom={zoom} textures={showTextures} />}
 
                   <Rect
                     width={op.width}
@@ -914,16 +779,8 @@ export const CadCanvas: React.FC = () => {
                               ? `по проему (${opDepth} мм)`
                               : `${effectiveD} мм (${slopes.depthMode === 'CUSTOM' ? 'индивид.' : 'общая'})`
                           }${
-                            slopes.jointProfileType && slopes.jointProfileType !== 'NONE'
-                              ? `\n стык: (${
-                                  slopes.jointProfileType === 'LED_10'
-                                    ? 'LED 10мм'
-                                    : slopes.jointProfileType === 'CORNER'
-                                    ? 'Уголок'
-                                    : slopes.jointProfileType === 'JOINT_3' ? 'Шов 3мм'
-                                    : slopes.jointProfileType === 'JOINT_7' ? 'Шов 7мм'
-                                    : 'Теневой шов 8мм'
-                                })`
+                            (layout?.slopeJoints ?? []).some(j => j.openingId === op.id && slopeJointHasProfile(j))
+                              ? `\nСтыки откосов: ${(layout?.slopeJoints ?? []).filter(j => j.openingId === op.id && slopeJointHasProfile(j)).length}`
                               : ''
                           }`
                         : '';
@@ -947,6 +804,8 @@ export const CadCanvas: React.FC = () => {
                       />
                     );
                   })()}
+                  {showProfiles && <SlopeJointMarks opening={op} wallId={selectedWall.id} projectId={project.id}
+                    joints={layout?.slopeJoints ?? []} zoom={zoom} selected={isSelected} />}
                 </Group>
               );
             })}

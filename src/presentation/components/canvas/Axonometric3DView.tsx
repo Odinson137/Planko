@@ -1,6 +1,7 @@
+import { drawOpeningSlopes } from '../../../application/services/SlopeDrawing';
+import { useSlopeJointStore } from '../../../application/stores/useSlopeJointStore';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
 import { drawTextureFace } from '../../../core/textures/PhotoTextures';
-import { slopeTexturePiece } from '../../../core/textures/TextureMapping';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack } from '@mantine/core';
 import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-react';
@@ -9,7 +10,6 @@ import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine, CalculatedPanelPiece } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { RadiusType } from '../../../core/models/Wall';
-import { ensureOpeningSlopes } from '../../../core/models/Opening';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 interface Point3D {
@@ -58,7 +58,8 @@ export const Axonometric3DView: React.FC = () => {
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const { project } = useProjectStore();
-  const { showTextures } = useEditorStore();
+  const { showTextures, showProfiles } = useEditorStore();
+  const slopeEditor = useSlopeJointStore();
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
   const selectedMaterial = project.materials.find(
     (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
@@ -1144,250 +1145,12 @@ export const Axonometric3DView: React.FC = () => {
         return;
       }
 
-      // Для вырезов в плитах:
-      const slopes = ensureOpeningSlopes(op);
-      const opDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 150);
-
-      const getSideDepth = (sideDepthConfig: number) => {
-        if (slopes.fitToOpeningDepth) return opDepth;
-        return slopes.depthMode === 'SAME' ? slopes.depth : sideDepthConfig;
-      };
-
-      const topD = getSideDepth(slopes.top.depth);
-      const bottomD = getSideDepth(slopes.bottom.depth);
-      const leftD = getSideDepth(slopes.left.depth);
-      const rightD = getSideDepth(slopes.right.depth);
-
-      const getSideMatColor = (sideMatId?: string | null) => {
-        const targetId =
-          slopes.materialMode === 'SAME'
-            ? slopes.materialId || selectedWall?.zone.materialId
-            : sideMatId || slopes.materialId || selectedWall?.zone.materialId;
-        const mat = project.materials.find((m) => m.id === targetId);
-        return mat?.color || '#2A2B2F';
-      };
-
-      const zWall = -panelThick - 2;
-
-      const getSideZ = (sideD: number) => {
-        if (sideD <= opDepth) {
-          return {
-            zFront: zWall,
-            zBack: Math.min(opDepth, sideD),
-            isProtruding: false,
-          };
-        } else {
-          const extra = sideD - opDepth;
-          return {
-            zFront: zWall - extra,
-            zBack: opDepth,
-            isProtruding: true,
-          };
-        }
-      };
-
-      if (slopes.enabled) {
-        // 1. Левый откос (внутренняя грань)
-        if (slopes.left.enabled && leftD > 0) {
-          const lZ = getSideZ(leftD);
-          const col = getSideMatColor(slopes.left.materialId);
-          const f0 = project3D(getPointAtS(op.x, op.y, lZ.zFront), cx, cy, scale);
-          const f3 = project3D(getPointAtS(op.x, op.y + op.height, lZ.zFront), cx, cy, scale);
-          const b0 = project3D(getPointAtS(op.x, op.y, lZ.zBack), cx, cy, scale);
-          const b3 = project3D(getPointAtS(op.x, op.y + op.height, lZ.zBack), cx, cy, scale);
-
-          ctx.fillStyle = adjustBrightness(col, 0.7);
-          ctx.beginPath();
-          ctx.moveTo(f0.x, f0.y);
-          ctx.lineTo(b0.x, b0.y);
-          ctx.lineTo(b3.x, b3.y);
-          ctx.lineTo(f3.x, f3.y);
-          ctx.closePath();
-          ctx.fill();
-
-          if (showTextures) {
-            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'LEFT');
-            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
-            if (texture) drawTextureFace(ctx, texture, f0, b0, b3, f3);
-          }
-
-          if (lZ.isProtruding) {
-            ctx.fillStyle = adjustBrightness(col, 0.85);
-            ctx.beginPath();
-            ctx.moveTo(opP0.x, opP0.y);
-            ctx.lineTo(opP3.x, opP3.y);
-            ctx.lineTo(f3.x, f3.y);
-            ctx.lineTo(f0.x, f0.y);
-            ctx.closePath();
-            ctx.fill();
-          }
-        }
-
-        // 2. Верхний откос (внутренняя грань)
-        if (slopes.top.enabled && topD > 0) {
-          const tZ = getSideZ(topD);
-          const col = getSideMatColor(slopes.top.materialId);
-          const f3 = project3D(getPointAtS(op.x, op.y + op.height, tZ.zFront), cx, cy, scale);
-          const f2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, tZ.zFront), cx, cy, scale);
-          const b3 = project3D(getPointAtS(op.x, op.y + op.height, tZ.zBack), cx, cy, scale);
-          const b2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, tZ.zBack), cx, cy, scale);
-
-          ctx.fillStyle = adjustBrightness(col, 0.55);
-          ctx.beginPath();
-          ctx.moveTo(f3.x, f3.y);
-          ctx.lineTo(b3.x, b3.y);
-          ctx.lineTo(b2.x, b2.y);
-          ctx.lineTo(f2.x, f2.y);
-          ctx.closePath();
-          ctx.fill();
-
-          if (showTextures) {
-            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'TOP');
-            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
-            if (texture) drawTextureFace(ctx, texture, f3, f2, b2, b3);
-          }
-
-          if (tZ.isProtruding) {
-            ctx.fillStyle = adjustBrightness(col, 1.1);
-            ctx.beginPath();
-            ctx.moveTo(opP3.x, opP3.y);
-            ctx.lineTo(opP2.x, opP2.y);
-            ctx.lineTo(f2.x, f2.y);
-            ctx.lineTo(f3.x, f3.y);
-            ctx.closePath();
-            ctx.fill();
-          }
-        }
-
-        // 3. Правый откос (внутренняя грань)
-        if (slopes.right.enabled && rightD > 0) {
-          const rZ = getSideZ(rightD);
-          const col = getSideMatColor(slopes.right.materialId);
-          const f1 = project3D(getPointAtS(op.x + op.width, op.y, rZ.zFront), cx, cy, scale);
-          const f2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, rZ.zFront), cx, cy, scale);
-          const b1 = project3D(getPointAtS(op.x + op.width, op.y, rZ.zBack), cx, cy, scale);
-          const b2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, rZ.zBack), cx, cy, scale);
-
-          ctx.fillStyle = adjustBrightness(col, 0.75);
-          ctx.beginPath();
-          ctx.moveTo(f1.x, f1.y);
-          ctx.lineTo(b1.x, b1.y);
-          ctx.lineTo(b2.x, b2.y);
-          ctx.lineTo(f2.x, f2.y);
-          ctx.closePath();
-          ctx.fill();
-
-          if (showTextures) {
-            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'RIGHT');
-            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
-            if (texture) drawTextureFace(ctx, texture, f1, b1, b2, f2);
-          }
-
-          if (rZ.isProtruding) {
-            ctx.fillStyle = adjustBrightness(col, 0.7);
-            ctx.beginPath();
-            ctx.moveTo(opP1.x, opP1.y);
-            ctx.lineTo(opP2.x, opP2.y);
-            ctx.lineTo(f2.x, f2.y);
-            ctx.lineTo(f1.x, f1.y);
-            ctx.closePath();
-            ctx.fill();
-          }
-        }
-
-        // 4. Нижний откос / Подоконник
-        if (slopes.bottom.enabled && bottomD > 0) {
-          const bZ = getSideZ(bottomD);
-          const col = getSideMatColor(slopes.bottom.materialId);
-          const f0 = project3D(getPointAtS(op.x, op.y, bZ.zFront), cx, cy, scale);
-          const f1 = project3D(getPointAtS(op.x + op.width, op.y, bZ.zFront), cx, cy, scale);
-          const b0 = project3D(getPointAtS(op.x, op.y, bZ.zBack), cx, cy, scale);
-          const b1 = project3D(getPointAtS(op.x + op.width, op.y, bZ.zBack), cx, cy, scale);
-
-          // Верхняя поверхность подоконника
-          ctx.fillStyle = adjustBrightness(col, 0.9);
-          ctx.beginPath();
-          ctx.moveTo(f0.x, f0.y);
-          ctx.lineTo(b0.x, b0.y);
-          ctx.lineTo(b1.x, b1.y);
-          ctx.lineTo(f1.x, f1.y);
-          ctx.closePath();
-          ctx.fill();
-
-          if (showTextures) {
-            const slope = layout.slopes?.find(s => s.openingId === op.id && s.side === 'BOTTOM');
-            const texture = slope && getPieceTexture(slopeTexturePiece(slope));
-            if (texture) drawTextureFace(ctx, texture, f0, f1, b1, b0);
-          }
-
-          // Если подоконник шире проема и выступает вперед в комнату:
-          if (bZ.isProtruding) {
-            const sillThick = 20; // толщина выступающей плиты подоконника
-            const frontThick0 = project3D(getPointAtS(op.x, op.y - sillThick, bZ.zFront), cx, cy, scale);
-            const frontThick1 = project3D(getPointAtS(op.x + op.width, op.y - sillThick, bZ.zFront), cx, cy, scale);
-            const wallThick0 = project3D(getPointAtS(op.x, op.y - sillThick, zWall), cx, cy, scale);
-            const wallThick1 = project3D(getPointAtS(op.x + op.width, op.y - sillThick, zWall), cx, cy, scale);
-
-            // Передний торец выступающего подоконника:
-            ctx.fillStyle = adjustBrightness(col, 0.85);
-            ctx.beginPath();
-            ctx.moveTo(f0.x, f0.y);
-            ctx.lineTo(f1.x, f1.y);
-            ctx.lineTo(frontThick1.x, frontThick1.y);
-            ctx.lineTo(frontThick0.x, frontThick0.y);
-            ctx.closePath();
-            ctx.fill();
-
-            // Левый боковой торец выступа подоконника:
-            ctx.fillStyle = adjustBrightness(col, 0.7);
-            ctx.beginPath();
-            ctx.moveTo(opP0.x, opP0.y);
-            ctx.lineTo(f0.x, f0.y);
-            ctx.lineTo(frontThick0.x, frontThick0.y);
-            ctx.lineTo(wallThick0.x, wallThick0.y);
-            ctx.closePath();
-            ctx.fill();
-
-            // Правый боковой торец выступа подоконника:
-            ctx.fillStyle = adjustBrightness(col, 0.65);
-            ctx.beginPath();
-            ctx.moveTo(opP1.x, opP1.y);
-            ctx.lineTo(f1.x, f1.y);
-            ctx.lineTo(frontThick1.x, frontThick1.y);
-            ctx.lineTo(wallThick1.x, wallThick1.y);
-            ctx.closePath();
-            ctx.fill();
-          }
-        }
-
-        // LED-свечение во внутренних углах откосной коробки
-        if (slopes.jointProfileType === 'LED_10') {
-          const corner0 = project3D(getPointAtS(op.x, op.y, opDepth), cx, cy, scale);
-          const corner1 = project3D(getPointAtS(op.x + op.width, op.y, opDepth), cx, cy, scale);
-          const corner2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth), cx, cy, scale);
-          const corner3 = project3D(getPointAtS(op.x, op.y + op.height, opDepth), cx, cy, scale);
-
-          ctx.save();
-          ctx.strokeStyle = '#ffd43b';
-          ctx.shadowColor = '#ffd43b';
-          ctx.shadowBlur = 12;
-          ctx.lineWidth = 2.5;
-
-          ctx.beginPath();
-          if (slopes.left.enabled && slopes.top.enabled) {
-            ctx.moveTo(corner0.x, corner0.y);
-            ctx.lineTo(corner3.x, corner3.y);
-            ctx.lineTo(corner2.x, corner2.y);
-          }
-          if (slopes.bottom.enabled && slopes.left.enabled) {
-            ctx.moveTo(corner3.x, corner3.y);
-            ctx.lineTo(corner0.x, corner0.y);
-            ctx.lineTo(corner1.x, corner1.y);
-          }
-          ctx.stroke();
-          ctx.restore();
-        }
-      }
+      const opDepth = op.depth ?? (op.type === 'WINDOW' ? 200 : 150);
+      const selectedCorner = project.selectedOpeningId === op.id && slopeEditor.target?.projectId === project.id &&
+        slopeEditor.target.wallId === selectedWall.id && slopeEditor.target.openingId === op.id ? slopeEditor.corner : undefined;
+      drawOpeningSlopes(ctx, op, layout.slopes ?? [], layout.slopeJoints ?? [],
+        p => project3D(getPointAtS(p.x, p.y, p.z), cx, cy, scale),
+        { textures: showTextures, profiles: showProfiles, selectedCorner });
 
       // =========================================================================
       // Отрисовка внутреннего заполнения проема (ПОЛОТНО/ОКНО СТОИТ НА ГЛУБИНЕ ПРОЕМА opDepth)
@@ -1532,7 +1295,7 @@ export const Axonometric3DView: React.FC = () => {
       ctx.stroke();
       ctx.restore();
     });
-  }, [selectedWall, layout, angleDeg, elevationDeg, zoomScale, panOffset, project3D]);
+  }, [selectedWall, layout, angleDeg, elevationDeg, zoomScale, panOffset, project3D, showTextures, showProfiles, slopeEditor, project.selectedOpeningId]);
 
   function adjustBrightness(hex: string, percent: number): string {
     if (!hex || !hex.startsWith('#')) return hex || '#888';

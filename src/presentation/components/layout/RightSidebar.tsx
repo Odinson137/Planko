@@ -1,4 +1,6 @@
 import { PanelGapInput } from './PanelGapInput';
+import { ProfileCatalogSettings, PROFILE_TYPE_OPTIONS, getProfilesByType } from './ProfileCatalogSettings';
+import { SlopeJointInspector } from './SlopeJointInspector';
 import { TextureEditor } from './TextureEditor';
 import React, { useState } from 'react';
 import {
@@ -53,7 +55,6 @@ import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { findDecorByCode } from '../../../core/models/AllWallCatalog';
 import {
-  ALLWALL_PROFILES_CATALOG,
   DEFAULT_PROFILES,
   findProfileByArticle,
 } from '../../../core/models/Profile';
@@ -66,18 +67,6 @@ import {
   SlopeConfig,
   SlopeSideConfig,
 } from '../../../core/models/Opening';
-
-const PROFILE_TYPE_OPTIONS = [
-  { value: 'ALL', label: 'Все типы профилей' },
-  { value: 'JOINT', label: '🔗 Соединительные' },
-  { value: 'LED', label: '💡 Светодиодные (LED)' },
-  { value: 'END', label: '🏁 Торцевые' },
-  { value: 'CORNER', label: '📐 Угловые' },
-  { value: 'BASEBOARD', label: '🔲 Плинтусы' },
-  { value: 'SHADOW', label: '🌑 Теневые' },
-];
-
-const getProfilesByType = (type: string) => ALLWALL_PROFILES_CATALOG.filter(p => type === 'ALL' || p.functionalRole === type);
 
 const POPULAR_ROOM_PRESETS = [
   'Гостиная',
@@ -101,6 +90,7 @@ export const RightSidebar: React.FC = () => {
   const t = useAppTheme();
   const { editMode } = useEditorStore();
   const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
+  const [openingJointMode, setOpeningJointMode] = useState('SLOPES');
   const [selectedOpeningSide, setSelectedOpeningSide] = useState<'left' | 'top' | 'right' | 'bottom'>('top');
   const {
     project,
@@ -241,13 +231,13 @@ export const RightSidebar: React.FC = () => {
                   {currentOpening.type === 'DOOR' ? '🚪' : currentOpening.type === 'WINDOW' ? '🪟' : '📦'} {currentOpening.name.toUpperCase()}
                 </Title>
                 <Text size="xs" c="dimmed">
-                  Обрамление проема ({currentOpening.width} × {currentOpening.height} мм)
+                  {openingJointMode === 'SLOPES' ? 'Стыки откосов' : 'Обрамление проёма'} ({currentOpening.width} × {currentOpening.height} мм)
                 </Text>
               </div>
               <Group gap={6}>
-                <Badge size="xs" color={isLED ? 'yellow' : currentWidth > 0 ? 'blue' : 'gray'}>
+                {openingJointMode === 'FRAMING' && <Badge size="xs" color={isLED ? 'yellow' : currentWidth > 0 ? 'blue' : 'gray'}>
                   {isLED ? '⚡ LED' : currentWidth > 0 ? `${currentWidth} мм` : 'Встык (0 мм)'}
-                </Badge>
+                </Badge>}
                 <Tooltip label="Снять выделение">
                   <ActionIcon
                     size="xs"
@@ -262,6 +252,9 @@ export const RightSidebar: React.FC = () => {
             </Group>
 
 
+            <SegmentedControl size="xs" value={openingJointMode} onChange={setOpeningJointMode}
+              data={[{ value: 'SLOPES', label: 'Между откосами' }, { value: 'FRAMING', label: 'Обрамление' }]} />
+            {openingJointMode === 'FRAMING' ? <>
             {/* Выбор конкретной грани проема */}
             <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
               <Text size="xs" fw={500} mb={6} c="dimmed">
@@ -373,6 +366,7 @@ export const RightSidebar: React.FC = () => {
                   </>
               </Stack>
             </Paper>
+            </> : <SlopeJointInspector wallId={currentWall.id} opening={currentOpening} />}
           </Stack>
         </ScrollArea>
       </Stack>
@@ -822,7 +816,6 @@ export const RightSidebar: React.FC = () => {
     const isLED = customConfig !== undefined ? customConfig.isLED : (selectedJoint?.isLED ?? false);
     const profileArticle = customConfig?.profileArticle || selectedJoint?.profileArticle;
     const profileColor = customConfig?.profileColor || selectedJoint?.profileColor || '#212529';
-    const activeProfileObj = profileArticle ? findProfileByArticle(profileArticle) : undefined;
     const isDiag = selectedJoint?.orientation === 'DIAGONAL' || selectedJointId.includes('-diag-');
     const isHoriz = selectedJoint?.orientation === 'HORIZONTAL' || selectedJointId.includes('-h-');
 
@@ -990,114 +983,10 @@ export const RightSidebar: React.FC = () => {
               </Stack>
             </Paper>
 
-            {/* ФИЛЬТР 2: Тип, модель и цвет профиля — независимо от зазора */}
-            <>
-                {/* Фильтр по типу профиля */}
-                <Select
-                  size="xs"
-                  label="Тип профиля AllWall"
-                  value={selectedProfileType}
-                  data={PROFILE_TYPE_OPTIONS}
-                  onChange={(val) => {
-                    const newType = val || 'ALL';
-                    setSelectedProfileType(newType);
-                    if (profileArticle) {
-                      const prof = findProfileByArticle(profileArticle);
-                      if (prof && newType !== 'ALL' && prof.functionalRole !== newType) {
-                        setJointProfile(currentWall.id, selectedJointId, '', profileColor);
-                      }
-                    }
-                  }}
-                  allowDeselect={false}
-                />
-
-                {/* Выбор модели профиля AllWall */}
-                <Select
-                  size="xs"
-                  label="Модель профиля AllWall"
-                  placeholder="Выберите артикул из каталога..."
-                  searchable
-                  clearable
-                  value={profileArticle || null}
-                  data={getProfilesByType(selectedProfileType).map((p) => ({
-                    value: p.article,
-                    label: `${p.article} • ${p.name} (${p.visibleWidth} мм)`,
-                  }))}
-                  onChange={(val) => {
-                    if (val) {
-                      setJointProfile(currentWall.id, selectedJointId, val, profileColor);
-                    } else {
-                      setJointProfile(currentWall.id, selectedJointId, '', profileColor);
-                    }
-                  }}
-                />
-
-                {/* Выбор цвета профиля AllWall */}
-                <div>
-                  <Text size="xs" fw={500} mb={4}>
-                    Цвет профиля AllWall:
-                  </Text>
-                  <Group gap="xs">
-                    {[
-                      { code: 'BLACK', name: 'Чёрный', hex: '#212529' },
-                      { code: 'GOLD', name: 'Золото', hex: '#c9a25b' },
-                      { code: 'ROSE_GOLD', name: 'Розовое золото', hex: '#b76e79' },
-                      { code: 'SILVER', name: 'Серебро', hex: '#adb5bd' },
-                    ].map((c) => {
-                      const isSel = profileColor.toLowerCase() === c.hex.toLowerCase();
-                      return (
-                        <Tooltip key={c.code} label={c.name} withArrow>
-                          <Paper
-                            p={2}
-                            radius="xl"
-                            style={{
-                              cursor: 'pointer',
-                              border: isSel ? '2px solid #339af0' : '2px solid transparent',
-                              backgroundColor: t.bgCardSubtle,
-                              transform: isSel ? 'scale(1.15)' : 'scale(1)',
-                              transition: 'all 0.15s ease',
-                            }}
-                            onClick={() => setJointColor(currentWall.id, selectedJointId, c.hex)}
-                          >
-                            <ColorSwatch color={c.hex} size={20} />
-                          </Paper>
-                        </Tooltip>
-                      );
-                    })}
-                  </Group>
-                </div>
-
-                {/* Карточка привязанного профиля */}
-                {activeProfileObj && (
-                  <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCard, border: '1px solid #339af0' }}>
-                    <Stack gap={4}>
-                      <Group justify="space-between">
-                        <Badge color="blue" size="xs">
-                          {activeProfileObj.article}
-                        </Badge>
-                        <Badge color="gray" size="xs">
-                          Хлыст {activeProfileObj.stockLength} мм
-                        </Badge>
-                      </Group>
-                      <Text size="xs" fw={600}>
-                        {activeProfileObj.name}
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        {activeProfileObj.description}
-                      </Text>
-                      <Group gap={4} mt={2}>
-                        <Badge size="xs" variant="outline" color="cyan">
-                          Видимая ширина: {activeProfileObj.visibleWidth} мм
-                        </Badge>
-                        {activeProfileObj.metalThickness !== undefined && <Badge size="xs" variant="outline" color="indigo">Металл: {activeProfileObj.metalThickness.toLocaleString('ru-RU')} мм</Badge>}
-                        <Badge size="xs" variant="outline" color="teal">
-                          Панели: {activeProfileObj.allowedThicknesses.join('/')} мм
-                        </Badge>
-                      </Group>
-                    </Stack>
-                  </Paper>
-                )}
-              </>
+            <ProfileCatalogSettings key={selectedJointId} article={profileArticle} color={profileColor} isLED={isLED}
+              onProfile={article => setJointProfile(currentWall.id, selectedJointId, article, profileColor)}
+              onColor={color => setJointColor(currentWall.id, selectedJointId, color)}
+              />
 
             {/* Информация о стыке */}
             {selectedJoint && (
@@ -1727,40 +1616,6 @@ export const RightSidebar: React.FC = () => {
                               )}
                             </Stack>
                           )}
-                        </div>
-
-                        {/* Профиль внутренних стыков откосов */}
-                        <div>
-                          <Tooltip
-                            label="Функция пока не реализована (в разработке)"
-                            withArrow
-                            multiline
-                            w={240}
-                          >
-                            <div style={{ cursor: 'not-allowed' }}>
-                              <Select
-                                size="xs"
-                                label="Профиль между откосами"
-                                description="Стык планок во внутренних углах"
-                                value={slopes.jointProfileType || 'NONE'}
-                                disabled
-                                styles={{
-                                  input: {
-                                    opacity: 0.6,
-                                    cursor: 'not-allowed',
-                                  },
-                                }}
-                                data={[
-                                  { value: 'NONE', label: '🔘 Без профиля (встык 0 мм)' },
-                                  { value: 'CORNER', label: '📐 Внутренний угловой профиль (2 мм)' },
-                                  { value: 'LED_10', label: '💡 LED-профиль (10 мм подсветка)' },
-                                  { value: 'JOINT_3', label: '⬛ Шов 3 мм (стандартный профиль)' },
-                                  { value: 'JOINT_7', label: '⬛ Шов 7 мм (декоративный профиль)' },
-                                  { value: 'JOINT_8', label: '⬛ Теневой паз (8 мм)' },
-                                ]}
-                              />
-                            </div>
-                          </Tooltip>
                         </div>
 
                         {/* Развертка на 2D-чертеже */}
