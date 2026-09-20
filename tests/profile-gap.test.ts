@@ -4,6 +4,7 @@ import { useProjectStore } from '../src/application/stores/useProjectStore';
 import { createDefaultProject } from '../src/core/models/Project';
 import { createDefaultOpening } from '../src/core/models/Opening';
 import { cutPanelOnWall } from '../src/core/geometry/PanelCutEngine';
+import { getResolvedPanelEdges } from '../src/core/geometry/PanelJointBinding';
 import { LayoutEngine } from '../src/core/layout/LayoutEngine';
 import { ProfileSpecificationEngine } from '../src/core/layout/ProfileSpecificationEngine';
 import { sheet, wallWithPanel } from './helpers/business';
@@ -52,15 +53,16 @@ test('changing a joint gap to zero preserves the selected profile, color and LED
 
 test('panel edge profile and gap can be edited independently, including zero', () => {
   const store = useProjectStore.getState(), panelId = wall().panels![0].id;
+  const edge = () => getResolvedPanelEdges(wall(), wall().panels!.find(p => p.id === panelId)!).find(e => e.key === 'left')!.config!;
   store.setPanelEdgeProfile(wall().id, panelId, 'left', 'MC-06-7');
-  assert.equal(wall().panels![0].edges!.left!.width, 0);
+  assert.equal(edge().width, 0);
   for (const gap of [0.8, 0]) {
     store.setPanelEdgeWidth(wall().id, panelId, 'left', gap);
-    assert.equal(wall().panels![0].edges!.left!.profileArticle, 'MC-06-7');
+    assert.equal(edge().profileArticle, 'MC-06-7');
   }
   store.setPanelEdgeWidth(wall().id, panelId, 'left', 2.35);
   store.setPanelEdgeProfile(wall().id, panelId, 'left', '');
-  assert.equal(wall().panels![0].edges!.left!.width, 2.35);
+  assert.equal(edge().width, 2.35);
 });
 
 test('bulk profile assignment and removal preserve each selected gap and the unselected joint', () => {

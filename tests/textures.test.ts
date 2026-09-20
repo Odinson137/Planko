@@ -20,9 +20,9 @@ test('photo lookup distinguishes category and exact article suffix', () => {
   assert.ok(!hasPhotoTexture('WOOD', '5007-1'));
 });
 
-test('fixed regions share a sheet only when separated by the saw kerf', () => {
+test('fixed regions can touch but cannot overlap on a sheet', () => {
   const first = part('1', origin);
-  for (const [offsetX, count] of [[0, 2], [400, 2], [403, 2], [404, 1]]) {
+  for (const [offsetX, count] of [[0, 2], [399.9, 2], [400, 1], [400.5, 1]]) {
     const result = NestingEngine.optimizeProjectNesting([first, part('2', { ...origin, offsetX })]);
     assert.equal(result.totalSheetsCount, count);
     const second = result.allSheets.flatMap(s => s.placedParts).find(p => p.part.id === '2')!;

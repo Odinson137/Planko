@@ -17,6 +17,8 @@ export interface TexturedPiece {
   height: number;
   x?: number;
   y?: number;
+  /** Actual contour in wall coordinates (Y points up), when the piece is not rectangular. */
+  polygonPoints?: { x: number; y: number }[];
   textureCategory?: string;
   decorCode?: string;
   materialColor?: string;
@@ -62,6 +64,27 @@ export function resolveTextureMapping(piece: TexturedPiece): TextureMapping {
     .map(([x, y]) => pointOnSheet(x, y, a.width, a.height, mapping.angleDeg));
   return { offsetX: mapping.offsetX + Math.min(...corners.map(p => p.x)),
     offsetY: mapping.offsetY + Math.min(...corners.map(p => p.y)), angleDeg: mapping.angleDeg };
+}
+
+/** Actual part outline in local image coordinates: origin at top left, Y points down. */
+export function texturePieceOutline(piece: TexturedPiece): { x: number; y: number }[] {
+  const points = piece.polygonPoints;
+  if (!points || points.length < 3) return [
+    { x: 0, y: 0 }, { x: piece.width, y: 0 },
+    { x: piece.width, y: piece.height }, { x: 0, y: piece.height },
+  ];
+  const left = piece.x ?? Math.min(...points.map(p => p.x));
+  const top = (piece.y ?? Math.min(...points.map(p => p.y))) + piece.height;
+  return points.map(p => ({ x: p.x - left, y: top - p.y }));
+}
+
+/** The same outline on the source sheet, including inherited crop offsets and rotation. */
+export function textureSheetOutline(piece: TexturedPiece): { x: number; y: number }[] {
+  const mapping = resolveTextureMapping(piece);
+  return texturePieceOutline(piece).map(p => {
+    const sheet = pointOnSheet(p.x, p.y, piece.width, piece.height, mapping.angleDeg);
+    return { x: mapping.offsetX + sheet.x, y: mapping.offsetY + sheet.y };
+  });
 }
 
 export function textureMappingError(piece: TexturedPiece): string | undefined {

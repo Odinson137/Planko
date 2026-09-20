@@ -4,6 +4,7 @@ import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../m
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
 import { DEFAULT_JOINT_GAP_MM } from '../models/Profile';
+import { resizeJointGap } from './JointGapGeometry';
 import { MATERIAL_NONE_ID, Material } from '../models/Material';
 
 export interface Point2D {
@@ -1418,8 +1419,8 @@ export class PolygonSlicingEngine {
     _openings: Opening[] = [],
     _takeSideOverride?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'
   ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
-    // Временно отключено автоматическое смещение соседних панелей при смене ширины стыков
-    return { panels, joints };
+    return resizeJointGap(panels, joints, { ..._targetJoint,
+      takeSide: _takeSideOverride ?? _targetJoint.takeSide }, _oldWidth, _newWidth, _wallWidth, _wallHeight, _openings);
   }
 
   /**

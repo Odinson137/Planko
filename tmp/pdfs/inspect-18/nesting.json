@@ -1,0 +1,2083 @@
+{
+  "totalSheetsCount": 6,
+  "totalPartsCount": 11,
+  "materialResults": [
+    {
+      "materialId": "aw-sheet-fabric",
+      "materialName": "Сплошная панель: Ткань",
+      "totalSheets": 2,
+      "totalParts": 4,
+      "totalPartsAreaSqM": 5.75,
+      "totalSheetsAreaSqM": 6.83,
+      "overallEfficiencyPct": 84,
+      "sheets": [
+        {
+          "sheetIndex": 1,
+          "sheetLabel": "Лист 1",
+          "materialId": "aw-sheet-fabric",
+          "materialName": "Сплошная панель: Ткань",
+          "decorCode": "7029",
+          "color": "#c4b5a2",
+          "thickness": 5,
+          "sheetWidth": 1220,
+          "sheetHeight": 2800,
+          "placedParts": [
+            {
+              "part": {
+                "id": "panel-1789836342698-1-zejh",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.1",
+                "width": 1218.5,
+                "height": 2750,
+                "areaSqM": 3.351,
+                "materialId": "aw-sheet-fabric",
+                "materialName": "Сплошная панель: Ткань",
+                "decorCode": "7029",
+                "textureCategory": "FABRIC",
+                "x": 0,
+                "y": 0,
+                "patternAngleDeg": 0,
+                "patternFlipX": false,
+                "color": "#c4b5a2",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 1218.5,
+                    "y": 2750
+                  },
+                  {
+                    "x": 0,
+                    "y": 2750
+                  },
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 1218.5,
+                    "y": 0
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 0,
+              "width": 1218.5,
+              "height": 2750,
+              "rotated": false
+            }
+          ],
+          "cutLines": [
+            {
+              "p1": {
+                "x": 1218.5,
+                "y": 2750
+              },
+              "p2": {
+                "x": 0,
+                "y": 2750
+              },
+              "length": 1218.5,
+              "orientation": "HORIZONTAL",
+              "label": "1219"
+            },
+            {
+              "p1": {
+                "x": 1218.5,
+                "y": 0
+              },
+              "p2": {
+                "x": 1218.5,
+                "y": 2750
+              },
+              "length": 2750,
+              "orientation": "VERTICAL",
+              "label": "2750"
+            }
+          ],
+          "offcuts": [],
+          "usedAreaSqM": 3.351,
+          "totalAreaSqM": 3.416,
+          "efficiencyPct": 98
+        },
+        {
+          "sheetIndex": 2,
+          "sheetLabel": "Лист 2",
+          "materialId": "aw-sheet-fabric",
+          "materialName": "Сплошная панель: Ткань",
+          "decorCode": "7029",
+          "color": "#c4b5a2",
+          "thickness": 5,
+          "sheetWidth": 1220,
+          "sheetHeight": 2800,
+          "placedParts": [
+            {
+              "part": {
+                "id": "panel-1789841099583-2-v2wn",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.11",
+                "width": 583.5,
+                "height": 1375,
+                "areaSqM": 0.802,
+                "materialId": "aw-sheet-fabric",
+                "materialName": "Сплошная панель: Ткань",
+                "decorCode": "7029",
+                "textureCategory": "FABRIC",
+                "x": 3016.5,
+                "y": 0,
+                "patternAngleDeg": 0,
+                "patternFlipX": false,
+                "color": "#c4b5a2",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 3016.5,
+                    "y": 0
+                  },
+                  {
+                    "x": 3600,
+                    "y": 0
+                  },
+                  {
+                    "x": 3600,
+                    "y": 1375
+                  },
+                  {
+                    "x": 3016.5,
+                    "y": 1375
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 0,
+              "width": 583.5,
+              "height": 1375,
+              "rotated": false
+            },
+            {
+              "part": {
+                "id": "panel-1789841099583-1-fw1h",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.10",
+                "width": 578,
+                "height": 1375,
+                "areaSqM": 0.795,
+                "materialId": "aw-sheet-fabric",
+                "materialName": "Сплошная панель: Ткань",
+                "decorCode": "7029",
+                "textureCategory": "FABRIC",
+                "x": 2438.5,
+                "y": 0,
+                "patternAngleDeg": 0,
+                "patternFlipX": false,
+                "color": "#c4b5a2",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 3016.5,
+                    "y": 1375
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 1375
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 0
+                  },
+                  {
+                    "x": 3016.5,
+                    "y": 0
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 587.5,
+              "y": 0,
+              "width": 578,
+              "height": 1375,
+              "rotated": false
+            },
+            {
+              "part": {
+                "id": "panel-1789841100531-2-2ci0",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.8",
+                "width": 1161.5,
+                "height": 687,
+                "areaSqM": 0.798,
+                "materialId": "aw-sheet-fabric",
+                "materialName": "Сплошная панель: Ткань",
+                "decorCode": "7029",
+                "textureCategory": "FABRIC",
+                "x": 2438.5,
+                "y": 2063,
+                "patternAngleDeg": 0,
+                "patternFlipX": false,
+                "color": "#c4b5a2",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 3600,
+                    "y": 2063
+                  },
+                  {
+                    "x": 3600,
+                    "y": 2750
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 2750
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 2063
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 1379,
+              "width": 1161.5,
+              "height": 687,
+              "rotated": false
+            }
+          ],
+          "cutLines": [
+            {
+              "p1": {
+                "x": 583.5,
+                "y": 0
+              },
+              "p2": {
+                "x": 583.5,
+                "y": 1375
+              },
+              "length": 1375,
+              "orientation": "VERTICAL",
+              "label": "1375"
+            },
+            {
+              "p1": {
+                "x": 583.5,
+                "y": 1375
+              },
+              "p2": {
+                "x": 0,
+                "y": 1375
+              },
+              "length": 583.5,
+              "orientation": "HORIZONTAL",
+              "label": "584"
+            },
+            {
+              "p1": {
+                "x": 1165.5,
+                "y": 1375
+              },
+              "p2": {
+                "x": 587.5,
+                "y": 1375
+              },
+              "length": 578,
+              "orientation": "HORIZONTAL",
+              "label": "578"
+            },
+            {
+              "p1": {
+                "x": 587.5,
+                "y": 1375
+              },
+              "p2": {
+                "x": 587.5,
+                "y": 0
+              },
+              "length": 1375,
+              "orientation": "VERTICAL",
+              "label": "1375"
+            },
+            {
+              "p1": {
+                "x": 1165.5,
+                "y": 0
+              },
+              "p2": {
+                "x": 1165.5,
+                "y": 1375
+              },
+              "length": 1375,
+              "orientation": "VERTICAL",
+              "label": "1375"
+            },
+            {
+              "p1": {
+                "x": 1161.5,
+                "y": 1379
+              },
+              "p2": {
+                "x": 1161.5,
+                "y": 2066
+              },
+              "length": 687,
+              "orientation": "VERTICAL",
+              "label": "687"
+            },
+            {
+              "p1": {
+                "x": 1161.5,
+                "y": 2066
+              },
+              "p2": {
+                "x": 0,
+                "y": 2066
+              },
+              "length": 1161.5,
+              "orientation": "HORIZONTAL",
+              "label": "1162"
+            },
+            {
+              "p1": {
+                "x": 0,
+                "y": 1379
+              },
+              "p2": {
+                "x": 1161.5,
+                "y": 1379
+              },
+              "length": 1161.5,
+              "orientation": "HORIZONTAL",
+              "label": "1162"
+            }
+          ],
+          "offcuts": [
+            {
+              "x": 587.5,
+              "y": 2070,
+              "width": 578,
+              "height": 730,
+              "areaSqM": 0.422
+            },
+            {
+              "x": 0,
+              "y": 2070,
+              "width": 587.5,
+              "height": 730,
+              "areaSqM": 0.429
+            }
+          ],
+          "usedAreaSqM": 2.395,
+          "totalAreaSqM": 3.416,
+          "efficiencyPct": 70
+        }
+      ]
+    },
+    {
+      "materialId": "aw-sheet-wood",
+      "materialName": "Сплошная панель: Дерево",
+      "sheets": [
+        {
+          "sheetIndex": 1,
+          "sheetLabel": "Лист 1",
+          "materialId": "aw-sheet-wood",
+          "materialName": "Сплошная панель: Дерево",
+          "decorCode": "5189",
+          "color": "#4d3725",
+          "thickness": 5,
+          "sheetWidth": 1220,
+          "sheetHeight": 2800,
+          "placedParts": [
+            {
+              "part": {
+                "id": "panel-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-0",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.7",
+                "width": 1220,
+                "height": 914.5045480451679,
+                "areaSqM": 0.558,
+                "materialId": "aw-sheet-wood",
+                "materialName": "Сплошная панель: Дерево",
+                "decorCode": "5189",
+                "textureCategory": "WOOD",
+                "x": 1218.5,
+                "y": 0,
+                "textureMapping": {
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "angleDeg": 180
+                },
+                "patternAngleDeg": 180,
+                "patternFlipX": false,
+                "color": "#4d3725",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 1218.5,
+                    "y": 0
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 0
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 914.5045480451679
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 1885.495451954832,
+              "width": 1220,
+              "height": 914.5045480451679,
+              "rotated": false,
+              "textureAngleDeg": 180,
+              "sourceBlankKey": "[\"wall-1\",1218.5,0,1220,2750,0,0,180]"
+            },
+            {
+              "part": {
+                "id": "panel-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-1",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.6",
+                "width": 1220.0000000000002,
+                "height": 1374.9999999999998,
+                "areaSqM": 0.839,
+                "materialId": "aw-sheet-wood",
+                "materialName": "Сплошная панель: Дерево",
+                "decorCode": "5189",
+                "textureCategory": "WOOD",
+                "x": 1218.4999999999998,
+                "y": 0,
+                "textureMapping": {
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "angleDeg": 180
+                },
+                "patternAngleDeg": 180,
+                "patternFlipX": false,
+                "color": "#4d3725",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 2438.5,
+                    "y": 914.5045480451679
+                  },
+                  {
+                    "x": 1218.4999999999998,
+                    "y": 1374.9999999999998
+                  },
+                  {
+                    "x": 1218.5,
+                    "y": 0
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 1425.0000000000002,
+              "width": 1220.0000000000002,
+              "height": 1374.9999999999998,
+              "rotated": false,
+              "textureAngleDeg": 180,
+              "sourceBlankKey": "[\"wall-1\",1218.5,0,1220,2750,0,0,180]"
+            },
+            {
+              "part": {
+                "id": "panel-cut-35dba948-4f50-456f-8ac3-c109de3ef433-1",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.5",
+                "width": 1220.0000000000002,
+                "height": 460.4954519548321,
+                "areaSqM": 0.281,
+                "materialId": "aw-sheet-wood",
+                "materialName": "Сплошная панель: Дерево",
+                "decorCode": "5189",
+                "textureCategory": "WOOD",
+                "x": 1218.4999999999998,
+                "y": 914.5045480451679,
+                "textureMapping": {
+                  "offsetX": 0,
+                  "offsetY": 914.5045480451679,
+                  "angleDeg": 180
+                },
+                "patternAngleDeg": 180,
+                "patternFlipX": false,
+                "color": "#4d3725",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 2438.5,
+                    "y": 914.5045480451679
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 1375
+                  },
+                  {
+                    "x": 1218.4999999999998,
+                    "y": 1375
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 1425,
+              "width": 1220.0000000000002,
+              "height": 460.4954519548321,
+              "rotated": false,
+              "textureAngleDeg": 180,
+              "sourceBlankKey": "[\"wall-1\",1218.5,0,1220,2750,0,0,180]"
+            }
+          ],
+          "cutLines": [
+            {
+              "p1": {
+                "x": 0,
+                "y": 1885.495451954832
+              },
+              "p2": {
+                "x": 1220,
+                "y": 2800
+              },
+              "length": 1524.7027803461556,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 0,
+                "y": 1885.495451954832
+              },
+              "p2": {
+                "x": 1220.0000000000002,
+                "y": 1425.0000000000002
+              },
+              "length": 1304.0153608263538,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 0,
+                "y": 1425
+              },
+              "p2": {
+                "x": 1220.0000000000002,
+                "y": 1425
+              },
+              "length": 1220.0000000000002,
+              "orientation": "HORIZONTAL",
+              "label": "1220"
+            }
+          ],
+          "offcuts": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 1220,
+              "height": 1421,
+              "areaSqM": 1.734
+            }
+          ],
+          "usedAreaSqM": 1.678,
+          "totalAreaSqM": 3.416,
+          "efficiencyPct": 49,
+          "commonCutPartLabels": [
+            "1.5",
+            "1.6",
+            "1.7"
+          ]
+        },
+        {
+          "sheetIndex": 2,
+          "sheetLabel": "Лист 2",
+          "materialId": "aw-sheet-wood",
+          "materialName": "Сплошная панель: Дерево",
+          "decorCode": "5189",
+          "color": "#4d3725",
+          "thickness": 5,
+          "sheetWidth": 1220,
+          "sheetHeight": 2800,
+          "placedParts": [
+            {
+              "part": {
+                "id": "panel-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-0",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.3",
+                "width": 1220.0000000000002,
+                "height": 688,
+                "areaSqM": 0.42,
+                "materialId": "aw-sheet-wood",
+                "materialName": "Сплошная панель: Дерево",
+                "decorCode": "5189",
+                "textureCategory": "WOOD",
+                "x": 1218.4999999999998,
+                "y": 1375,
+                "textureMapping": {
+                  "offsetX": -1.1368683772161597e-13,
+                  "offsetY": 0,
+                  "angleDeg": 420
+                },
+                "patternAngleDeg": 420,
+                "patternFlipX": false,
+                "color": "#4d3725",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 1218.4999999999998,
+                    "y": 1375
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 1375
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 2063
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": -1.1368683772161597e-13,
+              "y": 1399.4490073835198,
+              "width": 1205.825477803392,
+              "height": 1400.5509926164802,
+              "rotated": true,
+              "textureAngleDeg": 420,
+              "sourceBlankKey": "[\"wall-1\",1218.5,1375,1220,688,0,0,60]"
+            },
+            {
+              "part": {
+                "id": "panel-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-1",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.4",
+                "width": 1220.0000000000002,
+                "height": 688,
+                "areaSqM": 0.42,
+                "materialId": "aw-sheet-wood",
+                "materialName": "Сплошная панель: Дерево",
+                "decorCode": "5189",
+                "textureCategory": "WOOD",
+                "x": 1218.4999999999998,
+                "y": 1375,
+                "textureMapping": {
+                  "offsetX": -1.1368683772161597e-13,
+                  "offsetY": 0,
+                  "angleDeg": 420
+                },
+                "patternAngleDeg": 420,
+                "patternFlipX": false,
+                "color": "#4d3725",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 2438.5,
+                    "y": 2063
+                  },
+                  {
+                    "x": 1218.5,
+                    "y": 2063
+                  },
+                  {
+                    "x": 1218.4999999999998,
+                    "y": 1375
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": -1.1368683772161597e-13,
+              "y": 1399.4490073835198,
+              "width": 1205.825477803392,
+              "height": 1400.5509926164802,
+              "rotated": true,
+              "textureAngleDeg": 420,
+              "sourceBlankKey": "[\"wall-1\",1218.5,1375,1220,688,0,0,60]"
+            }
+          ],
+          "cutLines": [
+            {
+              "p1": {
+                "x": 595.8254778036938,
+                "y": 1399.4490073829847
+              },
+              "p2": {
+                "x": 1205.8254778036937,
+                "y": 2456
+              },
+              "length": 1220,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 1205.8254778036937,
+                "y": 2456
+              },
+              "p2": {
+                "x": 609.9999999999997,
+                "y": 2800
+              },
+              "length": 688.0000000000003,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 609.9999999999997,
+                "y": 2800
+              },
+              "p2": {
+                "x": 595.8254778036938,
+                "y": 1399.4490073829847
+              },
+              "length": 1400.6227186505296,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 609.9999999999997,
+                "y": 2800
+              },
+              "p2": {
+                "x": 0,
+                "y": 1743.4490073829847
+              },
+              "length": 1220,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 0,
+                "y": 1743.4490073829847
+              },
+              "p2": {
+                "x": 595.8254778036938,
+                "y": 1399.4490073829847
+              },
+              "length": 688,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            }
+          ],
+          "offcuts": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 1209.825477803392,
+              "height": 1395.4490073835198,
+              "areaSqM": 1.688
+            }
+          ],
+          "usedAreaSqM": 0.84,
+          "totalAreaSqM": 3.416,
+          "efficiencyPct": 25,
+          "commonCutPartLabels": [
+            "1.3",
+            "1.4"
+          ]
+        },
+        {
+          "sheetIndex": 3,
+          "sheetLabel": "Лист 3",
+          "materialId": "aw-sheet-wood",
+          "materialName": "Сплошная панель: Дерево",
+          "decorCode": "5189",
+          "color": "#4d3725",
+          "thickness": 5,
+          "sheetWidth": 1220,
+          "sheetHeight": 2800,
+          "placedParts": [
+            {
+              "part": {
+                "id": "panel-1789840235267-2-acii",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.2",
+                "width": 1220,
+                "height": 687,
+                "areaSqM": 0.838,
+                "materialId": "aw-sheet-wood",
+                "materialName": "Сплошная панель: Дерево",
+                "decorCode": "5189",
+                "textureCategory": "WOOD",
+                "x": 1218.5,
+                "y": 2063,
+                "textureMapping": {
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "angleDeg": 60
+                },
+                "patternAngleDeg": 60,
+                "patternFlipX": false,
+                "color": "#4d3725",
+                "thickness": 5,
+                "polygonPoints": [
+                  {
+                    "x": 2438.5,
+                    "y": 2063
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 2750
+                  },
+                  {
+                    "x": 1218.5,
+                    "y": 2750
+                  },
+                  {
+                    "x": 1218.5,
+                    "y": 2063
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 1399.94900738352,
+              "width": 1204.959452399608,
+              "height": 1400.05099261648,
+              "rotated": true,
+              "textureAngleDeg": 60,
+              "sourceBlankKey": "[\"wall-1\",1218.5,2063,1220,687,0,0,60]"
+            }
+          ],
+          "cutLines": [
+            {
+              "p1": {
+                "x": 1204.9594523999094,
+                "y": 2456.5
+              },
+              "p2": {
+                "x": 610.0000000000001,
+                "y": 2800
+              },
+              "length": 687,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 610.0000000000001,
+                "y": 2800
+              },
+              "p2": {
+                "x": 0,
+                "y": 1743.449007382985
+              },
+              "length": 1220,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 0,
+                "y": 1743.449007382985
+              },
+              "p2": {
+                "x": 594.9594523999093,
+                "y": 1399.949007382985
+              },
+              "length": 687,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            },
+            {
+              "p1": {
+                "x": 594.9594523999093,
+                "y": 1399.949007382985
+              },
+              "p2": {
+                "x": 1204.9594523999094,
+                "y": 2456.5
+              },
+              "length": 1220,
+              "orientation": "DIAGONAL",
+              "label": "Наклонный рез"
+            }
+          ],
+          "offcuts": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 1208.959452399608,
+              "height": 1395.94900738352,
+              "areaSqM": 1.688
+            }
+          ],
+          "usedAreaSqM": 0.838,
+          "totalAreaSqM": 3.416,
+          "efficiencyPct": 25
+        }
+      ],
+      "totalSheets": 3,
+      "totalParts": 6,
+      "totalPartsAreaSqM": 3.356,
+      "totalSheetsAreaSqM": 10.248,
+      "overallEfficiencyPct": 33
+    },
+    {
+      "materialId": "aw-sheet-fabric",
+      "materialName": "Сплошная панель: Ткань",
+      "totalSheets": 1,
+      "totalParts": 1,
+      "totalPartsAreaSqM": 0.8,
+      "totalSheetsAreaSqM": 3.42,
+      "overallEfficiencyPct": 23,
+      "sheets": [
+        {
+          "sheetIndex": 1,
+          "sheetLabel": "Лист 1",
+          "materialId": "aw-sheet-fabric",
+          "materialName": "Сплошная панель: Ткань",
+          "decorCode": "7029",
+          "color": "#c4b5a2",
+          "thickness": 8,
+          "sheetWidth": 1220,
+          "sheetHeight": 2800,
+          "placedParts": [
+            {
+              "part": {
+                "id": "panel-1789841100531-1-mgi2",
+                "wallId": "wall-1",
+                "wallName": "Стена 1",
+                "partLabel": "1.9",
+                "width": 1161.5,
+                "height": 688,
+                "areaSqM": 0.799,
+                "materialId": "aw-sheet-fabric",
+                "materialName": "Сплошная панель: Ткань",
+                "decorCode": "7029",
+                "textureCategory": "FABRIC",
+                "x": 2438.5,
+                "y": 1375,
+                "patternAngleDeg": 0,
+                "patternFlipX": false,
+                "color": "#c4b5a2",
+                "thickness": 8,
+                "polygonPoints": [
+                  {
+                    "x": 2438.5,
+                    "y": 2063
+                  },
+                  {
+                    "x": 2438.5,
+                    "y": 1375
+                  },
+                  {
+                    "x": 3600,
+                    "y": 1375
+                  },
+                  {
+                    "x": 3600,
+                    "y": 2063
+                  }
+                ],
+                "materialType": "SHEET",
+                "stockWidth": 1220,
+                "stockHeight": 2800
+              },
+              "x": 0,
+              "y": 0,
+              "width": 1161.5,
+              "height": 688,
+              "rotated": false
+            }
+          ],
+          "cutLines": [
+            {
+              "p1": {
+                "x": 1161.5,
+                "y": 0
+              },
+              "p2": {
+                "x": 1161.5,
+                "y": 688
+              },
+              "length": 688,
+              "orientation": "VERTICAL",
+              "label": "688"
+            },
+            {
+              "p1": {
+                "x": 1161.5,
+                "y": 688
+              },
+              "p2": {
+                "x": 0,
+                "y": 688
+              },
+              "length": 1161.5,
+              "orientation": "HORIZONTAL",
+              "label": "1162"
+            }
+          ],
+          "offcuts": [
+            {
+              "x": 0,
+              "y": 692,
+              "width": 1165.5,
+              "height": 2108,
+              "areaSqM": 2.457
+            }
+          ],
+          "usedAreaSqM": 0.799,
+          "totalAreaSqM": 3.416,
+          "efficiencyPct": 23
+        }
+      ]
+    }
+  ],
+  "allSheets": [
+    {
+      "sheetIndex": 1,
+      "sheetLabel": "Лист 1",
+      "materialId": "aw-sheet-fabric",
+      "materialName": "Сплошная панель: Ткань",
+      "decorCode": "7029",
+      "color": "#c4b5a2",
+      "thickness": 5,
+      "sheetWidth": 1220,
+      "sheetHeight": 2800,
+      "placedParts": [
+        {
+          "part": {
+            "id": "panel-1789836342698-1-zejh",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.1",
+            "width": 1218.5,
+            "height": 2750,
+            "areaSqM": 3.351,
+            "materialId": "aw-sheet-fabric",
+            "materialName": "Сплошная панель: Ткань",
+            "decorCode": "7029",
+            "textureCategory": "FABRIC",
+            "x": 0,
+            "y": 0,
+            "patternAngleDeg": 0,
+            "patternFlipX": false,
+            "color": "#c4b5a2",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 1218.5,
+                "y": 2750
+              },
+              {
+                "x": 0,
+                "y": 2750
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 1218.5,
+                "y": 0
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 0,
+          "width": 1218.5,
+          "height": 2750,
+          "rotated": false
+        }
+      ],
+      "cutLines": [
+        {
+          "p1": {
+            "x": 1218.5,
+            "y": 2750
+          },
+          "p2": {
+            "x": 0,
+            "y": 2750
+          },
+          "length": 1218.5,
+          "orientation": "HORIZONTAL",
+          "label": "1219"
+        },
+        {
+          "p1": {
+            "x": 1218.5,
+            "y": 0
+          },
+          "p2": {
+            "x": 1218.5,
+            "y": 2750
+          },
+          "length": 2750,
+          "orientation": "VERTICAL",
+          "label": "2750"
+        }
+      ],
+      "offcuts": [],
+      "usedAreaSqM": 3.351,
+      "totalAreaSqM": 3.416,
+      "efficiencyPct": 98
+    },
+    {
+      "sheetIndex": 2,
+      "sheetLabel": "Лист 2",
+      "materialId": "aw-sheet-fabric",
+      "materialName": "Сплошная панель: Ткань",
+      "decorCode": "7029",
+      "color": "#c4b5a2",
+      "thickness": 5,
+      "sheetWidth": 1220,
+      "sheetHeight": 2800,
+      "placedParts": [
+        {
+          "part": {
+            "id": "panel-1789841099583-2-v2wn",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.11",
+            "width": 583.5,
+            "height": 1375,
+            "areaSqM": 0.802,
+            "materialId": "aw-sheet-fabric",
+            "materialName": "Сплошная панель: Ткань",
+            "decorCode": "7029",
+            "textureCategory": "FABRIC",
+            "x": 3016.5,
+            "y": 0,
+            "patternAngleDeg": 0,
+            "patternFlipX": false,
+            "color": "#c4b5a2",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 3016.5,
+                "y": 0
+              },
+              {
+                "x": 3600,
+                "y": 0
+              },
+              {
+                "x": 3600,
+                "y": 1375
+              },
+              {
+                "x": 3016.5,
+                "y": 1375
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 0,
+          "width": 583.5,
+          "height": 1375,
+          "rotated": false
+        },
+        {
+          "part": {
+            "id": "panel-1789841099583-1-fw1h",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.10",
+            "width": 578,
+            "height": 1375,
+            "areaSqM": 0.795,
+            "materialId": "aw-sheet-fabric",
+            "materialName": "Сплошная панель: Ткань",
+            "decorCode": "7029",
+            "textureCategory": "FABRIC",
+            "x": 2438.5,
+            "y": 0,
+            "patternAngleDeg": 0,
+            "patternFlipX": false,
+            "color": "#c4b5a2",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 3016.5,
+                "y": 1375
+              },
+              {
+                "x": 2438.5,
+                "y": 1375
+              },
+              {
+                "x": 2438.5,
+                "y": 0
+              },
+              {
+                "x": 3016.5,
+                "y": 0
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 587.5,
+          "y": 0,
+          "width": 578,
+          "height": 1375,
+          "rotated": false
+        },
+        {
+          "part": {
+            "id": "panel-1789841100531-2-2ci0",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.8",
+            "width": 1161.5,
+            "height": 687,
+            "areaSqM": 0.798,
+            "materialId": "aw-sheet-fabric",
+            "materialName": "Сплошная панель: Ткань",
+            "decorCode": "7029",
+            "textureCategory": "FABRIC",
+            "x": 2438.5,
+            "y": 2063,
+            "patternAngleDeg": 0,
+            "patternFlipX": false,
+            "color": "#c4b5a2",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 3600,
+                "y": 2063
+              },
+              {
+                "x": 3600,
+                "y": 2750
+              },
+              {
+                "x": 2438.5,
+                "y": 2750
+              },
+              {
+                "x": 2438.5,
+                "y": 2063
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 1379,
+          "width": 1161.5,
+          "height": 687,
+          "rotated": false
+        }
+      ],
+      "cutLines": [
+        {
+          "p1": {
+            "x": 583.5,
+            "y": 0
+          },
+          "p2": {
+            "x": 583.5,
+            "y": 1375
+          },
+          "length": 1375,
+          "orientation": "VERTICAL",
+          "label": "1375"
+        },
+        {
+          "p1": {
+            "x": 583.5,
+            "y": 1375
+          },
+          "p2": {
+            "x": 0,
+            "y": 1375
+          },
+          "length": 583.5,
+          "orientation": "HORIZONTAL",
+          "label": "584"
+        },
+        {
+          "p1": {
+            "x": 1165.5,
+            "y": 1375
+          },
+          "p2": {
+            "x": 587.5,
+            "y": 1375
+          },
+          "length": 578,
+          "orientation": "HORIZONTAL",
+          "label": "578"
+        },
+        {
+          "p1": {
+            "x": 587.5,
+            "y": 1375
+          },
+          "p2": {
+            "x": 587.5,
+            "y": 0
+          },
+          "length": 1375,
+          "orientation": "VERTICAL",
+          "label": "1375"
+        },
+        {
+          "p1": {
+            "x": 1165.5,
+            "y": 0
+          },
+          "p2": {
+            "x": 1165.5,
+            "y": 1375
+          },
+          "length": 1375,
+          "orientation": "VERTICAL",
+          "label": "1375"
+        },
+        {
+          "p1": {
+            "x": 1161.5,
+            "y": 1379
+          },
+          "p2": {
+            "x": 1161.5,
+            "y": 2066
+          },
+          "length": 687,
+          "orientation": "VERTICAL",
+          "label": "687"
+        },
+        {
+          "p1": {
+            "x": 1161.5,
+            "y": 2066
+          },
+          "p2": {
+            "x": 0,
+            "y": 2066
+          },
+          "length": 1161.5,
+          "orientation": "HORIZONTAL",
+          "label": "1162"
+        },
+        {
+          "p1": {
+            "x": 0,
+            "y": 1379
+          },
+          "p2": {
+            "x": 1161.5,
+            "y": 1379
+          },
+          "length": 1161.5,
+          "orientation": "HORIZONTAL",
+          "label": "1162"
+        }
+      ],
+      "offcuts": [
+        {
+          "x": 587.5,
+          "y": 2070,
+          "width": 578,
+          "height": 730,
+          "areaSqM": 0.422
+        },
+        {
+          "x": 0,
+          "y": 2070,
+          "width": 587.5,
+          "height": 730,
+          "areaSqM": 0.429
+        }
+      ],
+      "usedAreaSqM": 2.395,
+      "totalAreaSqM": 3.416,
+      "efficiencyPct": 70
+    },
+    {
+      "sheetIndex": 3,
+      "sheetLabel": "Лист 3",
+      "materialId": "aw-sheet-wood",
+      "materialName": "Сплошная панель: Дерево",
+      "decorCode": "5189",
+      "color": "#4d3725",
+      "thickness": 5,
+      "sheetWidth": 1220,
+      "sheetHeight": 2800,
+      "placedParts": [
+        {
+          "part": {
+            "id": "panel-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-0",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.7",
+            "width": 1220,
+            "height": 914.5045480451679,
+            "areaSqM": 0.558,
+            "materialId": "aw-sheet-wood",
+            "materialName": "Сплошная панель: Дерево",
+            "decorCode": "5189",
+            "textureCategory": "WOOD",
+            "x": 1218.5,
+            "y": 0,
+            "textureMapping": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "angleDeg": 180
+            },
+            "patternAngleDeg": 180,
+            "patternFlipX": false,
+            "color": "#4d3725",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 1218.5,
+                "y": 0
+              },
+              {
+                "x": 2438.5,
+                "y": 0
+              },
+              {
+                "x": 2438.5,
+                "y": 914.5045480451679
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 1885.495451954832,
+          "width": 1220,
+          "height": 914.5045480451679,
+          "rotated": false,
+          "textureAngleDeg": 180,
+          "sourceBlankKey": "[\"wall-1\",1218.5,0,1220,2750,0,0,180]"
+        },
+        {
+          "part": {
+            "id": "panel-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-1",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.6",
+            "width": 1220.0000000000002,
+            "height": 1374.9999999999998,
+            "areaSqM": 0.839,
+            "materialId": "aw-sheet-wood",
+            "materialName": "Сплошная панель: Дерево",
+            "decorCode": "5189",
+            "textureCategory": "WOOD",
+            "x": 1218.4999999999998,
+            "y": 0,
+            "textureMapping": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "angleDeg": 180
+            },
+            "patternAngleDeg": 180,
+            "patternFlipX": false,
+            "color": "#4d3725",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 2438.5,
+                "y": 914.5045480451679
+              },
+              {
+                "x": 1218.4999999999998,
+                "y": 1374.9999999999998
+              },
+              {
+                "x": 1218.5,
+                "y": 0
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 1425.0000000000002,
+          "width": 1220.0000000000002,
+          "height": 1374.9999999999998,
+          "rotated": false,
+          "textureAngleDeg": 180,
+          "sourceBlankKey": "[\"wall-1\",1218.5,0,1220,2750,0,0,180]"
+        },
+        {
+          "part": {
+            "id": "panel-cut-35dba948-4f50-456f-8ac3-c109de3ef433-1",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.5",
+            "width": 1220.0000000000002,
+            "height": 460.4954519548321,
+            "areaSqM": 0.281,
+            "materialId": "aw-sheet-wood",
+            "materialName": "Сплошная панель: Дерево",
+            "decorCode": "5189",
+            "textureCategory": "WOOD",
+            "x": 1218.4999999999998,
+            "y": 914.5045480451679,
+            "textureMapping": {
+              "offsetX": 0,
+              "offsetY": 914.5045480451679,
+              "angleDeg": 180
+            },
+            "patternAngleDeg": 180,
+            "patternFlipX": false,
+            "color": "#4d3725",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 2438.5,
+                "y": 914.5045480451679
+              },
+              {
+                "x": 2438.5,
+                "y": 1375
+              },
+              {
+                "x": 1218.4999999999998,
+                "y": 1375
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 1425,
+          "width": 1220.0000000000002,
+          "height": 460.4954519548321,
+          "rotated": false,
+          "textureAngleDeg": 180,
+          "sourceBlankKey": "[\"wall-1\",1218.5,0,1220,2750,0,0,180]"
+        }
+      ],
+      "cutLines": [
+        {
+          "p1": {
+            "x": 0,
+            "y": 1885.495451954832
+          },
+          "p2": {
+            "x": 1220,
+            "y": 2800
+          },
+          "length": 1524.7027803461556,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 0,
+            "y": 1885.495451954832
+          },
+          "p2": {
+            "x": 1220.0000000000002,
+            "y": 1425.0000000000002
+          },
+          "length": 1304.0153608263538,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 0,
+            "y": 1425
+          },
+          "p2": {
+            "x": 1220.0000000000002,
+            "y": 1425
+          },
+          "length": 1220.0000000000002,
+          "orientation": "HORIZONTAL",
+          "label": "1220"
+        }
+      ],
+      "offcuts": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 1220,
+          "height": 1421,
+          "areaSqM": 1.734
+        }
+      ],
+      "usedAreaSqM": 1.678,
+      "totalAreaSqM": 3.416,
+      "efficiencyPct": 49,
+      "commonCutPartLabels": [
+        "1.5",
+        "1.6",
+        "1.7"
+      ]
+    },
+    {
+      "sheetIndex": 4,
+      "sheetLabel": "Лист 4",
+      "materialId": "aw-sheet-wood",
+      "materialName": "Сплошная панель: Дерево",
+      "decorCode": "5189",
+      "color": "#4d3725",
+      "thickness": 5,
+      "sheetWidth": 1220,
+      "sheetHeight": 2800,
+      "placedParts": [
+        {
+          "part": {
+            "id": "panel-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-0",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.3",
+            "width": 1220.0000000000002,
+            "height": 688,
+            "areaSqM": 0.42,
+            "materialId": "aw-sheet-wood",
+            "materialName": "Сплошная панель: Дерево",
+            "decorCode": "5189",
+            "textureCategory": "WOOD",
+            "x": 1218.4999999999998,
+            "y": 1375,
+            "textureMapping": {
+              "offsetX": -1.1368683772161597e-13,
+              "offsetY": 0,
+              "angleDeg": 420
+            },
+            "patternAngleDeg": 420,
+            "patternFlipX": false,
+            "color": "#4d3725",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 1218.4999999999998,
+                "y": 1375
+              },
+              {
+                "x": 2438.5,
+                "y": 1375
+              },
+              {
+                "x": 2438.5,
+                "y": 2063
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": -1.1368683772161597e-13,
+          "y": 1399.4490073835198,
+          "width": 1205.825477803392,
+          "height": 1400.5509926164802,
+          "rotated": true,
+          "textureAngleDeg": 420,
+          "sourceBlankKey": "[\"wall-1\",1218.5,1375,1220,688,0,0,60]"
+        },
+        {
+          "part": {
+            "id": "panel-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-1",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.4",
+            "width": 1220.0000000000002,
+            "height": 688,
+            "areaSqM": 0.42,
+            "materialId": "aw-sheet-wood",
+            "materialName": "Сплошная панель: Дерево",
+            "decorCode": "5189",
+            "textureCategory": "WOOD",
+            "x": 1218.4999999999998,
+            "y": 1375,
+            "textureMapping": {
+              "offsetX": -1.1368683772161597e-13,
+              "offsetY": 0,
+              "angleDeg": 420
+            },
+            "patternAngleDeg": 420,
+            "patternFlipX": false,
+            "color": "#4d3725",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 2438.5,
+                "y": 2063
+              },
+              {
+                "x": 1218.5,
+                "y": 2063
+              },
+              {
+                "x": 1218.4999999999998,
+                "y": 1375
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": -1.1368683772161597e-13,
+          "y": 1399.4490073835198,
+          "width": 1205.825477803392,
+          "height": 1400.5509926164802,
+          "rotated": true,
+          "textureAngleDeg": 420,
+          "sourceBlankKey": "[\"wall-1\",1218.5,1375,1220,688,0,0,60]"
+        }
+      ],
+      "cutLines": [
+        {
+          "p1": {
+            "x": 595.8254778036938,
+            "y": 1399.4490073829847
+          },
+          "p2": {
+            "x": 1205.8254778036937,
+            "y": 2456
+          },
+          "length": 1220,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 1205.8254778036937,
+            "y": 2456
+          },
+          "p2": {
+            "x": 609.9999999999997,
+            "y": 2800
+          },
+          "length": 688.0000000000003,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 609.9999999999997,
+            "y": 2800
+          },
+          "p2": {
+            "x": 595.8254778036938,
+            "y": 1399.4490073829847
+          },
+          "length": 1400.6227186505296,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 609.9999999999997,
+            "y": 2800
+          },
+          "p2": {
+            "x": 0,
+            "y": 1743.4490073829847
+          },
+          "length": 1220,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 0,
+            "y": 1743.4490073829847
+          },
+          "p2": {
+            "x": 595.8254778036938,
+            "y": 1399.4490073829847
+          },
+          "length": 688,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        }
+      ],
+      "offcuts": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 1209.825477803392,
+          "height": 1395.4490073835198,
+          "areaSqM": 1.688
+        }
+      ],
+      "usedAreaSqM": 0.84,
+      "totalAreaSqM": 3.416,
+      "efficiencyPct": 25,
+      "commonCutPartLabels": [
+        "1.3",
+        "1.4"
+      ]
+    },
+    {
+      "sheetIndex": 5,
+      "sheetLabel": "Лист 5",
+      "materialId": "aw-sheet-wood",
+      "materialName": "Сплошная панель: Дерево",
+      "decorCode": "5189",
+      "color": "#4d3725",
+      "thickness": 5,
+      "sheetWidth": 1220,
+      "sheetHeight": 2800,
+      "placedParts": [
+        {
+          "part": {
+            "id": "panel-1789840235267-2-acii",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.2",
+            "width": 1220,
+            "height": 687,
+            "areaSqM": 0.838,
+            "materialId": "aw-sheet-wood",
+            "materialName": "Сплошная панель: Дерево",
+            "decorCode": "5189",
+            "textureCategory": "WOOD",
+            "x": 1218.5,
+            "y": 2063,
+            "textureMapping": {
+              "offsetX": 0,
+              "offsetY": 0,
+              "angleDeg": 60
+            },
+            "patternAngleDeg": 60,
+            "patternFlipX": false,
+            "color": "#4d3725",
+            "thickness": 5,
+            "polygonPoints": [
+              {
+                "x": 2438.5,
+                "y": 2063
+              },
+              {
+                "x": 2438.5,
+                "y": 2750
+              },
+              {
+                "x": 1218.5,
+                "y": 2750
+              },
+              {
+                "x": 1218.5,
+                "y": 2063
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 1399.94900738352,
+          "width": 1204.959452399608,
+          "height": 1400.05099261648,
+          "rotated": true,
+          "textureAngleDeg": 60,
+          "sourceBlankKey": "[\"wall-1\",1218.5,2063,1220,687,0,0,60]"
+        }
+      ],
+      "cutLines": [
+        {
+          "p1": {
+            "x": 1204.9594523999094,
+            "y": 2456.5
+          },
+          "p2": {
+            "x": 610.0000000000001,
+            "y": 2800
+          },
+          "length": 687,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 610.0000000000001,
+            "y": 2800
+          },
+          "p2": {
+            "x": 0,
+            "y": 1743.449007382985
+          },
+          "length": 1220,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 0,
+            "y": 1743.449007382985
+          },
+          "p2": {
+            "x": 594.9594523999093,
+            "y": 1399.949007382985
+          },
+          "length": 687,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        },
+        {
+          "p1": {
+            "x": 594.9594523999093,
+            "y": 1399.949007382985
+          },
+          "p2": {
+            "x": 1204.9594523999094,
+            "y": 2456.5
+          },
+          "length": 1220,
+          "orientation": "DIAGONAL",
+          "label": "Наклонный рез"
+        }
+      ],
+      "offcuts": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 1208.959452399608,
+          "height": 1395.94900738352,
+          "areaSqM": 1.688
+        }
+      ],
+      "usedAreaSqM": 0.838,
+      "totalAreaSqM": 3.416,
+      "efficiencyPct": 25
+    },
+    {
+      "sheetIndex": 6,
+      "sheetLabel": "Лист 6",
+      "materialId": "aw-sheet-fabric",
+      "materialName": "Сплошная панель: Ткань",
+      "decorCode": "7029",
+      "color": "#c4b5a2",
+      "thickness": 8,
+      "sheetWidth": 1220,
+      "sheetHeight": 2800,
+      "placedParts": [
+        {
+          "part": {
+            "id": "panel-1789841100531-1-mgi2",
+            "wallId": "wall-1",
+            "wallName": "Стена 1",
+            "partLabel": "1.9",
+            "width": 1161.5,
+            "height": 688,
+            "areaSqM": 0.799,
+            "materialId": "aw-sheet-fabric",
+            "materialName": "Сплошная панель: Ткань",
+            "decorCode": "7029",
+            "textureCategory": "FABRIC",
+            "x": 2438.5,
+            "y": 1375,
+            "patternAngleDeg": 0,
+            "patternFlipX": false,
+            "color": "#c4b5a2",
+            "thickness": 8,
+            "polygonPoints": [
+              {
+                "x": 2438.5,
+                "y": 2063
+              },
+              {
+                "x": 2438.5,
+                "y": 1375
+              },
+              {
+                "x": 3600,
+                "y": 1375
+              },
+              {
+                "x": 3600,
+                "y": 2063
+              }
+            ],
+            "materialType": "SHEET",
+            "stockWidth": 1220,
+            "stockHeight": 2800
+          },
+          "x": 0,
+          "y": 0,
+          "width": 1161.5,
+          "height": 688,
+          "rotated": false
+        }
+      ],
+      "cutLines": [
+        {
+          "p1": {
+            "x": 1161.5,
+            "y": 0
+          },
+          "p2": {
+            "x": 1161.5,
+            "y": 688
+          },
+          "length": 688,
+          "orientation": "VERTICAL",
+          "label": "688"
+        },
+        {
+          "p1": {
+            "x": 1161.5,
+            "y": 688
+          },
+          "p2": {
+            "x": 0,
+            "y": 688
+          },
+          "length": 1161.5,
+          "orientation": "HORIZONTAL",
+          "label": "1162"
+        }
+      ],
+      "offcuts": [
+        {
+          "x": 0,
+          "y": 692,
+          "width": 1165.5,
+          "height": 2108,
+          "areaSqM": 2.457
+        }
+      ],
+      "usedAreaSqM": 0.799,
+      "totalAreaSqM": 3.416,
+      "efficiencyPct": 23
+    }
+  ]
+}

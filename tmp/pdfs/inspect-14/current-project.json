@@ -1,0 +1,2567 @@
+{
+  "id": "proj-1789836316979",
+  "name": "авпвап",
+  "walls": [
+    {
+      "id": "wall-1",
+      "name": "Стена 1",
+      "width": 3600,
+      "height": 2750,
+      "openings": [],
+      "bends": [],
+      "panels": [
+        {
+          "id": "panel-1789836342698-1-zejh",
+          "points": [
+            {
+              "x": 1218.5,
+              "y": 2750
+            },
+            {
+              "x": 0,
+              "y": 2750
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 1218.5,
+              "y": 0
+            }
+          ],
+          "materialId": "aw-sheet-fabric",
+          "isVoid": false,
+          "partLabel": "1.1",
+          "decorName": "Лен Песочный 7029",
+          "color": "#c4b5a2",
+          "decorCode": "7029",
+          "thickness": 5,
+          "textureCategory": "FABRIC",
+          "reliefType": "FLAT"
+        },
+        {
+          "id": "panel-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-0",
+          "points": [
+            {
+              "x": 1221.5,
+              "y": 0
+            },
+            {
+              "x": 2441.5,
+              "y": 0
+            },
+            {
+              "x": 2441.5,
+              "y": 914.504548045168
+            }
+          ],
+          "materialId": "aw-sheet-wood",
+          "isVoid": false,
+          "partLabel": "1.7",
+          "decorName": "Дуб Натуральный 5134",
+          "color": "#4d3725",
+          "decorCode": "5189",
+          "thickness": 5,
+          "textureCategory": "WOOD",
+          "reliefType": "FLAT",
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 180,
+            "anchor": {
+              "x": 1221.5,
+              "y": 0,
+              "width": 1220,
+              "height": 2750
+            }
+          },
+          "patternAngleDeg": 180,
+          "patternFlipX": false,
+          "edges": {
+            "0": {
+              "width": 0,
+              "isLED": false
+            },
+            "2": {
+              "width": 0,
+              "isLED": false,
+              "profileArticle": "MC-04",
+              "profileColor": "#adb5bd"
+            }
+          }
+        },
+        {
+          "id": "panel-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-1",
+          "points": [
+            {
+              "x": 2441.5,
+              "y": 914.504548045168
+            },
+            {
+              "x": 1221.5,
+              "y": 1375
+            },
+            {
+              "x": 1221.5,
+              "y": 0
+            }
+          ],
+          "materialId": "aw-sheet-wood",
+          "isVoid": false,
+          "partLabel": "1.6",
+          "decorName": "Дуб Натуральный 5134",
+          "color": "#4d3725",
+          "decorCode": "5189",
+          "thickness": 5,
+          "textureCategory": "WOOD",
+          "reliefType": "FLAT",
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 180,
+            "anchor": {
+              "x": 1221.5,
+              "y": 0,
+              "width": 1220,
+              "height": 2750
+            }
+          },
+          "patternAngleDeg": 180,
+          "patternFlipX": false,
+          "edges": {}
+        },
+        {
+          "id": "panel-cut-35dba948-4f50-456f-8ac3-c109de3ef433-1",
+          "points": [
+            {
+              "x": 2441.5,
+              "y": 914.504548045168
+            },
+            {
+              "x": 2441.5,
+              "y": 1375
+            },
+            {
+              "x": 1221.5,
+              "y": 1375
+            }
+          ],
+          "materialId": "aw-sheet-wood",
+          "isVoid": false,
+          "partLabel": "1.5",
+          "decorName": "Дуб Натуральный 5134",
+          "color": "#4d3725",
+          "decorCode": "5189",
+          "thickness": 5,
+          "textureCategory": "WOOD",
+          "reliefType": "FLAT",
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 180,
+            "anchor": {
+              "x": 1221.5,
+              "y": 0,
+              "width": 1220,
+              "height": 2750
+            }
+          },
+          "patternAngleDeg": 180,
+          "patternFlipX": false,
+          "edges": {}
+        },
+        {
+          "id": "panel-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-0",
+          "points": [
+            {
+              "x": 1221.5,
+              "y": 1375
+            },
+            {
+              "x": 2441.5,
+              "y": 1375
+            },
+            {
+              "x": 2441.5,
+              "y": 2063
+            }
+          ],
+          "materialId": "aw-sheet-wood",
+          "isVoid": false,
+          "partLabel": "1.3",
+          "decorName": "Дуб Натуральный 5134",
+          "color": "#4d3725",
+          "decorCode": "5189",
+          "thickness": 5,
+          "textureCategory": "WOOD",
+          "reliefType": "FLAT",
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 420,
+            "anchor": {
+              "x": 1221.5,
+              "y": 1375,
+              "width": 1220,
+              "height": 688
+            }
+          },
+          "patternAngleDeg": 420,
+          "patternFlipX": false,
+          "edges": {}
+        },
+        {
+          "id": "panel-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-1",
+          "points": [
+            {
+              "x": 2441.5,
+              "y": 2063
+            },
+            {
+              "x": 1221.5,
+              "y": 2063
+            },
+            {
+              "x": 1221.5,
+              "y": 1375
+            }
+          ],
+          "materialId": "aw-sheet-wood",
+          "isVoid": false,
+          "partLabel": "1.4",
+          "decorName": "Дуб Натуральный 5134",
+          "color": "#4d3725",
+          "decorCode": "5189",
+          "thickness": 5,
+          "textureCategory": "WOOD",
+          "reliefType": "FLAT",
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 420,
+            "anchor": {
+              "x": 1221.5,
+              "y": 1375,
+              "width": 1220,
+              "height": 688
+            }
+          },
+          "patternAngleDeg": 420,
+          "patternFlipX": false,
+          "edges": {}
+        },
+        {
+          "id": "panel-1789840235267-2-acii",
+          "points": [
+            {
+              "x": 2441.5,
+              "y": 2063
+            },
+            {
+              "x": 2441.5,
+              "y": 2750
+            },
+            {
+              "x": 1221.5,
+              "y": 2750
+            },
+            {
+              "x": 1221.5,
+              "y": 2063
+            }
+          ],
+          "materialId": "aw-sheet-wood",
+          "isVoid": false,
+          "partLabel": "1.2",
+          "decorName": "Дуб Натуральный 5134",
+          "color": "#4d3725",
+          "decorCode": "5189",
+          "thickness": 5,
+          "textureCategory": "WOOD",
+          "reliefType": "FLAT",
+          "textureMapping": {
+            "offsetX": 0,
+            "offsetY": 0,
+            "angleDeg": 60,
+            "anchor": {
+              "x": 1221.5,
+              "y": 2063,
+              "width": 1220,
+              "height": 687
+            }
+          },
+          "patternAngleDeg": 60,
+          "patternFlipX": false,
+          "edges": {}
+        },
+        {
+          "id": "panel-1789841099583-1-fw1h",
+          "points": [
+            {
+              "x": 3022.5,
+              "y": 1375
+            },
+            {
+              "x": 2444.5,
+              "y": 1375
+            },
+            {
+              "x": 2444.5,
+              "y": 0
+            },
+            {
+              "x": 3022.5,
+              "y": 0
+            }
+          ],
+          "materialId": "aw-sheet-fabric",
+          "isVoid": false,
+          "partLabel": "1.10",
+          "decorName": "Лен Песочный 7029",
+          "color": "#c4b5a2",
+          "decorCode": "7029",
+          "thickness": 5,
+          "textureCategory": "FABRIC",
+          "reliefType": "FLAT",
+          "edges": {}
+        },
+        {
+          "id": "panel-1789841099583-2-v2wn",
+          "points": [
+            {
+              "x": 3022.5,
+              "y": 0
+            },
+            {
+              "x": 3600,
+              "y": 0
+            },
+            {
+              "x": 3600,
+              "y": 1375
+            },
+            {
+              "x": 3022.5,
+              "y": 1375
+            }
+          ],
+          "materialId": "aw-sheet-fabric",
+          "isVoid": false,
+          "partLabel": "1.11",
+          "decorName": "Лен Песочный 7029",
+          "color": "#c4b5a2",
+          "decorCode": "7029",
+          "thickness": 5,
+          "textureCategory": "FABRIC",
+          "reliefType": "FLAT",
+          "edges": {}
+        },
+        {
+          "id": "panel-1789841100531-1-mgi2",
+          "points": [
+            {
+              "x": 2444.5,
+              "y": 2063
+            },
+            {
+              "x": 2444.5,
+              "y": 1375
+            },
+            {
+              "x": 3600,
+              "y": 1375
+            },
+            {
+              "x": 3600,
+              "y": 2063
+            }
+          ],
+          "materialId": "aw-sheet-fabric",
+          "isVoid": false,
+          "partLabel": "1.9",
+          "decorName": "Лен Песочный 7029",
+          "color": "#c4b5a2",
+          "decorCode": "7029",
+          "thickness": 8,
+          "textureCategory": "FABRIC",
+          "reliefType": "FLAT",
+          "edges": {}
+        },
+        {
+          "id": "panel-1789841100531-2-2ci0",
+          "points": [
+            {
+              "x": 3600,
+              "y": 2063
+            },
+            {
+              "x": 3600,
+              "y": 2750
+            },
+            {
+              "x": 2444.5,
+              "y": 2750
+            },
+            {
+              "x": 2444.5,
+              "y": 2063
+            }
+          ],
+          "materialId": "aw-sheet-fabric",
+          "isVoid": false,
+          "partLabel": "1.8",
+          "decorName": "Лен Песочный 7029",
+          "color": "#c4b5a2",
+          "decorCode": "7029",
+          "thickness": 5,
+          "textureCategory": "FABRIC",
+          "reliefType": "FLAT",
+          "edges": {}
+        }
+      ],
+      "joints": [
+        {
+          "id": "joint-cut-1789836342698-1",
+          "p1": {
+            "x": 1220,
+            "y": 0
+          },
+          "p2": {
+            "x": 1220,
+            "y": 2750
+          },
+          "width": 3,
+          "isLED": false,
+          "orientation": "VERTICAL",
+          "profileArticle": "MC-06"
+        },
+        {
+          "id": "joint-cut-1789836342698-2",
+          "p1": {
+            "x": 2443,
+            "y": 0
+          },
+          "p2": {
+            "x": 2443,
+            "y": 2750
+          },
+          "width": 3,
+          "isLED": false,
+          "orientation": "VERTICAL",
+          "profileArticle": "MC-06"
+        },
+        {
+          "id": "joint-cut-35dba948-4f50-456f-8ac3-c109de3ef433-0",
+          "p1": {
+            "x": 1221.5,
+            "y": 1375
+          },
+          "p2": {
+            "x": 2441.5,
+            "y": 914.504548045168
+          },
+          "width": 0,
+          "isLED": false,
+          "orientation": "DIAGONAL"
+        },
+        {
+          "id": "joint-cut-85be8ed6-8e94-4a39-830f-595ee5fd3b25-0",
+          "p1": {
+            "x": 1221.5,
+            "y": 0
+          },
+          "p2": {
+            "x": 2441.5,
+            "y": 914.504548045168
+          },
+          "width": 0,
+          "isLED": false,
+          "orientation": "DIAGONAL"
+        },
+        {
+          "id": "joint-cut-95b3bfcf-9dd2-4589-9b80-34ee6c1ecc08-0",
+          "p1": {
+            "x": 1221.5,
+            "y": 1375
+          },
+          "p2": {
+            "x": 2441.5,
+            "y": 2063
+          },
+          "width": 0,
+          "isLED": false,
+          "orientation": "DIAGONAL"
+        }
+      ],
+      "customPanels": {},
+      "customJoints": {},
+      "zone": {
+        "id": "zone-wall-1",
+        "materialId": "mat-none",
+        "orientation": "VERTICAL",
+        "jointProfileType": "JOINT_3"
+      }
+    }
+  ],
+  "materials": [
+    {
+      "id": "aw-sheet-fabric",
+      "name": "Сплошная панель: Ткань",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#c4b5a2",
+      "decorCode": "7029",
+      "decorName": "Лен Песочный 7029",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "FABRIC",
+      "modelId": "aw-sheet-fabric",
+      "availableDecors": [
+        {
+          "code": "7029",
+          "name": "Лен Песочный 7029",
+          "color": "#c4b5a2",
+          "category": "FABRIC",
+          "isPopular": true
+        },
+        {
+          "code": "7206",
+          "name": "Ткань Серый Меланж 7206",
+          "color": "#9e9c97",
+          "category": "FABRIC"
+        },
+        {
+          "code": "7207",
+          "name": "Ткань Графит 7207",
+          "color": "#52504d",
+          "category": "FABRIC"
+        },
+        {
+          "code": "7204",
+          "name": "Рогожка Беж 7204",
+          "color": "#d9cdb8",
+          "category": "FABRIC",
+          "isPopular": true
+        },
+        {
+          "code": "7102",
+          "name": "Текстиль Капучино 7102",
+          "color": "#ad9c88",
+          "category": "FABRIC"
+        },
+        {
+          "code": "7112",
+          "name": "Ткань Дымчатая 7112",
+          "color": "#b5b2aa",
+          "category": "FABRIC"
+        },
+        {
+          "code": "7138",
+          "name": "Ткань Темный Антрацит 7138",
+          "color": "#3d3b38",
+          "category": "FABRIC"
+        }
+      ]
+    },
+    {
+      "id": "aw-sheet-wood",
+      "name": "Сплошная панель: Дерево",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-sheet-wood",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-sheet-stone",
+      "name": "Сплошная панель: Камень & Бетон",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#a4a39f",
+      "decorCode": "6302",
+      "decorName": "Бетон Лофт 6302",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "STONE",
+      "modelId": "aw-sheet-stone",
+      "availableDecors": [
+        {
+          "code": "6302",
+          "name": "Бетон Лофт 6302",
+          "color": "#a4a39f",
+          "category": "STONE",
+          "isPopular": true
+        },
+        {
+          "code": "6307",
+          "name": "Сланец Темный 6307",
+          "color": "#595958",
+          "category": "STONE"
+        },
+        {
+          "code": "8805-8",
+          "name": "Песчаник Светлый 8805-8",
+          "color": "#d2c7b5",
+          "category": "STONE"
+        },
+        {
+          "code": "6153",
+          "name": "Микроцемент Серый 6153",
+          "color": "#8c8b87",
+          "category": "STONE",
+          "isPopular": true
+        },
+        {
+          "code": "8807-10",
+          "name": "Гранит Антрацит 8807-10",
+          "color": "#414345",
+          "category": "STONE"
+        },
+        {
+          "code": "6125",
+          "name": "Штукатурка Травертин 6125",
+          "color": "#c9beaf",
+          "category": "STONE"
+        },
+        {
+          "code": "6120",
+          "name": "Бетон Светлый 6120",
+          "color": "#bcbbb6",
+          "category": "STONE"
+        },
+        {
+          "code": "8016-3",
+          "name": "Мрамор Матовый 8016-3",
+          "color": "#ddd9d0",
+          "category": "STONE"
+        },
+        {
+          "code": "8806-8",
+          "name": "Сланец Бежевый 8806-8",
+          "color": "#b8ab9a",
+          "category": "STONE"
+        },
+        {
+          "code": "8201-8",
+          "name": "Базальт 8201-8",
+          "color": "#4e4f50",
+          "category": "STONE"
+        },
+        {
+          "code": "6303",
+          "name": "Индустриальный Бетон 6303",
+          "color": "#7e7e7a",
+          "category": "STONE"
+        },
+        {
+          "code": "8040",
+          "name": "Скала Серый 8040",
+          "color": "#6e6f6f",
+          "category": "STONE"
+        }
+      ]
+    },
+    {
+      "id": "aw-sheet-mirror",
+      "name": "Сплошная панель: Зеркало",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#d8dee3",
+      "decorCode": "2217-30",
+      "decorName": "Зеркало Серебро 2217-30",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "MIRROR",
+      "modelId": "aw-sheet-mirror",
+      "availableDecors": [
+        {
+          "code": "2217-30",
+          "name": "Зеркало Серебро 2217-30",
+          "color": "#d8dee3",
+          "category": "MIRROR",
+          "isPopular": true
+        },
+        {
+          "code": "8012-15",
+          "name": "Зеркало Бронза 8012-15",
+          "color": "#a88566",
+          "category": "MIRROR"
+        },
+        {
+          "code": "8803-30",
+          "name": "Зеркало Графит 8803-30",
+          "color": "#555b61",
+          "category": "MIRROR",
+          "isPopular": true
+        },
+        {
+          "code": "8804-30",
+          "name": "Зеркало Титан 8804-30",
+          "color": "#7a8187",
+          "category": "MIRROR"
+        },
+        {
+          "code": "8807-10",
+          "name": "Зеркало Черный Глянец 8807-10",
+          "color": "#2b2d30",
+          "category": "MIRROR"
+        },
+        {
+          "code": "8812-15",
+          "name": "Зеркало Золото 8812-15",
+          "color": "#c9a25b",
+          "category": "MIRROR"
+        },
+        {
+          "code": "2223-30",
+          "name": "Зеркало Шампань 2223-30",
+          "color": "#c8b99d",
+          "category": "MIRROR"
+        },
+        {
+          "code": "8810-15",
+          "name": "Зеркало Медь 8810-15",
+          "color": "#ad6a52",
+          "category": "MIRROR"
+        }
+      ]
+    },
+    {
+      "id": "aw-sheet-metal",
+      "name": "Сплошная панель: Металл",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#b1b6ba",
+      "decorCode": "2012-35",
+      "decorName": "Брашированный Алюминий 2012-35",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "METAL",
+      "modelId": "aw-sheet-metal",
+      "availableDecors": [
+        {
+          "code": "2012-35",
+          "name": "Брашированный Алюминий 2012-35",
+          "color": "#b1b6ba",
+          "category": "METAL",
+          "isPopular": true
+        },
+        {
+          "code": "2007-15",
+          "name": "Брашированная Латунь 2007-15",
+          "color": "#bf9b59",
+          "category": "METAL",
+          "isPopular": true
+        },
+        {
+          "code": "2123-10",
+          "name": "Брашированная Медь 2123-10",
+          "color": "#b06849",
+          "category": "METAL"
+        },
+        {
+          "code": "2220-25",
+          "name": "Темный Титан 2220-25",
+          "color": "#4a4f54",
+          "category": "METAL"
+        },
+        {
+          "code": "2015-35",
+          "name": "Черный Матовый Металл 2015-35",
+          "color": "#27292b",
+          "category": "METAL"
+        },
+        {
+          "code": "2201-30",
+          "name": "Хром Сатин 2201-30",
+          "color": "#cad0d4",
+          "category": "METAL"
+        },
+        {
+          "code": "2204-30",
+          "name": "Шампань Металл 2204-30",
+          "color": "#bdae95",
+          "category": "METAL"
+        }
+      ]
+    },
+    {
+      "id": "aw-sheet-softtouch",
+      "name": "Сплошная панель: Soft Touch & Кожа",
+      "type": "SHEET",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#eae7df",
+      "decorCode": "1022",
+      "decorName": "Soft-Touch Белый Теплый 1022",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "SOFT_TOUCH",
+      "modelId": "aw-sheet-softtouch",
+      "availableDecors": [
+        {
+          "code": "1022",
+          "name": "Soft-Touch Белый Теплый 1022",
+          "color": "#eae7df",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "1013-8",
+          "name": "Soft-Touch Крем 1013-8",
+          "color": "#ded7c9",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1011-8",
+          "name": "Soft-Touch Кашемир 1011-8",
+          "color": "#c8bfb1",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "10087A-5",
+          "name": "Soft-Touch Пудровый 10087A-5",
+          "color": "#c7b4aa",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1088-5",
+          "name": "Soft-Touch Графит 1088-5",
+          "color": "#4a4a4b",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1092-5",
+          "name": "Soft-Touch Черный Бархат 1092-5",
+          "color": "#232425",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "1053-5",
+          "name": "Soft-Touch Олива 1053-5",
+          "color": "#687063",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1052-5",
+          "name": "Soft-Touch Серо-Синий 1052-5",
+          "color": "#5b6b75",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1085-5",
+          "name": "Soft-Touch Терракота 1085-5",
+          "color": "#9e5a48",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1081A-5",
+          "name": "Кожа Бежевая 1081A-5",
+          "color": "#bfaa96",
+          "category": "SOFT_TOUCH"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw90",
+      "name": "Реечная панель: GW90 Волна (Гофре)",
+      "type": "SLAT",
+      "width": 158,
+      "height": 3000,
+      "thickness": 15,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        15
+      ],
+      "reliefType": "WAVE_GW90",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw90",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        },
+        {
+          "code": "1022",
+          "name": "Soft-Touch Белый Теплый 1022",
+          "color": "#eae7df",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "1013-8",
+          "name": "Soft-Touch Крем 1013-8",
+          "color": "#ded7c9",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1011-8",
+          "name": "Soft-Touch Кашемир 1011-8",
+          "color": "#c8bfb1",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "10087A-5",
+          "name": "Soft-Touch Пудровый 10087A-5",
+          "color": "#c7b4aa",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1088-5",
+          "name": "Soft-Touch Графит 1088-5",
+          "color": "#4a4a4b",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1092-5",
+          "name": "Soft-Touch Черный Бархат 1092-5",
+          "color": "#232425",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "1053-5",
+          "name": "Soft-Touch Олива 1053-5",
+          "color": "#687063",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1052-5",
+          "name": "Soft-Touch Серо-Синий 1052-5",
+          "color": "#5b6b75",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1085-5",
+          "name": "Soft-Touch Терракота 1085-5",
+          "color": "#9e5a48",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1081A-5",
+          "name": "Кожа Бежевая 1081A-5",
+          "color": "#bfaa96",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "2012-35",
+          "name": "Брашированный Алюминий 2012-35",
+          "color": "#b1b6ba",
+          "category": "METAL",
+          "isPopular": true
+        },
+        {
+          "code": "2007-15",
+          "name": "Брашированная Латунь 2007-15",
+          "color": "#bf9b59",
+          "category": "METAL",
+          "isPopular": true
+        },
+        {
+          "code": "2123-10",
+          "name": "Брашированная Медь 2123-10",
+          "color": "#b06849",
+          "category": "METAL"
+        },
+        {
+          "code": "2220-25",
+          "name": "Темный Титан 2220-25",
+          "color": "#4a4f54",
+          "category": "METAL"
+        },
+        {
+          "code": "2015-35",
+          "name": "Черный Матовый Металл 2015-35",
+          "color": "#27292b",
+          "category": "METAL"
+        },
+        {
+          "code": "2201-30",
+          "name": "Хром Сатин 2201-30",
+          "color": "#cad0d4",
+          "category": "METAL"
+        },
+        {
+          "code": "2204-30",
+          "name": "Шампань Металл 2204-30",
+          "color": "#bdae95",
+          "category": "METAL"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw30",
+      "name": "Реечная панель: GW30 Комбинированный желоб",
+      "type": "SLAT",
+      "width": 153,
+      "height": 3000,
+      "thickness": 16,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        16
+      ],
+      "reliefType": "CONCAVE_GW30",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw30",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        },
+        {
+          "code": "1022",
+          "name": "Soft-Touch Белый Теплый 1022",
+          "color": "#eae7df",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "1013-8",
+          "name": "Soft-Touch Крем 1013-8",
+          "color": "#ded7c9",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1011-8",
+          "name": "Soft-Touch Кашемир 1011-8",
+          "color": "#c8bfb1",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "10087A-5",
+          "name": "Soft-Touch Пудровый 10087A-5",
+          "color": "#c7b4aa",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1088-5",
+          "name": "Soft-Touch Графит 1088-5",
+          "color": "#4a4a4b",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1092-5",
+          "name": "Soft-Touch Черный Бархат 1092-5",
+          "color": "#232425",
+          "category": "SOFT_TOUCH",
+          "isPopular": true
+        },
+        {
+          "code": "1053-5",
+          "name": "Soft-Touch Олива 1053-5",
+          "color": "#687063",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1052-5",
+          "name": "Soft-Touch Серо-Синий 1052-5",
+          "color": "#5b6b75",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1085-5",
+          "name": "Soft-Touch Терракота 1085-5",
+          "color": "#9e5a48",
+          "category": "SOFT_TOUCH"
+        },
+        {
+          "code": "1081A-5",
+          "name": "Кожа Бежевая 1081A-5",
+          "color": "#bfaa96",
+          "category": "SOFT_TOUCH"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw10",
+      "name": "Реечная панель: GW10 Узкая рейка",
+      "type": "SLAT",
+      "width": 53,
+      "height": 3000,
+      "thickness": 17,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        17
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw10",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw16",
+      "name": "Реечная панель: GW16 Массивная",
+      "type": "SLAT",
+      "width": 210,
+      "height": 3000,
+      "thickness": 22,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        22
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw16",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw40",
+      "name": "Реечная панель: GW40 Тонкая",
+      "type": "SLAT",
+      "width": 130,
+      "height": 3000,
+      "thickness": 9,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        9
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw40",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw20",
+      "name": "Реечная панель: GW20 Глубокий баффель",
+      "type": "SLAT",
+      "width": 177,
+      "height": 3000,
+      "thickness": 22,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        22
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw20",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw22",
+      "name": "Реечная панель: GW22 Средняя",
+      "type": "SLAT",
+      "width": 172,
+      "height": 3000,
+      "thickness": 18,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        18
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw22",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw60",
+      "name": "Реечная панель: GW60 Плоский ритм",
+      "type": "SLAT",
+      "width": 199,
+      "height": 3000,
+      "thickness": 11,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        11
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw60",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw99",
+      "name": "Реечная панель: GW99 Нишевая",
+      "type": "SLAT",
+      "width": 83,
+      "height": 3000,
+      "thickness": 14,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        14
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw99",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw15",
+      "name": "Реечная панель: GW15 Тонкая широкая",
+      "type": "SLAT",
+      "width": 204,
+      "height": 3000,
+      "thickness": 10,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        10
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw15",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw68",
+      "name": "Реечная панель: GW68 Экстра-глубокая",
+      "type": "SLAT",
+      "width": 200,
+      "height": 3000,
+      "thickness": 25,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        25
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw68",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-slat-gw23",
+      "name": "Реечная панель: GW23 Фасадная",
+      "type": "SLAT",
+      "width": 220,
+      "height": 3000,
+      "thickness": 12,
+      "color": "#a0784a",
+      "decorCode": "5134",
+      "decorName": "Дуб Натуральный 5134",
+      "thicknessOptions": [
+        12
+      ],
+      "reliefType": "STEP_SLAT",
+      "textureCategory": "WOOD",
+      "modelId": "aw-slat-gw23",
+      "availableDecors": [
+        {
+          "code": "5134",
+          "name": "Дуб Натуральный 5134",
+          "color": "#a0784a",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5186",
+          "name": "Орех Американский 5186",
+          "color": "#684a32",
+          "category": "WOOD",
+          "isPopular": true
+        },
+        {
+          "code": "5187",
+          "name": "Дуб Рустик 5187",
+          "color": "#886241",
+          "category": "WOOD"
+        },
+        {
+          "code": "5189",
+          "name": "Темный Орех 5189",
+          "color": "#4d3725",
+          "category": "WOOD"
+        },
+        {
+          "code": "5152",
+          "name": "Беленый Ясень 5152",
+          "color": "#cbbda9",
+          "category": "WOOD"
+        },
+        {
+          "code": "5165",
+          "name": "Дуб Медовый 5165",
+          "color": "#ab814e",
+          "category": "WOOD"
+        },
+        {
+          "code": "5167",
+          "name": "Ясень Сканди 5167",
+          "color": "#b9a58b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5173",
+          "name": "Дуб Карамель 5173",
+          "color": "#976e43",
+          "category": "WOOD"
+        },
+        {
+          "code": "5009",
+          "name": "Венге 5009",
+          "color": "#32251d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5147",
+          "name": "Тик 5147",
+          "color": "#8d603a",
+          "category": "WOOD"
+        },
+        {
+          "code": "5007",
+          "name": "Дуб Мореный 5007",
+          "color": "#3e322b",
+          "category": "WOOD"
+        },
+        {
+          "code": "5190",
+          "name": "Орех Седой 5190",
+          "color": "#7a6a5d",
+          "category": "WOOD"
+        },
+        {
+          "code": "5022",
+          "name": "Палисандр 5022",
+          "color": "#4a2e22",
+          "category": "WOOD"
+        }
+      ]
+    },
+    {
+      "id": "aw-hq-gloss-marble",
+      "name": "HQ-панель: Глянцевый мрамор",
+      "type": "HQ",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#e8e7e1",
+      "decorCode": "RY8085",
+      "decorName": "Калакатта Роял RY8085",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "MARBLE_HQ",
+      "modelId": "aw-hq-gloss-marble",
+      "availableDecors": [
+        {
+          "code": "RY8085",
+          "name": "Калакатта Роял RY8085",
+          "color": "#e8e7e1",
+          "category": "MARBLE_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "RY8047",
+          "name": "Неро Марквина RY8047",
+          "color": "#2c2d30",
+          "category": "MARBLE_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "RY8045",
+          "name": "Статуарио Экстра RY8045",
+          "color": "#ecebe6",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8038",
+          "name": "Оникс Серый RY8038",
+          "color": "#9ea0a2",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8056",
+          "name": "Мрамор Бьянко Золото RY8056",
+          "color": "#e3ded4",
+          "category": "MARBLE_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "RY8009",
+          "name": "Имперадор Дарк RY8009",
+          "color": "#45382f",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8079",
+          "name": "Арабескато RY8079",
+          "color": "#dbd8d0",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8078",
+          "name": "Панда Вайт RY8078",
+          "color": "#f0ede6",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8021-4",
+          "name": "Оникс Медовый RY8021-4",
+          "color": "#c4a678",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8041",
+          "name": "Гриджио Оробико RY8041",
+          "color": "#686b6e",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "RY8063-2",
+          "name": "Браун Сильвер RY8063-2",
+          "color": "#5a4f49",
+          "category": "MARBLE_HQ"
+        }
+      ]
+    },
+    {
+      "id": "aw-hq-gold",
+      "name": "HQ-панель: Бесконечное золото",
+      "type": "HQ",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#cfba8f",
+      "decorCode": "LG2142",
+      "decorName": "Бесконечное Золото Агат LG2142",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "GOLD_HQ",
+      "modelId": "aw-hq-gold",
+      "availableDecors": [
+        {
+          "code": "LG2142",
+          "name": "Бесконечное Золото Агат LG2142",
+          "color": "#cfba8f",
+          "category": "GOLD_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "LG2141",
+          "name": "Золотые Вены LG2141",
+          "color": "#d8c7a2",
+          "category": "GOLD_HQ"
+        },
+        {
+          "code": "LG2146",
+          "name": "Черное Золото LG2146",
+          "color": "#383633",
+          "category": "GOLD_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "LG2054",
+          "name": "Латунная Река LG2054",
+          "color": "#bfa472",
+          "category": "GOLD_HQ"
+        },
+        {
+          "code": "LG2030",
+          "name": "Золотой Оникс LG2030",
+          "color": "#d4b77f",
+          "category": "GOLD_HQ"
+        },
+        {
+          "code": "LG2125",
+          "name": "Белое Золото LG2125",
+          "color": "#e4dcce",
+          "category": "GOLD_HQ"
+        }
+      ]
+    },
+    {
+      "id": "aw-hq-bookmatch",
+      "name": "HQ-панель: Бесконечный мрамор (Bookmatch)",
+      "type": "HQ",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 5,
+      "color": "#e7e3d9",
+      "decorCode": "LW9015",
+      "decorName": "Стыкуемый Калакатта Оро LW9015",
+      "thicknessOptions": [
+        5,
+        8
+      ],
+      "reliefType": "FLAT",
+      "textureCategory": "MARBLE_HQ",
+      "modelId": "aw-hq-bookmatch",
+      "availableDecors": [
+        {
+          "code": "LW9015",
+          "name": "Стыкуемый Калакатта Оро LW9015",
+          "color": "#e7e3d9",
+          "category": "MARBLE_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "LW1018",
+          "name": "Бесконечный Неро LW1018",
+          "color": "#2a2c2e",
+          "category": "MARBLE_HQ",
+          "isPopular": true
+        },
+        {
+          "code": "LW1009",
+          "name": "Бесконечный Статуарио LW1009",
+          "color": "#eae6df",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "LW1020",
+          "name": "Стыкуемый Азур LW1020",
+          "color": "#566e7a",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "LW1048",
+          "name": "Бесконечный Патагония LW1048",
+          "color": "#c7b89f",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "LW7017",
+          "name": "Стыкуемый Сахара Блэк LW7017",
+          "color": "#2f2c2a",
+          "category": "MARBLE_HQ"
+        },
+        {
+          "code": "LW9044",
+          "name": "Бесконечный Кварцит LW9044",
+          "color": "#b9b4a9",
+          "category": "MARBLE_HQ"
+        }
+      ]
+    },
+    {
+      "id": "mat-none",
+      "name": "⭕ Без материала (Пустота / Зеркало / Покраска)",
+      "type": "NONE",
+      "width": 1220,
+      "height": 2800,
+      "thickness": 0,
+      "color": "rgba(30, 31, 35, 0.45)",
+      "isVoid": true
+    }
+  ],
+  "selectedWallId": "wall-1",
+  "selectedOpeningId": null,
+  "createdAt": "2026-09-19T16:45:16.979Z",
+  "updatedAt": "2026-09-20T14:46:20.592Z"
+}

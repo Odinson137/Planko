@@ -1,6 +1,6 @@
 import { getPieceTexture } from '../../core/textures/PieceTextures';
 import { drawTextureFace } from '../../core/textures/PhotoTextures';
-import { resolveTextureMapping, slopeTexturePiece, pointOnSheet } from '../../core/textures/TextureMapping';
+import { slopeTexturePiece } from '../../core/textures/TextureMapping';
 import { jsPDF } from 'jspdf';
 import { Project } from '../../core/models/Project';
 import { Wall, RadiusType } from '../../core/models/Wall';
@@ -71,7 +71,10 @@ export class PdfExportService {
             materialName: mat?.name || p.decorName || 'Панель AllWall',
             decorCode: p.decorCode,
             textureCategory: p.textureCategory,
-            textureMapping: p.textureMapping ? resolveTextureMapping(p) : undefined,
+            x: p.x,
+            y: p.y,
+            textureMapping: p.textureMapping,
+            patternAngleDeg: p.patternAngleDeg,
             patternFlipX: p.patternFlipX,
             color: p.materialColor,
             thickness: p.thickness,
@@ -210,7 +213,10 @@ export class PdfExportService {
             materialName: mat?.name || p.decorName || 'Панель AllWall',
             decorCode: p.decorCode || mat?.decorCode,
             textureCategory: p.textureCategory,
-            textureMapping: p.textureMapping ? resolveTextureMapping(p) : undefined,
+            x: p.x,
+            y: p.y,
+            textureMapping: p.textureMapping,
+            patternAngleDeg: p.patternAngleDeg,
             patternFlipX: p.patternFlipX,
             thickness: p.thickness || mat?.thickness || 5,
             color: p.materialColor || mat?.color,
@@ -467,10 +473,10 @@ export class PdfExportService {
     const sharedSheets = sheetsForThisWall.filter((item) => item.otherWallNames.length > 0);
 
     if (wallJoints.length > 0) {
-      const meaningfulJoint = wallJoints.find((j) => j.width > 0 && !j.isOuterEdge) || wallJoints.find((j) => j.width > 0) || { width: 3 };
-      const jointGap = (meaningfulJoint.width || 3).toLocaleString('ru-RU');
+      const jointGaps = [...new Set(wallJoints.map(j => j.width))].sort((a, b) => a - b);
+      const jointGap = jointGaps.map(gap => gap.toLocaleString('ru-RU')).join(' / ');
       ctx.fillStyle = '#334155';
-      ctx.fillText(`! Стыки и зазоры обрамления: ширина швов ${jointGap} мм (профиль AllWall / теневой открытый паз).`, marginX, 2045);
+      ctx.fillText(`! Стыки и зазоры обрамления: ${jointGap} мм. Значения относятся к соответствующим стыкам на чертеже.`, marginX, 2045);
     } else if (sharedSheets.length > 0) {
       const sharedLabels = sharedSheets.map((item) => item.sheet.sheetLabel).join(', ');
       const targetWalls = Array.from(new Set(sharedSheets.flatMap((item) => item.otherWallNames))).join(', ');
@@ -1049,8 +1055,8 @@ export class PdfExportService {
       .filter((p) => !p.isVoid && p.y <= 50)
       .forEach((p) => {
         const xs = (p.polygonPoints && p.polygonPoints.length >= 3 ? p.polygonPoints : [{ x: p.x, y: p.y }, { x: p.x + p.width, y: p.y }]).map((pt) => pt.x);
-        const minX = Math.round(Math.min(...xs));
-        const maxX = Math.round(Math.max(...xs));
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
         if (maxX > minX + 5) {
           rawIntervals.push({ start: minX, end: maxX, isOpening: false });
         }
@@ -1072,12 +1078,12 @@ export class PdfExportService {
 
     rawIntervals.forEach((item) => {
       // Если между предыдущей точкой и началом текущего элемента есть зазор шва (например 8 мм)
-      if (item.start > curX + 2) {
+      if (item.start > curX + 0.01) {
         const gap = item.start - curX;
         bottomSegments.push({
           start: curX,
           end: item.start,
-          label: `${Math.round(gap)}`,
+          label: dimensionText(gap),
           isJoint: true,
         });
       }
@@ -1087,7 +1093,7 @@ export class PdfExportService {
       bottomSegments.push({
         start: item.start,
         end: item.end,
-        label: `${Math.round(w)}`,
+        label: dimensionText(w),
         isJoint: false,
       });
 
@@ -1095,12 +1101,12 @@ export class PdfExportService {
     });
 
     // Зазор шва у правого края стены
-    if (wall.width > curX + 2) {
+    if (wall.width > curX + 0.01) {
       const gap = wall.width - curX;
       bottomSegments.push({
         start: curX,
         end: wall.width,
-        label: `${Math.round(gap)}`,
+        label: dimensionText(gap),
         isJoint: true,
       });
     }
@@ -1585,6 +1591,7 @@ export class PdfExportService {
       );
 
       // Размещенные детали на листе
+      const cutBadges = new Map<string, { x: number; y: number; text: string }>();
       sheet.placedParts.forEach((p) => {
         const px = sheetOriginX + p.x * scale;
         const py = sheetOriginY + (sheet.sheetHeight - (p.y + p.height)) * scale;
@@ -1594,13 +1601,6 @@ export class PdfExportService {
         const isCurrentWall = p.part.wallId === currentWallId;
         const rawPts = p.part.polygonPoints;
         const isPolygon = Boolean(rawPts && rawPts.length >= 3);
-
-        const xs = isPolygon ? rawPts!.map((pt) => pt.x) : [];
-        const ys = isPolygon ? rawPts!.map((pt) => pt.y) : [];
-        const minX = isPolygon ? Math.min(...xs) : 0;
-        const maxX = isPolygon ? Math.max(...xs) : 0;
-        const minY = isPolygon ? Math.min(...ys) : 0;
-        const origW = maxX - minX;
 
         const isDiagonalCut =
           isPolygon &&
@@ -1613,17 +1613,10 @@ export class PdfExportService {
 
         if (isDiagonalCut) {
           // 1. Преобразуем полигон детали в координаты листа раскроя
-          polyCanvasPts = rawPts!.map((pt) => {
-            const localX = pt.x - minX;
-            const localY = pt.y - minY;
-            const mapped = p.textureAngleDeg === undefined ? undefined : pointOnSheet(localX, p.part.height-localY, p.part.width, p.part.height, p.textureAngleDeg);
-            const sheetLocalX = mapped ? mapped.x : (p.rotated ? localY : localX);
-            const sheetLocalY = mapped ? p.height - mapped.y : (p.rotated ? origW - localX : localY);
-            return {
-              x: sheetOriginX + (p.x + sheetLocalX) * scale,
-              y: sheetOriginY + (sheet.sheetHeight - (p.y + sheetLocalY)) * scale,
-            };
-          });
+          polyCanvasPts = NestingEngine.placedPolygon(p).map(pt => ({
+            x: sheetOriginX + pt.x * scale,
+            y: sheetOriginY + (sheet.sheetHeight - pt.y) * scale,
+          }));
 
           // Отрисовываем сам полигон детали
           ctx.save();
@@ -1665,22 +1658,9 @@ export class PdfExportService {
               ctx.lineTo(cp2.x, cp2.y);
               ctx.stroke();
 
-              // Бейдж с длиной реза и углом
-              ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
-              const cutBadge = `✂️ ${cutLen} мм (∠${cutAngle}°)`;
-              const cbw = ctx.measureText(cutBadge).width + 10;
-              ctx.fillStyle = '#ffffff';
-              ctx.beginPath();
-              ctx.roundRect(midCutX - cbw / 2, midCutY - 9, cbw, 18, 4);
-              ctx.fill();
-              ctx.strokeStyle = '#0f172a';
-              ctx.lineWidth = 1;
-              ctx.stroke();
-
-              ctx.fillStyle = '#0f172a';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(cutBadge, midCutX, midCutY);
+              // Shared edges get one badge, drawn above every part and cut line.
+              const badgeKey = [cp1, cp2].map(q => `${q.x.toFixed(4)},${q.y.toFixed(4)}`).sort().join('|');
+              cutBadges.set(badgeKey, { x: midCutX, y: midCutY, text: `✂️ ${cutLen} мм (∠${cutAngle}°)` });
               ctx.restore();
             }
           }
@@ -1983,8 +1963,35 @@ export class PdfExportService {
         ctx.setLineDash([]);
       });
 
+      cutBadges.forEach(({ x, y, text }) => {
+        ctx.save();
+        ctx.font = 'bold 10px "Segoe UI", Arial, sans-serif';
+        const width = ctx.measureText(text).width + 10;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(x - width / 2, y - 9, width, 18, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#0f172a';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x, y);
+        ctx.restore();
+      });
+
       // СТРУКТУРИРОВАННЫЙ ПОДВАЛ ЛИСТА: ПРИМЕЧАНИЯ И ОСТАТКИ (БЕЗ ПЕРЕСЕЧЕНИЙ И НАЛОЖЕНИЙ)
       let footerY = sheetOriginY + sheet.sheetHeight * scale + 34;
+
+      if (sheet.commonCutPartLabels?.length) {
+        ctx.fillStyle = '#92400e';
+        ctx.font = 'bold 12px "Segoe UI", Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Общие резы: ${sheet.commonCutPartLabels.join(', ')}`, cellX + cellW / 2, footerY, cellW - 20);
+        footerY += 24;
+      }
 
       if (otherWallNames.length > 0) {
         const noteText = `📌 Остаток: ${otherWallNames.join(', ')}`;

@@ -153,16 +153,16 @@ function stockParts(materialId: string, sizes: Array<[number, number]>) {
   }));
 }
 
-test('slats use separate real stock and reuse length with a saw kerf', () => {
+test('slats use separate real stock and reuse the full nominal length', () => {
   const slat = { ...material, id: 'slat-test', type: 'SLAT' as const, width: 145, height: 3000, thickness: 16 };
   const full = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 3000], [145, 3000]]), undefined, undefined, [slat]);
   assert.equal(full.totalSheetsCount, 2);
   assert.ok(full.allSheets.every((s) => s.sheetWidth === 145 && s.sheetHeight === 3000 && s.sheetLabel.startsWith('Рейка')));
-  const short = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 1500], [145, 1496]]), undefined, undefined, [slat]);
+  const short = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 1500], [145, 1500]]), undefined, undefined, [slat]);
   assert.equal(short.totalSheetsCount, 1);
-  assert.deepEqual(short.allSheets[0].placedParts.map((p) => p.y).sort((a, b) => a - b), [0, 1504]);
-  const noRoomForKerf = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 1500], [145, 1500]]), undefined, undefined, [slat]);
-  assert.equal(noRoomForKerf.totalSheetsCount, 2);
+  assert.deepEqual(short.allSheets[0].placedParts.map((p) => p.y).sort((a, b) => a - b), [0, 1500]);
+  const tooLong = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[145, 1500], [145, 1500.1]]), undefined, undefined, [slat]);
+  assert.equal(tooLong.totalSheetsCount, 2);
   const ripped = NestingEngine.optimizeProjectNesting(stockParts(slat.id, [[60, 2000], [60, 2000]]), undefined, undefined, [slat]);
   assert.equal(ripped.totalSheetsCount, 2);
   assert.ok(ripped.allSheets.every((s) => s.placedParts.every((p) => !p.rotated)));

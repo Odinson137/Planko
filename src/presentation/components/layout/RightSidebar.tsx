@@ -59,6 +59,7 @@ import {
 } from '../../../core/models/Profile';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
+import { getResolvedPanelEdges } from '../../../core/geometry/PanelJointBinding';
 import {
   ensureOpeningSlopes,
   ensureOpeningFraming,
@@ -389,7 +390,7 @@ export const RightSidebar: React.FC = () => {
   if (editMode === 'JOINTS' && activePanelId && currentWall) {
     const wallPanel = findPanelForEdge(currentWall.panels, activePanelId);
     const targetPanelId = wallPanel?.id || activePanelId;
-    const panelEdges = getPanelEdges(wallPanel?.points ?? [], wallPanel?.edges);
+    const panelEdges = wallPanel ? getResolvedPanelEdges(currentWall, wallPanel) : getPanelEdges([]);
     const selectedEdge = panelEdges.find(e => e.key === selectedPanelEdge?.edge) ?? panelEdges[0];
     const side = selectedEdge?.key ?? 'right';
     const edgeConfig = selectedEdge?.config || { width: 0, isLED: false };

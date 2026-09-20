@@ -5,7 +5,7 @@ import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { LayoutCalculationResult } from '../../../core/layout/LayoutEngine';
 import { Wall } from '../../../core/models/Wall';
 import { sheetTexturePreview } from '../../../core/textures/PhotoTextures';
-import { slopeTexturePiece, resolveTextureMapping, TexturedPiece, TextureMapping, textureFootprint, textureMappingError, pointOnSheet } from '../../../core/textures/TextureMapping';
+import { slopeTexturePiece, resolveTextureMapping, TexturedPiece, TextureMapping, textureFootprint, textureMappingError, texturePieceOutline, textureSheetOutline } from '../../../core/textures/TextureMapping';
 
 type Target = TexturedPiece & { id: string; label: string };
 
@@ -56,13 +56,23 @@ export const TextureEditor: React.FC<{ wall: Wall; layout: LayoutCalculationResu
     const texture = getPieceTexture(previewPiece);
     if (!texture) return;
     const scale = Math.min(280 / texture.width, 180 / texture.height);
-    ctx.drawImage(texture, (280 - texture.width * scale) / 2, (180 - texture.height * scale) / 2, texture.width * scale, texture.height * scale);
+    const left = (280 - texture.width * scale) / 2, top = (180 - texture.height * scale) / 2;
+    const outline = texturePieceOutline(previewPiece).map(p => ({
+      x: left + p.x / previewPiece.width * texture.width * scale,
+      y: top + p.y / previewPiece.height * texture.height * scale,
+    }));
+    ctx.beginPath();
+    outline.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.closePath();
+    ctx.save(); ctx.clip();
+    ctx.drawImage(texture, left, top, texture.width * scale, texture.height * scale);
     if (!photo) {
       ctx.save(); ctx.translate(140,90); ctx.rotate(draft.angleDeg*Math.PI/180);
       ctx.beginPath(); ctx.moveTo(0,28); ctx.lineTo(0,-28); ctx.moveTo(-9,-16); ctx.lineTo(0,-28); ctx.lineTo(9,-16);
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 7; ctx.stroke();
       ctx.strokeStyle = '#1971c2'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
     }
+    ctx.restore();
   }, [previewPiece]);
 
   return <ScrollArea h="100%" w={360} miw={360} style={{ borderLeft: '1px solid #dee2e6' }}><Stack p="md" gap="sm">
@@ -76,7 +86,7 @@ export const TextureEditor: React.FC<{ wall: Wall; layout: LayoutCalculationResu
       <Text size="xs" c="dimmed">Размер листа взят из каталога. Направление и участок можно настроить независимо от наличия фотографии.</Text>
       {!photo && <Alert color="blue">Фотографии нет — показан условный рисунок. Поворот и отступы сохраняются и учитываются при раскрое.</Alert>}
       {<>
-        <Text size="xs">Перетащите рамку или задайте отступы от левого верхнего угла листа.</Text>
+        <Text size="xs">Выделен контур детали на исходном листе. Перетащите его или задайте отступы от левого верхнего угла листа.</Text>
         <svg aria-label="Участок рисунка на исходном листе" role="img" viewBox={`0 0 ${sw} ${sh}`} style={{ height: 300, width: '100%', touchAction: 'none', cursor: 'crosshair' }}
           onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); const rect = e.currentTarget.getBoundingClientRect();
             // SVG uses a centred, aspect-preserving viewport.
@@ -89,11 +99,8 @@ export const TextureEditor: React.FC<{ wall: Wall; layout: LayoutCalculationResu
             update({ offsetX: Math.round(Math.max(0, Math.min(sw - footprint.width, (e.clientX - rect.left - (rect.width - sw * scale) / 2) / scale - footprint.width / 2))),
               offsetY: Math.round(Math.max(0, Math.min(sh - footprint.height, (e.clientY - rect.top - (rect.height - sh * scale) / 2) / scale - footprint.height / 2))) }); }}>
           <image href={photo || schematic} width={sw} height={sh} preserveAspectRatio="none" />
-          <rect x={draft.offsetX} y={draft.offsetY} width={footprint.width} height={footprint.height} fill="none" strokeDasharray="30 20" stroke={error ? '#e03131' : '#228be6'} strokeWidth={20} />
-          <polygon points={[[0,0],[active.width,0],[active.width,active.height],[0,active.height]].map(([x,y]) => {
-            const p = pointOnSheet(x,y,active.width,active.height,draft.angleDeg);
-            return `${draft.offsetX+p.x},${draft.offsetY+p.y}`;
-          }).join(' ')} fill="#228be622" stroke={error ? '#e03131' : '#228be6'} strokeWidth={12} />
+          <polygon points={textureSheetOutline(previewPiece!).map(p => `${p.x},${p.y}`).join(' ')}
+            fill="#228be622" stroke={error ? '#e03131' : '#228be6'} strokeWidth={12} />
         </svg>
         <Group grow><NumberInput label="Отступ слева, мм" min={0} value={draft.offsetX} onChange={v => update({ offsetX: Number(v) || 0 })} />
           <NumberInput label="Отступ сверху, мм" min={0} value={draft.offsetY} onChange={v => update({ offsetY: Number(v) || 0 })} /></Group>
@@ -104,7 +111,7 @@ export const TextureEditor: React.FC<{ wall: Wall; layout: LayoutCalculationResu
         {active.patternFlipX && <Alert color="yellow">В старом проекте включено зеркалирование. При применении оно будет снято: для зеркального рисунка нужен отдельный заводской вариант.</Alert>}
         <Text size="xs">{photo ? 'Предпросмотр детали' : 'Условный предпросмотр детали'} · {draft.angleDeg}°</Text><canvas ref={canvas} width={280} height={180} style={{ maxWidth: '100%' }} />
         {(error || actionError) && <Alert color="red">{error || actionError}</Alert>}
-        <Text size="xs" c="dimmed">Участок сохраняется при раскрое. Перекрывающиеся участки потребуют отдельных листов. Между деталями учитывается пропил 4 мм.</Text>
+        <Text size="xs" c="dimmed">Участок сохраняется при раскрое. Перекрывающиеся участки потребуют отдельных листов.</Text>
         <Group grow><Button variant="default" onClick={() => update({ offsetX: 0, offsetY: 0, angleDeg: 0 })}>Сбросить</Button>
           <Button disabled={!!error || !selected.length} onClick={() => { try { setTextureMappings(wall.id, selected.map(p => ({ id: p.id, mapping: draft }))); setSaved(true); setActionError(null); } catch (e) { setActionError(e instanceof Error ? e.message : 'Не удалось применить настройки.'); } }}>Применить ({selected.length})</Button></Group>
         {saved && <Text c="teal" size="sm">Настройки применены.</Text>}

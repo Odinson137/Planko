@@ -1,6 +1,7 @@
 import { TextureMapping, hasPhotoTexture, resolveTextureMapping, textureMappingError, textureFootprint, pointOnSheet } from '../textures/TextureMapping';
 import { Point2D } from '../geometry/PolygonSlicingEngine';
 import { subtractRectangles } from '../geometry/Rect2D';
+import { polygonsSeparated } from '../geometry/PolygonCollision';
 import { PanelBendInfo } from '../models/Wall';
 import type { Material, MaterialType } from '../models/Material';
 
@@ -14,6 +15,9 @@ export interface NestingCutout {
 }
 
 export interface NestingPartInput {
+  /** Wall-space origin used to resolve an inherited source-sheet anchor. */
+  x?: number;
+  y?: number;
   textureMapping?: TextureMapping;
   textureCategory?: string;
   patternAngleDeg?: number;
@@ -47,6 +51,8 @@ export interface PlacedNestingPart {
   height: number;     // фактическая высота на листе
   rotated: boolean;
   textureAngleDeg?: number;
+  /** Pieces split from this same source crop may share nominal cut boundaries. */
+  sourceBlankKey?: string;
 }
 
 export interface NestingCutLine {
@@ -81,6 +87,7 @@ export interface NestingSheet {
   usedAreaSqM: number;
   totalAreaSqM: number;
   efficiencyPct: number;
+  commonCutPartLabels?: string[];
 }
 
 export interface MaterialNestingResult {
@@ -111,11 +118,13 @@ interface FreeRect {
 export class NestingEngine {
   public static readonly DEFAULT_SHEET_WIDTH = 1220;
   public static readonly DEFAULT_SHEET_HEIGHT = 2800;
-  public static readonly SAW_KERF = 4; // Пропил пилы в мм
 
   public static fitsStock(width: number, height: number, stockWidth = this.DEFAULT_SHEET_WIDTH, stockHeight = this.DEFAULT_SHEET_HEIGHT, type?: MaterialType): boolean {
-    return (width <= stockWidth && height <= stockHeight) ||
-      (type !== 'SLAT' && height <= stockWidth && width <= stockHeight);
+    // Polygon intersections can produce 1220.0000000000002 for a 1220 mm edge.
+    // Absorb numerical noise without rounding the contour or allowing real oversize parts.
+    const epsilon = 1e-7;
+    return (width <= stockWidth + epsilon && height <= stockHeight + epsilon) ||
+      (type !== 'SLAT' && height <= stockWidth + epsilon && width <= stockHeight + epsilon);
   }
 
   /**
@@ -125,7 +134,13 @@ export class NestingEngine {
     if (part.areaSqM !== undefined && part.areaSqM > 0) {
       return part.areaSqM;
     }
-    const rawArea = (part.width * part.height) / 1_000_000;
+    const polygon = part.polygonPoints;
+    const rawArea = polygon && polygon.length >= 3
+      ? Math.abs(polygon.reduce((sum, p, i) => {
+        const next = polygon[(i + 1) % polygon.length];
+        return sum + p.x * next.y - next.x * p.y;
+      }, 0)) / 2_000_000
+      : (part.width * part.height) / 1_000_000;
     if (part.cutouts && part.cutouts.length > 0) {
       const cutoutsArea = part.cutouts.reduce(
         (acc, c) => acc + (c.width * c.height) / 1_000_000,
@@ -242,10 +257,20 @@ export class NestingEngine {
     const sheets: NestingSheet[] = [];
     for (const input of parts) {
       const part = { ...input };
+      // Layout labels round dimensions to tenths. Source contours need their exact
+      // bounds, otherwise adjacent pieces acquire artificial overlaps after rotation.
+      if (part.polygonPoints && part.polygonPoints.length >= 3) {
+        const xs = part.polygonPoints.map(p => p.x), ys = part.polygonPoints.map(p => p.y);
+        part.x = Math.min(...xs);
+        part.y = Math.min(...ys);
+        part.width = Math.max(...xs) - part.x;
+        part.height = Math.max(...ys) - part.y;
+      }
       const piece = { ...part, textureStockWidth: sheetW, textureStockHeight: sheetH };
       const error = textureMappingError(piece);
       if (error) throw new Error(`Деталь ${part.partLabel}: ${error}`);
       const mapping = resolveTextureMapping(piece);
+      part.textureMapping = mapping;
       if (mapping.angleDeg % 90 !== 0 && !part.polygonPoints?.length) {
         part.polygonPoints = [{x:0,y:0},{x:part.width,y:0},{x:part.width,y:part.height},{x:0,y:part.height}];
       }
@@ -253,14 +278,13 @@ export class NestingEngine {
       if (part.materialType === 'SLAT' && (mapping.angleDeg % 180 !== 0 || Math.abs(mapping.offsetX) > 0.01)) {
         throw new Error(`Деталь ${part.partLabel}: рейку нельзя поворачивать поперёк профиля или смещать по ширине.`);
       }
+      const source = input.textureMapping;
+      const sourceBlankKey = source?.anchor ? JSON.stringify([input.wallId, source.anchor.x, source.anchor.y,
+        source.anchor.width, source.anchor.height, source.offsetX, source.offsetY, ((source.angleDeg % 360) + 360) % 360]) : undefined;
       const placed: PlacedNestingPart = { part, x: mapping.offsetX, y: sheetH - mapping.offsetY - footprint.height,
-        width: footprint.width, height: footprint.height, rotated: mapping.angleDeg % 180 !== 0, textureAngleDeg: mapping.angleDeg };
-      const collisionWidth = part.materialType === 'SLAT' ? sheetW : placed.width;
-      let sheet = sheets.find(s => s.placedParts.every(p =>
-        placed.x >= p.x + (p.part.materialType === 'SLAT' ? sheetW : p.width) + this.SAW_KERF - 0.01 ||
-        p.x >= placed.x + collisionWidth + this.SAW_KERF - 0.01 ||
-        placed.y >= p.y + p.height + this.SAW_KERF - 0.01 ||
-        p.y >= placed.y + placed.height + this.SAW_KERF - 0.01));
+        width: footprint.width, height: footprint.height, rotated: mapping.angleDeg % 180 !== 0,
+        textureAngleDeg: mapping.angleDeg, sourceBlankKey };
+      let sheet = sheets.find(s => s.placedParts.every(p => this.partsSeparated(placed, p, sheetW)));
       if (!sheet) {
         sheet = { sheetIndex: sheets.length + 1, sheetLabel: `Лист ${sheets.length + 1}`, materialId, materialName,
           decorCode: part.decorCode, color: part.color, thickness: part.thickness, sheetWidth: sheetW, sheetHeight: sheetH,
@@ -270,6 +294,16 @@ export class NestingEngine {
       sheet.placedParts.push(placed);
     }
     for (const sheet of sheets) {
+      const commonCuts = new Set<string>();
+      sheet.placedParts.forEach((a, i) => sheet.placedParts.slice(i + 1).forEach(b => {
+        // Contact tolerance identifies a shared boundary; it does not reserve stock.
+        if (a.sourceBlankKey && a.sourceBlankKey === b.sourceBlankKey &&
+          !polygonsSeparated(this.placedPolygon(a), this.placedPolygon(b), 0.01)) {
+          commonCuts.add(a.part.partLabel);
+          commonCuts.add(b.part.partLabel);
+        }
+      }));
+      if (commonCuts.size) sheet.commonCutPartLabels = [...commonCuts].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       sheet.cutLines = this.generateSheetCutLines(sheet.placedParts, sheetW, sheetH);
       sheet.offcuts = this.calculateDisjointOffcuts(sheet.placedParts, sheetW, sheetH);
       sheet.usedAreaSqM = sheet.placedParts.reduce((n, p) => n + this.getPartNetAreaSqM(p.part), 0);
@@ -279,6 +313,26 @@ export class NestingEngine {
     const totalSheetsAreaSqM = sheets.length * sheetW * sheetH / 1e6;
     return { materialId, materialName, sheets, totalSheets: sheets.length, totalParts: parts.length,
       totalPartsAreaSqM, totalSheetsAreaSqM, overallEfficiencyPct: totalSheetsAreaSqM ? Math.round(totalPartsAreaSqM / totalSheetsAreaSqM * 100) : 0 };
+  }
+
+  private static partsSeparated(a: PlacedNestingPart, b: PlacedNestingPart, sheetW: number): boolean {
+    const widthA = a.part.materialType === 'SLAT' ? sheetW : a.width;
+    const widthB = b.part.materialType === 'SLAT' ? sheetW : b.width;
+    if (a.x >= b.x + widthB || b.x >= a.x + widthA ||
+      a.y >= b.y + b.height || b.y >= a.y + a.height) return true;
+    if (a.part.materialType === 'SLAT' || b.part.materialType === 'SLAT') return false;
+    return polygonsSeparated(this.placedPolygon(a), this.placedPolygon(b), 0);
+  }
+
+  /** Actual contour in sheet coordinates; bounding boxes may overlap. */
+  public static placedPolygon(p: PlacedNestingPart): Point2D[] {
+    const polygon = p.part.polygonPoints;
+    if (polygon && polygon.length >= 3) {
+      const minX = Math.min(...polygon.map(q => q.x)), minY = Math.min(...polygon.map(q => q.y));
+      return polygon.map(q => this.placedPoint(p, q.x - minX, q.y - minY));
+    }
+    return [[0, 0], [p.part.width, 0], [p.part.width, p.part.height], [0, p.part.height]]
+      .map(([x, y]) => this.placedPoint(p, x, y));
   }
 
   private static packMaterialParts(
@@ -513,18 +567,16 @@ export class NestingEngine {
 
           unplaced.splice(itemIdx, 1);
           // A ripped slat still consumes its entire profile width at this length.
-          // Reserve the saw width on every side. Adjacent pieces may occupy overlapping
-          // MaxRects free regions, so protecting only the top/right edge is insufficient.
-          freeRects = NestingEngine.splitMaxRects(freeRects, px - this.SAW_KERF, py - this.SAW_KERF,
-            (item.materialType === 'SLAT' ? sheetW : placedW) + 2 * this.SAW_KERF,
-            placedH + 2 * this.SAW_KERF);
+          // Reserve only the nominal dimensions: no saw allowance has been specified.
+          freeRects = NestingEngine.splitMaxRects(freeRects, px, py,
+            item.materialType === 'SLAT' ? sheetW : placedW, placedH);
 
           if (item.materialType !== 'SLAT' && item.cutouts && item.cutouts.length > 0) {
             item.cutouts.forEach((cut) => {
-              const cutX = px + (bestRotated ? cut.y : cut.x) + this.SAW_KERF;
-              const cutY = py + (bestRotated ? item.width - cut.x - cut.width : cut.y) + this.SAW_KERF;
-              const cutW = (bestRotated ? cut.height : cut.width) - 2 * this.SAW_KERF;
-              const cutH = (bestRotated ? cut.width : cut.height) - 2 * this.SAW_KERF;
+              const cutX = px + (bestRotated ? cut.y : cut.x);
+              const cutY = py + (bestRotated ? item.width - cut.x - cut.width : cut.y);
+              const cutW = bestRotated ? cut.height : cut.width;
+              const cutH = bestRotated ? cut.width : cut.height;
               if (cutW >= 80 && cutH >= 80) {
                 freeRects.push({
                   x: cutX,
@@ -695,13 +747,13 @@ export class NestingEngine {
     sheetW: number,
     sheetH: number
   ): NestingOffcut[] {
-    // Subtract occupied stock including the kerf. Rectangle subtraction produces
+    // Subtract nominal occupied stock. Rectangle subtraction produces
     // disjoint remnants, so the same offcut cannot be offered more than once.
     const occupied = placed.map(p => ({
-      x: p.x - this.SAW_KERF,
-      y: p.y - this.SAW_KERF,
-      width: (p.part.materialType === 'SLAT' ? sheetW : p.width) + 2 * this.SAW_KERF,
-      height: p.height + 2 * this.SAW_KERF,
+      x: p.x,
+      y: p.y,
+      width: p.part.materialType === 'SLAT' ? sheetW : p.width,
+      height: p.height,
     }));
     return subtractRectangles({ x: 0, y: 0, width: sheetW, height: sheetH }, occupied)
       .filter(rect => rect.width >= 60 && rect.height >= 60)
@@ -718,59 +770,25 @@ export class NestingEngine {
   ): NestingCutLine[] {
     const lines: NestingCutLine[] = [];
 
-    placed.forEach((p) => {
-      if (p.textureAngleDeg !== undefined) {
-        if (p.x > 0.01) lines.push({ p1: { x: p.x, y: p.y }, p2: { x: p.x, y: p.y+p.height }, length: p.height, orientation: 'VERTICAL', label: `${p.height}` });
-        if (p.y > 0.01) lines.push({ p1: { x: p.x, y: p.y }, p2: { x: p.x+p.width, y: p.y }, length: p.width, orientation: 'HORIZONTAL', label: `${p.width}` });
-      }
-      // 1. Верхний рез
-      if (p.y + p.height < sheetH - 1) {
-        lines.push({
-          p1: { x: p.x, y: p.y + p.height },
-          p2: { x: p.x + p.width, y: p.y + p.height },
-          length: p.width,
-          orientation: 'HORIZONTAL',
-          label: `${p.width}`,
-        });
-      }
-
-      // 2. Правый рез
-      if (p.x + p.width < sheetW - 1) {
-        lines.push({
-          p1: { x: p.x + p.width, y: p.y },
-          p2: { x: p.x + p.width, y: p.y + p.height },
-          length: p.height,
-          orientation: 'VERTICAL',
-          label: `${p.height}`,
-        });
-      }
-
-      // 3. Если у детали есть наклонные полигональные линии реза
-      if (p.part.polygonPoints && p.part.polygonPoints.length > 2) {
-        const poly = p.part.polygonPoints;
-        const n = poly.length;
-        const xs = poly.map((pt) => pt.x);
-        const ys = poly.map((pt) => pt.y);
-        const minX = Math.min(...xs);
-        const minY = Math.min(...ys);
-
-        for (let i = 0; i < n; i++) {
-          const pt1 = poly[i];
-          const pt2 = poly[(i + 1) % n];
-          const isVert = Math.abs(pt1.x - pt2.x) < 1e-2;
-          const isHoriz = Math.abs(pt1.y - pt2.y) < 1e-2;
-
-          if ((!isVert && !isHoriz) || (p.textureAngleDeg !== undefined && p.textureAngleDeg % 90 !== 0)) {
-            lines.push({
-              p1: this.placedPoint(p, pt1.x-minX, pt1.y-minY),
-              p2: this.placedPoint(p, pt2.x-minX, pt2.y-minY),
-              length: Math.round(Math.hypot(pt2.x - pt1.x, pt2.y - pt1.y)),
-              orientation: 'DIAGONAL',
-              label: 'Наклонный рез',
-            });
-          }
-        }
-      }
+    const seen = new Set<string>();
+    placed.forEach(p => {
+      // A bounding-box cut can run through a neighboring triangle. Cut only
+      // actual contour edges and count an inherited common edge once.
+      const polygon = this.placedPolygon(p);
+      polygon.forEach((p1, i) => {
+        const p2 = polygon[(i + 1) % polygon.length];
+        const isVert = Math.abs(p1.x - p2.x) < 0.01;
+        const isHoriz = Math.abs(p1.y - p2.y) < 0.01;
+        if (isVert && (Math.abs(p1.x) < 0.01 || Math.abs(p1.x - sheetW) < 0.01)) return;
+        if (isHoriz && (Math.abs(p1.y) < 0.01 || Math.abs(p1.y - sheetH) < 0.01)) return;
+        const key = [p1, p2].map(q => `${q.x.toFixed(4)},${q.y.toFixed(4)}`).sort().join('|');
+        if (seen.has(key)) return;
+        seen.add(key);
+        const length = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        if (length < 0.01) return;
+        lines.push({ p1, p2, length, orientation: isVert ? 'VERTICAL' : isHoriz ? 'HORIZONTAL' : 'DIAGONAL',
+          label: !isVert && !isHoriz ? 'Наклонный рез' : `${Math.round(length)}` });
+      });
     });
 
     return lines;

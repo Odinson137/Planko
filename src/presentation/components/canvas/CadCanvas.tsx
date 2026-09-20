@@ -1,4 +1,5 @@
 import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
+import { getResolvedPanelEdges } from '../../../core/geometry/PanelJointBinding';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
 import { slopeTexturePiece } from '../../../core/textures/TextureMapping';
 
@@ -1267,7 +1268,7 @@ export const CadCanvas: React.FC = () => {
 
               const wallPanel = findPanelForEdge(selectedWall.panels, panel.id);
               const points = wallPanel?.points ?? panel.polygonPoints ?? [];
-              const contour = getPanelEdges(points, wallPanel?.edges);
+              const contour = wallPanel ? getResolvedPanelEdges(selectedWall, wallPanel) : getPanelEdges(points);
               const currentSide = contour.find(e => e.key === selectedPanelEdge?.edge)?.key ?? contour[0]?.key;
 
               return (

@@ -10,6 +10,7 @@ import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
 import { getPanelEdges } from '../../core/geometry/PanelEdges';
+import { edgeBelongsToJoint, getPanelEdgeJoint, getResolvedPanelEdges } from '../../core/geometry/PanelJointBinding';
 import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 import { localCatalogRepository } from '../../infrastructure/repositories/LocalCatalogRepository';
@@ -1191,8 +1192,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       let nextPanels = wall.panels;
       if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
-          const targetJoint = findOrSynthesizeJoint(wall, jId);
-          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
+          const targetJoint = findOrSynthesizeJoint({ ...wall, joints: nextWallJoints }, jId);
+          const oldW = jointParameters(wall, jId).width;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
@@ -1295,8 +1296,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       let nextPanels = wall.panels;
       if (nextPanels && nextPanels.length > 0) {
         state.selectedJointIds.forEach((jId) => {
-          const targetJoint = findOrSynthesizeJoint(wall, jId);
-          const oldW = wall.customJoints[jId]?.width ?? targetJoint?.width ?? DEFAULT_JOINT_GAP_MM;
+          const targetJoint = findOrSynthesizeJoint({ ...wall, joints: nextWallJoints }, jId);
+          const oldW = jointParameters(wall, jId).width;
           const currentTakeSide = nextCustomJoints[jId]?.takeSide || targetJoint?.takeSide;
           if (targetJoint) {
             const cascadeRes = PolygonSlicingEngine.cascadeChainJointWidthChange(
@@ -2786,6 +2787,32 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         ...state.project,
         walls: state.project.walls.map((w) => {
           if (w.id !== wallId) return w;
+          const panel = w.panels?.find(p => p.id === panelId);
+          const edgeInfo = panel && getPanelEdges(panel.points, panel.edges)
+            .find(e => e.key === edge || e.index === edge || e.side === edge);
+          const joint = edgeInfo && getPanelEdgeJoint(w, edgeInfo);
+          if (joint && edgeInfo && (config.width !== undefined || !(edgeInfo.config?.width))) {
+            // A shared cut is one setting, regardless of which adjacent panel was clicked.
+            const updated = { ...joint, ...edgeInfo.config, ...config,
+              width: config.width !== undefined ? Math.max(0, config.width) : joint.width,
+              isLED: config.isLED ?? edgeInfo.config?.isLED ?? joint.isLED };
+            const panels = (w.panels ?? []).map(p => {
+              const edges = { ...p.edges };
+              getPanelEdges(p.points, p.edges).filter(e => edgeBelongsToJoint(e, joint)).forEach(e => {
+                delete edges[e.index];
+                if (e.side) delete edges[e.side];
+              });
+              return { ...p, edges };
+            });
+            const resized = PolygonSlicingEngine.cascadeChainJointWidthChange(panels,
+              (w.joints ?? []).map(j => j.id === joint.id ? updated : j), joint,
+              joint.width, updated.width, w.width, w.height, w.openings);
+            return { ...w, ...resized, customJoints: { ...w.customJoints,
+              [joint.id]: { ...jointParameters(w, joint.id), width: updated.width, isLED: updated.isLED,
+                profileArticle: updated.profileArticle, profileColor: updated.profileColor,
+                orientation: updated.orientation ?? (Math.abs(updated.p1.x - updated.p2.x) < 1e-5 ? 'VERTICAL'
+                  : Math.abs(updated.p1.y - updated.p2.y) < 1e-5 ? 'HORIZONTAL' : 'DIAGONAL') } } };
+          }
           const nextPanels = (w.panels || []).map((p) => {
             if (p.id !== panelId) return p;
             const currentEdges = p.edges || {};
@@ -2837,10 +2864,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     edge: PanelEdgeSide | number,
     isLED: boolean
   ) => {
-    const panel = get().project.walls
-      .find((w) => w.id === wallId)
-      ?.panels?.find((p) => p.id === panelId);
-    const currentW = (panel && getPanelEdges(panel.points, panel.edges)
+    const wall = get().project.walls.find(w => w.id === wallId);
+    const panel = wall?.panels?.find(p => p.id === panelId);
+    const currentW = (wall && panel && getResolvedPanelEdges(wall, panel)
       .find(e => e.key === edge || e.index === edge || e.side === edge)?.config?.width) ?? 0;
     const width = isLED && currentW === 0 ? 10 : currentW;
     get().setPanelEdgeJoint(wallId, panelId, edge, {
