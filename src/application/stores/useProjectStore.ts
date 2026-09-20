@@ -9,6 +9,7 @@ import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
+import { getPanelEdges } from '../../core/geometry/PanelEdges';
 import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 import { localCatalogRepository } from '../../infrastructure/repositories/LocalCatalogRepository';
@@ -2965,17 +2966,19 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const nextPanels = (w.panels || []).map((p) => {
             if (p.id !== panelId) return p;
             const currentEdges = p.edges || {};
-            const currentEdgeConfig = (currentEdges as any)[edge] || { width: 0, isLED: false };
+            const target = getPanelEdges(p.points, currentEdges).find(e => e.key === edge || e.index === edge || e.side === edge);
+            if (!target) return p;
+            const currentEdgeConfig = target.config || { width: 0, isLED: false };
             const nextEdgeConfig: PanelEdgeJointConfig = {
               ...currentEdgeConfig,
               ...config,
             };
+            const nextEdges: NonNullable<WallPanelPiece['edges']> = { ...currentEdges, [target.key]: nextEdgeConfig };
+            // A named rectangle edge and its numeric index refer to the same contour line.
+            if (typeof target.key === 'string') delete nextEdges[target.index];
             return {
               ...p,
-              edges: {
-                ...currentEdges,
-                [edge]: nextEdgeConfig,
-              },
+              edges: nextEdges,
             };
           });
           return { ...w, panels: nextPanels };
@@ -2990,9 +2993,11 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     width: number
   ) => {
     const clamped = Math.max(0, width);
-    const profile = get().project.walls
+    const panel = get().project.walls
       .find((w) => w.id === wallId)
-      ?.panels?.find((p) => p.id === panelId)?.edges?.[edge as any]?.profileArticle;
+      ?.panels?.find((p) => p.id === panelId);
+    const profile = panel && getPanelEdges(panel.points, panel.edges)
+      .find(e => e.key === edge || e.index === edge || e.side === edge)?.config?.profileArticle;
     const currentProfile = profile ? findProfileByArticle(profile) : undefined;
     const isMatch = currentProfile && clamped > 0;
     const profileArticle = isMatch ? profile : undefined;
@@ -3031,9 +3036,11 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     edge: PanelEdgeSide | number,
     isLED: boolean
   ) => {
-    const currentW = get().project.walls
+    const panel = get().project.walls
       .find((w) => w.id === wallId)
-      ?.panels?.find((p) => p.id === panelId)?.edges?.[edge as any]?.width ?? 0;
+      ?.panels?.find((p) => p.id === panelId);
+    const currentW = (panel && getPanelEdges(panel.points, panel.edges)
+      .find(e => e.key === edge || e.index === edge || e.side === edge)?.config?.width) ?? 0;
     const width = isLED && currentW === 0 ? 10 : currentW;
     get().setPanelEdgeJoint(wallId, panelId, edge, {
       isLED,

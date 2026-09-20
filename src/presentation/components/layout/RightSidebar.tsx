@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
+import { usePanelCutStore } from '../../../application/stores/usePanelCutStore';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
@@ -57,6 +58,7 @@ import {
   findProfileByArticle,
 } from '../../../core/models/Profile';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
+import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
 import {
   ensureOpeningSlopes,
   ensureOpeningFraming,
@@ -145,7 +147,6 @@ export const RightSidebar: React.FC = () => {
     selectSubPiece,
     selectJoint,
     selectWallBend,
-    openSlicingModal,
     updateWallDimensions,
     updateWallName,
     updateWallRoom,
@@ -432,22 +433,18 @@ export const RightSidebar: React.FC = () => {
     selectedSubPieceId;
 
   if (editMode === 'JOINTS' && activePanelId && currentWall) {
-    const wallPanel = currentWall.panels?.find((p) => p.id === activePanelId || (p as any).subPieceId === activePanelId);
+    const wallPanel = findPanelForEdge(currentWall.panels, activePanelId);
     const targetPanelId = wallPanel?.id || activePanelId;
-    const side = (selectedPanelEdge?.edge || 'right') as 'left' | 'right' | 'top' | 'bottom';
-    const edgeConfig = wallPanel?.edges?.[side] || { width: 0, isLED: false };
+    const panelEdges = getPanelEdges(wallPanel?.points ?? [], wallPanel?.edges);
+    const selectedEdge = panelEdges.find(e => e.key === selectedPanelEdge?.edge) ?? panelEdges[0];
+    const side = selectedEdge?.key ?? 'right';
+    const edgeConfig = selectedEdge?.config || { width: 0, isLED: false };
     const currentWidth = edgeConfig.width ?? 0;
     const isLED = edgeConfig.isLED ?? false;
     const profileArticle = edgeConfig.profileArticle;
     const profileColor = edgeConfig.profileColor || '#212529';
 
-    const sideLabels: Record<string, { label: string; arrow: string }> = {
-      left: { label: 'Левый торец', arrow: '⬅' },
-      right: { label: 'Правый торец', arrow: '➡' },
-      top: { label: 'Верхний торец', arrow: '⬆' },
-      bottom: { label: 'Нижний торец', arrow: '⬇' },
-    };
-    const currentSideInfo = sideLabels[String(side)] || { label: `Грань #${side}`, arrow: '📐' };
+    const currentSideInfo = { label: selectedEdge?.label ?? 'Грань детали', arrow: '📐' };
 
     return (
       <Stack
@@ -493,16 +490,16 @@ export const RightSidebar: React.FC = () => {
               </Group>
             </Group>
 
-            {/* Быстрый переключатель между 4 сторонами этой же детали */}
+            {/* Выбираем реальные грани контура, включая наклонные. */}
             <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
               <Text size="xs" fw={500} mb={6} c="dimmed">
                 Выберите грань детали для настройки:
               </Text>
-              <Group grow gap={4}>
-                {(['left', 'right', 'top', 'bottom'] as const).map((s) => {
-                  const sInf = sideLabels[s];
-                  const sConf = wallPanel?.edges?.[s];
-                  const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED;
+              <Group gap={4}>
+                {panelEdges.map((item) => {
+                  const s = item.key;
+                  const sConf = item.config;
+                  const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED || sConf?.profileArticle;
                   const isCur = side === s;
                   return (
                     <Button
@@ -519,11 +516,12 @@ export const RightSidebar: React.FC = () => {
                       }
                       style={{ padding: '0 4px', fontSize: 11 }}
                     >
-                      {sInf.arrow} {sInf.label.replace(' торец', '')}
+                      {item.shortLabel}
                     </Button>
                   );
                 })}
               </Group>
+              {selectedEdge && <Text size="xs" c="dimmed" mt="xs">Длина: {selectedEdge.length.toFixed(1)} мм · Угол: {selectedEdge.angle.toFixed(1)}°</Text>}
             </Paper>
 
             <Divider color={t.border} />
@@ -2773,16 +2771,14 @@ export const RightSidebar: React.FC = () => {
                 color="blue"
                 leftSection={<Scissors size={16} />}
                 onClick={() =>
-                  openSlicingModal(
+                  usePanelCutStore.getState().begin(
                     currentWall.id,
-                    activeColumnIndex,
-                    activeSegmentIndex,
                     selectedPieceId || selectedSubPieceId
                   )
                 }
                 style={{ fontWeight: 600 }}
               >
-                Редактор раскроя
+                Разрезать на стене
               </Button>
 
               {/* Быстрые кнопки разрезов вертикальным списком */}

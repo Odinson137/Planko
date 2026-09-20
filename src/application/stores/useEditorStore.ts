@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ActiveTool = 'SELECT' | 'PAN' | 'ADD_DOOR' | 'ADD_WINDOW' | 'ADD_TV_ZONE' | 'ADD_NICHE';
+export type ActiveTool = 'SELECT' | 'PAN' | 'CUT_PANEL' | 'ADD_DOOR' | 'ADD_WINDOW' | 'ADD_TV_ZONE' | 'ADD_NICHE';
 
 export type ViewMode = '2D' | '3D';
 export type EditMode = 'PANELS' | 'JOINTS' | 'TEXTURES';
@@ -54,10 +54,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   showLeftSidebar: true,
   saveNotification: null,
 
-  setCurrentScreen: (screen: AppScreen) => set({ currentScreen: screen }),
+  setCurrentScreen: (screen: AppScreen) => set({ currentScreen: screen, activeTool: 'SELECT' }),
   setActiveTool: (tool: ActiveTool) => set({ activeTool: tool }),
-  setViewMode: (viewMode: ViewMode) => set({ viewMode }),
-  setEditMode: (editMode: EditMode) => set({ editMode }),
+  setViewMode: (viewMode: ViewMode) => set({ viewMode, activeTool: 'SELECT' }),
+  setEditMode: (editMode: EditMode) => set({ editMode, activeTool: 'SELECT' }),
   toggleEditMode: () => set((state) => ({ editMode: state.editMode === 'PANELS' ? 'JOINTS' : 'PANELS' })),
   toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === '2D' ? '3D' : '2D' })),
   setZoom: (zoom: number) => set({ zoom: Math.max(0.1, Math.min(zoom, 5)) }),

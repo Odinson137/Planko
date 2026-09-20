@@ -1,3 +1,4 @@
+import { insetPanelEdges } from './PanelEdges';
 import type { TextureMapping } from '../textures/TextureMapping';
 import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
@@ -2533,60 +2534,7 @@ export class PolygonSlicingEngine {
     polygon: Point2D[],
     edges?: PanelEdgesConfig
   ): Point2D[] {
-    if (!polygon || polygon.length < 3 || !edges) {
-      return polygon;
-    }
-
-    const dLeft = Math.max(0, edges.left?.width ?? 0);
-    const dRight = Math.max(0, edges.right?.width ?? 0);
-    const dTop = Math.max(0, edges.top?.width ?? 0);
-    const dBottom = Math.max(0, edges.bottom?.width ?? 0);
-
-    if (dLeft <= 0 && dRight <= 0 && dTop <= 0 && dBottom <= 0) {
-      return polygon;
-    }
-
-    const xs = polygon.map((p) => p.x);
-    const ys = polygon.map((p) => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-
-    const targetMinX = minX + dLeft;
-    const targetMaxX = Math.max(targetMinX, maxX - dRight);
-    const targetMinY = minY + dBottom;
-    const targetMaxY = Math.max(targetMinY, maxY - dTop);
-
-    return polygon.map((pt) => {
-      let newX = pt.x;
-      let newY = pt.y;
-
-      if (dLeft > 0 && Math.abs(pt.x - minX) < 1.5) {
-        newX = targetMinX;
-      } else if (dRight > 0 && Math.abs(pt.x - maxX) < 1.5) {
-        newX = targetMaxX;
-      } else if (dLeft > 0 && newX < targetMinX && Math.abs(pt.x - minX) < (maxX - minX) * 0.4) {
-        newX = targetMinX;
-      } else if (dRight > 0 && newX > targetMaxX && Math.abs(pt.x - maxX) < (maxX - minX) * 0.4) {
-        newX = targetMaxX;
-      }
-
-      if (dBottom > 0 && Math.abs(pt.y - minY) < 1.5) {
-        newY = targetMinY;
-      } else if (dTop > 0 && Math.abs(pt.y - maxY) < 1.5) {
-        newY = targetMaxY;
-      } else if (dBottom > 0 && newY < targetMinY && Math.abs(pt.y - minY) < (maxY - minY) * 0.4) {
-        newY = targetMinY;
-      } else if (dTop > 0 && newY > targetMaxY && Math.abs(pt.y - maxY) < (maxY - minY) * 0.4) {
-        newY = targetMaxY;
-      }
-
-      return {
-        x: Math.round(newX * 10) / 10,
-        y: Math.round(newY * 10) / 10,
-      };
-    });
+    return insetPanelEdges(polygon, edges);
   }
   /**
    * Нарезает деталь на листы максимального формата материала (по ширине и высоте) с заданным монтажным зазором.

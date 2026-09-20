@@ -1,3 +1,4 @@
+import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
 import { slopeTexturePiece } from '../../../core/textures/TextureMapping';
 
@@ -12,6 +13,7 @@ import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { PanelCutLayer } from './PanelCutLayer';
 
 const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
 const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
@@ -147,7 +149,7 @@ export const CadCanvas: React.FC = () => {
         backgroundColor: t.canvasBg,
         position: 'relative',
         overflow: 'hidden',
-        cursor: activeTool === 'SELECT' ? 'default' : 'grab',
+        cursor: activeTool === 'CUT_PANEL' ? 'crosshair' : activeTool === 'SELECT' ? 'default' : 'grab',
       }}
     >
       {containerWidth > 0 && containerHeight > 0 && (
@@ -159,7 +161,7 @@ export const CadCanvas: React.FC = () => {
           scaleX={zoom}
           scaleY={zoom}
           onWheel={handleWheel}
-          draggable
+          draggable={activeTool !== 'CUT_PANEL'}
           onDragStart={(e) => {
             if (e.target !== e.currentTarget) {
               e.cancelBubble = true;
@@ -201,7 +203,7 @@ export const CadCanvas: React.FC = () => {
           )}
 
           {/* Слой 2: Стена, плиты, кликабельные стыки/края, проемы и размеры */}
-          <Layer>
+          <Layer listening={activeTool !== 'CUT_PANEL'}>
             {/* Подложка стены */}
             <Rect
               name="wall-background"
@@ -273,7 +275,7 @@ export const CadCanvas: React.FC = () => {
                       setSelectedPanelEdge({
                         wallId: selectedWall.id,
                         panelId: panel.id,
-                        edge: selectedPanelEdge?.edge || 'right',
+                        edge: getPanelEdges(findPanelForEdge(selectedWall.panels, panel.id)?.points ?? panel.polygonPoints ?? [])[0]?.key ?? 'right',
                       });
                     }
                   }}
@@ -989,6 +991,11 @@ export const CadCanvas: React.FC = () => {
                       listening={showProfiles && isJointsMode}
                       onClick={(e) => {
                         e.cancelBubble = true;
+                        if (joint.panelEdge) {
+                          selectPanel(joint.panelEdge.panelId, null, null, null);
+                          setSelectedPanelEdge({ wallId: selectedWall.id, ...joint.panelEdge });
+                          return;
+                        }
                         if (
                           joint.id.startsWith('edge-') &&
                           (joint.id.endsWith('-left') ||
@@ -1067,6 +1074,11 @@ export const CadCanvas: React.FC = () => {
                     listening={showProfiles && isJointsMode}
                     onClick={(e) => {
                       e.cancelBubble = true;
+                      if (joint.panelEdge) {
+                        selectPanel(joint.panelEdge.panelId, null, null, null);
+                        setSelectedPanelEdge({ wallId: selectedWall.id, ...joint.panelEdge });
+                        return;
+                      }
                       if (
                         joint.id.startsWith('edge-') &&
                         (joint.id.endsWith('-left') ||
@@ -1249,79 +1261,36 @@ export const CadCanvas: React.FC = () => {
               if (!activePanelId) return null;
 
               const panel = layout.panels.find(
-                (p) => p.id === activePanelId || p.subPieceId === activePanelId
+                (p) => p.id === activePanelId || p.subPieceId === activePanelId || p.id.startsWith(`${activePanelId}-part-`)
               );
               if (!panel) return null;
 
-              const wallPanel = selectedWall.panels?.find((wp) => wp.id === panel.id);
-              const edges = wallPanel?.edges;
-
-              const pX = panel.x;
-              const pY = wallH - (panel.y + panel.height);
-              const pW = panel.width;
-              const pH = panel.height;
-
-              const sides: ('left' | 'right' | 'top' | 'bottom')[] = ['left', 'right', 'top', 'bottom'];
-              const currentSide = selectedPanelEdge?.edge || 'right';
+              const wallPanel = findPanelForEdge(selectedWall.panels, panel.id);
+              const points = wallPanel?.points ?? panel.polygonPoints ?? [];
+              const contour = getPanelEdges(points, wallPanel?.edges);
+              const currentSide = contour.find(e => e.key === selectedPanelEdge?.edge)?.key ?? contour[0]?.key;
 
               return (
                 <Group name="active-panel-edge-overlay" listening={true}>
-                  {/* Рамка выделенной детали */}
-                  <Rect
-                    x={pX}
-                    y={pY}
-                    width={pW}
-                    height={pH}
-                    stroke="#339AF0"
-                    strokeWidth={2.5 / zoom}
-                    listening={false}
-                  />
-
-                  {sides.map((side) => {
-                    const edgeConf = edges?.[side];
+                  {contour.map((edge) => {
+                    const side = edge.key;
+                    const edgeConf = edge.config;
                     const w = edgeConf?.width ?? 0;
                     const isLED = edgeConf?.isLED ?? false;
                     const hasJoint = w > 0 || isLED || Boolean(edgeConf?.profileArticle);
                     const isEdgeSelected = currentSide === side;
-
-                    const isLeft = side === 'left';
-                    const isRight = side === 'right';
-                    const isTop = side === 'top';
-                    const isBottom = side === 'bottom';
-
-                    // Линия грани с подсветкой
-                    const edgeLinePoints = isLeft
-                      ? [pX, pY, pX, pY + pH]
-                      : isRight
-                      ? [pX + pW, pY, pX + pW, pY + pH]
-                      : isTop
-                      ? [pX, pY, pX + pW, pY]
-                      : [pX, pY + pH, pX + pW, pY + pH];
-
-                    // Позиция аккуратного шильдика
-                    const badgeW = hasJoint ? 72 : 56;
-                    const badgeH = 24;
-
-                    const bX = isLeft
-                      ? pX + 8
-                      : isRight
-                      ? pX + pW - badgeW - 8
-                      : pX + (pW - badgeW) / 2;
-                    const bY = isTop
-                      ? pY + 8
-                      : isBottom
-                      ? pY + pH - badgeH - 8
-                      : pY + (pH - badgeH) / 2;
-
-                    const sideName = isLeft ? 'Лево' : isRight ? 'Право' : isTop ? 'Верх' : 'Низ';
-                    const arrowIcon = isLeft ? '◂' : isRight ? '▸' : isTop ? '▴' : '▾';
+                    const edgeLinePoints = [edge.p1.x, wallH - edge.p1.y, edge.p2.x, wallH - edge.p2.y];
+                    const badgeW = hasJoint ? 90 / zoom : 74 / zoom;
+                    const badgeH = 22 / zoom;
+                    const bX = (edge.p1.x + edge.p2.x) / 2 - badgeW / 2;
+                    const bY = wallH - (edge.p1.y + edge.p2.y) / 2 - badgeH / 2;
 
                     const onClickSide = (e: any) => {
                       e.cancelBubble = true;
                       selectJoint(null);
                       setSelectedPanelEdge({
                         wallId: selectedWall.id,
-                        panelId: panel.id,
+                        panelId: wallPanel?.id ?? panel.id,
                         edge: side,
                       });
                       selectPanel(panel.id, panel.originalColumnIndex, panel.originalSegmentIndex, panel.subPieceId);
@@ -1370,19 +1339,19 @@ export const CadCanvas: React.FC = () => {
                             cornerRadius={3}
                           />
                           <Text
-                            x={3}
-                            y={5}
+                            x={3 / zoom}
+                            y={5 / zoom}
                             text={
                               hasJoint
-                                ? `${arrowIcon} ${isLED ? '⚡' : ''}${w}мм`
-                                : `${arrowIcon} ${sideName}`
+                                ? `${edge.shortLabel} ${isLED ? '⚡' : ''}${w}мм`
+                                : edge.shortLabel
                             }
-                            fontSize={11}
+                            fontSize={10 / zoom}
                             fill="#FFFFFF"
                             fontFamily="JetBrains Mono"
                             fontStyle="bold"
                             align="center"
-                            width={badgeW - 6}
+                            width={badgeW - 6 / zoom}
                             listening={false}
                           />
                         </Group>
@@ -1590,6 +1559,7 @@ export const CadCanvas: React.FC = () => {
               </Group>
             )}
           </Layer>
+          {activeTool === 'CUT_PANEL' && <PanelCutLayer width={containerWidth} height={containerHeight} zoom={zoom} panX={panX} panY={panY} />}
         </Stage>
       )}
     </div>

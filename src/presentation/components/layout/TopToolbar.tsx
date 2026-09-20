@@ -32,12 +32,14 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
+  Scissors,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
 import { PdfExportService } from '../../../application/services/PdfExportService';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { usePanelCutStore } from '../../../application/stores/usePanelCutStore';
 
 export const TopToolbar: React.FC = () => {
   const t = useAppTheme();
@@ -58,6 +60,7 @@ export const TopToolbar: React.FC = () => {
     showLeftSidebar,
     toggleLeftSidebar,
     setCurrentScreen,
+    activeTool,
   } = useEditorStore();
 
   const {
@@ -70,6 +73,8 @@ export const TopToolbar: React.FC = () => {
     selectJoint,
     selectPanel,
     selectOpening,
+    selectedPieceIds,
+    selectedSubPieceId,
   } = useProjectStore();
 
   const [catalogOpened, setCatalogOpened] = useState(false);
@@ -299,6 +304,13 @@ export const TopToolbar: React.FC = () => {
           )}
 
           {/* Кнопка открытия каталога AllWall */}
+          {viewMode === '2D' && <Button size="xs" variant={activeTool === 'CUT_PANEL' ? 'filled' : 'light'}
+            leftSection={<Scissors size={14} />} disabled={!selectedWallId}
+            onClick={() => {
+              const cut = usePanelCutStore.getState();
+              if (activeTool === 'CUT_PANEL') cut.finish();
+              else if (selectedWallId) cut.begin(selectedWallId, selectedPieceIds[0] ?? selectedSubPieceId);
+            }}>Разрез</Button>}
           <Button
             size="xs"
             variant="gradient"

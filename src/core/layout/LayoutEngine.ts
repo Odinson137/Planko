@@ -1,3 +1,4 @@
+import { getPanelEdges } from '../geometry/PanelEdges';
 import type { TextureMapping } from '../textures/TextureMapping';
 import { findProfileByArticle } from '../models/Profile';
 import { Wall, RadiusConfig, PanelBendInfo, WallPanelPiece, WallJointLine } from '../models/Wall';
@@ -62,6 +63,7 @@ export interface CalculatedPanelPiece {
 
 export interface CalculatedJointLine {
   id: string;
+  panelEdge?: { panelId: string; edge: import('../models/Wall').PanelEdgeSide | number };
   sourceJointId?: string; // Editable source of a visible fragment clipped by an opening.
   name: string;
   x: number;
@@ -339,6 +341,7 @@ export class LayoutEngine {
 
         // Применяем торцевые зазоры детали (Edge Insets)
         const cleanPoints = PolygonSlicingEngine.applyPanelEdgesInsets(points, p.edges);
+        if (cleanPoints.length < 3) return;
 
         const xs = cleanPoints.map((pt) => pt.x);
         const ys = cleanPoints.map((pt) => pt.y);
@@ -384,90 +387,24 @@ export class LayoutEngine {
           note: p.note,
         });
 
-        // Генерируем видимые профили/подсветку для торцов детали
-        const rawXs = points.map((pt) => pt.x);
-        const rawYs = points.map((pt) => pt.y);
-        const rMinX = Math.min(...rawXs);
-        const rMaxX = Math.max(...rawXs);
-        const rMinY = Math.min(...rawYs);
-        const rMaxY = Math.max(...rawYs);
-
-        if (p.edges?.left && (p.edges.left.width > 0 || p.edges.left.profileArticle || p.edges.left.isLED)) {
-          const w = p.edges.left.width;
+        // Profiles follow the actual polygon boundary, including inclined edges.
+        getPanelEdges(points, p.edges).forEach(edge => {
+          const config = edge.config;
+          if (!config || !(config.width > 0 || config.profileArticle || config.isLED)) return;
+          const orientation = Math.abs(edge.p1.x - edge.p2.x) < 1e-5 ? 'VERTICAL'
+            : Math.abs(edge.p1.y - edge.p2.y) < 1e-5 ? 'HORIZONTAL' : 'DIAGONAL';
           rawJoints.push({
-            id: `edge-${p.id}-left`,
-            name: `Стык слева (${p.partLabel || defaultLabel})`,
-            x: rMinX,
-            y: rMinY,
-            p1: { x: rMinX, y: rMinY },
-            p2: { x: rMinX, y: rMaxY },
-            width: w,
-            length: rMaxY - rMinY,
-            orientation: 'VERTICAL',
-            isLED: p.edges.left.isLED || false,
-            isOuterEdge: false,
-            profileArticle: p.edges.left.profileArticle,
-            profileColor: p.edges.left.profileColor,
-            takeSide: 'RIGHT',
+            id: `edge-${p.id}-${edge.key}`,
+            panelEdge: { panelId: p.id, edge: edge.key },
+            name: `${edge.label} (${p.partLabel || defaultLabel})`,
+            x: Math.min(edge.p1.x, edge.p2.x), y: Math.min(edge.p1.y, edge.p2.y),
+            p1: edge.p1, p2: edge.p2, width: config.width, length: edge.length,
+            orientation, isLED: config.isLED ?? false, isOuterEdge: false,
+            profileArticle: config.profileArticle, profileColor: config.profileColor,
+            takeSide: edge.side === 'left' ? 'RIGHT' : edge.side === 'right' ? 'LEFT'
+              : edge.side === 'top' ? 'BOTTOM' : edge.side === 'bottom' ? 'TOP' : 'BOTH',
           });
-        }
-        if (p.edges?.right && (p.edges.right.width > 0 || p.edges.right.profileArticle || p.edges.right.isLED)) {
-          const w = p.edges.right.width;
-          rawJoints.push({
-            id: `edge-${p.id}-right`,
-            name: `Стык справа (${p.partLabel || defaultLabel})`,
-            x: rMaxX - w,
-            y: rMinY,
-            p1: { x: rMaxX, y: rMinY },
-            p2: { x: rMaxX, y: rMaxY },
-            width: w,
-            length: rMaxY - rMinY,
-            orientation: 'VERTICAL',
-            isLED: p.edges.right.isLED || false,
-            isOuterEdge: false,
-            profileArticle: p.edges.right.profileArticle,
-            profileColor: p.edges.right.profileColor,
-            takeSide: 'LEFT',
-          });
-        }
-        if (p.edges?.bottom && (p.edges.bottom.width > 0 || p.edges.bottom.profileArticle || p.edges.bottom.isLED)) {
-          const w = p.edges.bottom.width;
-          rawJoints.push({
-            id: `edge-${p.id}-bottom`,
-            name: `Стык снизу (${p.partLabel || defaultLabel})`,
-            x: rMinX,
-            y: rMinY,
-            p1: { x: rMinX, y: rMinY },
-            p2: { x: rMaxX, y: rMinY },
-            width: w,
-            length: rMaxX - rMinX,
-            orientation: 'HORIZONTAL',
-            isLED: p.edges.bottom.isLED || false,
-            isOuterEdge: false,
-            profileArticle: p.edges.bottom.profileArticle,
-            profileColor: p.edges.bottom.profileColor,
-            takeSide: 'TOP',
-          });
-        }
-        if (p.edges?.top && (p.edges.top.width > 0 || p.edges.top.profileArticle || p.edges.top.isLED)) {
-          const w = p.edges.top.width;
-          rawJoints.push({
-            id: `edge-${p.id}-top`,
-            name: `Стык сверху (${p.partLabel || defaultLabel})`,
-            x: rMinX,
-            y: rMaxY - w,
-            p1: { x: rMinX, y: rMaxY },
-            p2: { x: rMaxX, y: rMaxY },
-            width: w,
-            length: rMaxX - rMinX,
-            orientation: 'HORIZONTAL',
-            isLED: p.edges.top.isLED || false,
-            isOuterEdge: false,
-            profileArticle: p.edges.top.profileArticle,
-            profileColor: p.edges.top.profileColor,
-            takeSide: 'BOTTOM',
-          });
-        }
+        });
       });
 
       if (wall.joints && wall.joints.length > 0) {
@@ -497,17 +434,16 @@ export class LayoutEngine {
           const effGroupId = customConfig?.groupId || j.groupId;
           const effTakeSide = customConfig?.takeSide || j.takeSide;
 
-          if (effWidth <= 0 && !effLED && !effArticle) return;
+          // A zero-gap cut remains selectable so a profile can be assigned later.
 
           // Исключаем дублирование со швами торцов панелей
+          const samePoint = (a: Point2D, b: Point2D) => Math.hypot(a.x - b.x, a.y - b.y) < 1e-5;
           const isDup = rawJoints.some(
             (rj) =>
               rj.p1 &&
               rj.p2 &&
-              Math.abs(rj.p1.x - p1.x) < 8 &&
-              Math.abs(rj.p1.y - p1.y) < 8 &&
-              Math.abs(rj.p2.x - p2.x) < 8 &&
-              Math.abs(rj.p2.y - p2.y) < 8
+              ((samePoint(rj.p1, p1) && samePoint(rj.p2, p2)) ||
+                (samePoint(rj.p1, p2) && samePoint(rj.p2, p1)))
           );
           if (isDup) return;
 
@@ -1417,6 +1353,7 @@ export class LayoutEngine {
             cleanFinalJoints.push({
               ...j,
               id: idx === 0 ? j.id : `${j.id}-seg-${idx}`,
+              sourceJointId: j.sourceJointId ?? j.id,
               x: inv.start,
               length: len,
               p1: { x: inv.start, y: jointY },
@@ -1456,6 +1393,7 @@ export class LayoutEngine {
             cleanFinalJoints.push({
               ...j,
               id: idx === 0 ? j.id : `${j.id}-seg-${idx}`,
+              sourceJointId: j.sourceJointId ?? j.id,
               y: inv.start,
               length: len,
               p1: { x: jointX, y: inv.start },
@@ -1544,6 +1482,8 @@ export class LayoutEngine {
       groupId: j.groupId,
       isOuterEdge: j.isOuterEdge,
       takeSide: j.takeSide,
+      profileArticle: j.profileArticle ?? wall.customJoints[j.id.split('-part-')[0]]?.profileArticle,
+      profileColor: j.profileColor ?? wall.customJoints[j.id.split('-part-')[0]]?.profileColor,
     }));
 
     return { panels, joints };

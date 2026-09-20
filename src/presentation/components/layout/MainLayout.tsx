@@ -6,12 +6,12 @@ import { LeftSidebar } from './LeftSidebar';
 import { RightSidebar } from './RightSidebar';
 import { CadCanvas } from '../canvas/CadCanvas';
 import { Axonometric3DView } from '../canvas/Axonometric3DView';
-import { PanelSlicingModal } from '../catalog/PanelSlicingModal';
+import { PanelCutSidebar } from './PanelCutSidebar';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 export const MainLayout: React.FC = () => {
-  const { viewMode, showLeftSidebar, toggleLeftSidebar } = useEditorStore();
+  const { viewMode, showLeftSidebar, toggleLeftSidebar, activeTool } = useEditorStore();
   const t = useAppTheme();
 
   return (
@@ -52,11 +52,9 @@ export const MainLayout: React.FC = () => {
         </Box>
 
         {/* Правая панель инспектора */}
-        <RightSidebar />
+        {activeTool === 'CUT_PANEL' && viewMode === '2D' ? <PanelCutSidebar /> : <RightSidebar />}
       </Flex>
 
-      {/* Модальное окно CAD-раскроя панели (Нож) */}
-      <PanelSlicingModal />
     </Flex>
   );
 };
