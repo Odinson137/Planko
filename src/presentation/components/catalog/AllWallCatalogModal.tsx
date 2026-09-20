@@ -78,6 +78,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
   // Состояние редактирования существующей панели
   const [editingModel, setEditingModel] = useState<AllWallPanelModel | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState<'SHEET' | 'SLAT' | 'HQ'>('SHEET');
   const [editWidth, setEditWidth] = useState<number>(1220);
@@ -188,6 +189,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
   };
 
   const handleStartEdit = (model: AllWallPanelModel) => {
+    setSaveError(null);
     setIsCreating(false);
     setEditingModel(model);
     setEditName(model.name);
@@ -203,6 +205,7 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
   };
 
   const handleStartCreate = () => {
+    setSaveError(null);
     setIsCreating(true);
     setEditingModel(null);
     setEditName('');
@@ -266,14 +269,19 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
       decorName: editDecors[0]?.name || editName,
     };
 
-    if (isCreating) {
-      addCustomCatalogPanel({ ...updates, id: `custom-${crypto.randomUUID()}`, isCustom: true });
-      setPanelCategoryFilter('ALL');
-      setPanelThicknessFilter('ALL');
-    } else if (editingModel) {
-      updateCatalogPanel(editingModel.id, updates);
+    setSaveError(null);
+    try {
+      if (isCreating) {
+        addCustomCatalogPanel({ ...updates, id: `custom-${crypto.randomUUID()}`, isCustom: true });
+        setPanelCategoryFilter('ALL');
+        setPanelThicknessFilter('ALL');
+      } else if (editingModel) {
+        updateCatalogPanel(editingModel.id, updates);
+      }
+      closePanelEditor();
+    } catch {
+      setSaveError('Не удалось сохранить в общий каталог. Изменения не применены. Попробуйте ещё раз.');
     }
-    closePanelEditor();
   };
 
   return (
@@ -917,6 +925,11 @@ export const AllWallCatalogModal: React.FC<AllWallCatalogModalProps> = ({ opened
                 ))}
               </Group>
             </ScrollArea>
+
+            <Text size="xs" c="dimmed">
+              Сохраняется в общий каталог на этом компьютере. Сохранённые размеры в других проектах не заменяются.
+            </Text>
+            {saveError && <Alert color="red" role="alert">{saveError}</Alert>}
 
             <Group justify="flex-end" gap="xs" mt="md">
               <Button variant="default" onClick={closePanelEditor}>

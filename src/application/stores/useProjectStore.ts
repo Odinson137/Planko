@@ -11,6 +11,7 @@ import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
 import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
+import { localCatalogRepository } from '../../infrastructure/repositories/LocalCatalogRepository';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
 export type JointPreset = 'NONE' | '0.8' | '3' | '7' | '5' | '8' | '10' | 'LED_10';
@@ -574,14 +575,26 @@ function findOrSynthesizeJoint(w: Wall, jId: string): WallJointLine | undefined 
   return undefined;
 }
 
+// Store actions update these fields immutably. Selection and save timestamps
+// do not change the design and must not turn on the unsaved indicator.
+function projectContentChanged(previous: Project, next: Project): boolean {
+  return previous.id !== next.id || previous.name !== next.name ||
+    previous.walls !== next.walls || previous.materials !== next.materials ||
+    previous.excludedCatalogPanelIds !== next.excludedCatalogPanelIds;
+}
+
 export const useProjectStore = create<ProjectState>((setRaw, get) => {
   const set: typeof setRaw = (partial, replace) => {
     setRaw((state) => {
       const nextState = typeof partial === 'function' ? (partial as any)(state) : partial;
+      if (nextState === state) return state;
       if (nextState && nextState.project && nextState.project.walls) {
         return {
           ...nextState,
-          project: renumberProjectWalls(nextState.project),
+          isDirty: nextState.isDirty ?? (state.isDirty || projectContentChanged(state.project, nextState.project)),
+          project: nextState.project.walls === state.project.walls
+            ? nextState.project
+            : renumberProjectWalls(nextState.project),
         };
       }
       return nextState;
@@ -589,7 +602,11 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
   };
 
   return {
-    project: renumberProjectWalls(createDefaultProject()),
+    project: renumberProjectWalls({
+      ...createDefaultProject(),
+      materials: localCatalogRepository.mergePanels(DEFAULT_MATERIALS, true),
+    }),
+    isDirty: false,
     selectedColumnIndex: null,
     selectedSegmentIndex: null,
     selectedCellKeys: [],
@@ -3218,25 +3235,33 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       };
     }),
 
-  addCustomCatalogPanel: (panel: Material) =>
+  addCustomCatalogPanel: (panel: Material) => {
+    localCatalogRepository.savePanel(panel);
     set((state) => ({
       isDirty: true,
       project: {
         ...state.project,
         materials: [...state.project.materials, panel],
+        excludedCatalogPanelIds: state.project.excludedCatalogPanelIds?.filter(id => id !== panel.id),
       },
-    })),
+    }));
+  },
 
-  updateCatalogPanel: (panelId: string, updates: Partial<Material>) =>
+  updateCatalogPanel: (panelId: string, updates: Partial<Material>) => {
+    const current = get().project.materials.find(panel => panel.id === panelId);
+    if (!current) return;
+    const updated = { ...current, ...updates, id: panelId };
+    localCatalogRepository.savePanel(updated);
     set((state) => ({
       isDirty: true,
       project: {
         ...state.project,
         materials: state.project.materials.map((m) =>
-          m.id === panelId ? { ...m, ...updates } : m
+          m.id === panelId ? updated : m
         ),
       },
-    })),
+    }));
+  },
 
   deleteCatalogPanel: (panelId: string) =>
     set((state) => ({
@@ -3244,6 +3269,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       project: {
         ...state.project,
         materials: state.project.materials.filter((m) => m.id !== panelId),
+        excludedCatalogPanelIds: [...new Set([...(state.project.excludedCatalogPanelIds || []), panelId])],
       },
     })),
 
@@ -5967,10 +5993,14 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     };
     await localProjectRepository.saveProject(updated);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    set({
-      project: updated,
-      isDirty: false,
-      lastSavedAt: timeStr,
+    set((state) => {
+      if (state.project.id !== currentProject.id) return state;
+      const changedWhileSaving = projectContentChanged(currentProject, state.project);
+      return {
+        project: changedWhileSaving ? state.project : { ...state.project, updatedAt: updated.updatedAt },
+        isDirty: changedWhileSaving,
+        lastSavedAt: timeStr,
+      };
     });
   },
 
@@ -5982,6 +6012,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     set({
       project: {
         ...loaded,
+        materials: localCatalogRepository.mergePanels(loaded.materials, false, loaded.excludedCatalogPanelIds),
         selectedWallId: initialWallId,
         selectedOpeningId: null,
       },
@@ -6001,6 +6032,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   createNewProject: (name?: string, wallWidth?: number, wallHeight?: number, roomName?: string) => {
     const newProj = createDefaultProject(name || 'Новый проект', wallWidth || 3600, wallHeight || 2750, roomName);
+    newProj.materials = localCatalogRepository.mergePanels(newProj.materials, true);
     localProjectRepository.saveProject(newProj);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     set({
@@ -6025,6 +6057,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     set({
       project: {
         ...project,
+        materials: localCatalogRepository.mergePanels(project.materials, false, project.excludedCatalogPanelIds),
         selectedWallId: initialWallId,
         selectedOpeningId: null,
       },

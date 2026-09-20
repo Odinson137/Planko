@@ -4,6 +4,7 @@ import { useProjectStore } from '../src/application/stores/useProjectStore';
 import { createDefaultProject } from '../src/core/models/Project';
 import { LayoutEngine } from '../src/core/layout/LayoutEngine';
 import { PolygonSlicingEngine } from '../src/core/geometry/PolygonSlicingEngine';
+import { localCatalogRepository } from '../src/infrastructure/repositories/LocalCatalogRepository';
 import { sheet, wallWithPanel, rectangle, close } from './helpers/business';
 
 const original = useProjectStore.getState();
@@ -51,7 +52,8 @@ test('applying a door twice does not subtract the opening twice', () => {
   assert.deepEqual(currentWall(), once);
 });
 
-test('custom 1200 × 600 material controls subsequent sheet slicing', () => {
+test('custom 1200 × 600 material controls subsequent sheet slicing', t => {
+  t.mock.method(localCatalogRepository, 'savePanel', () => undefined);
   const wallId = currentWall().id;
   const custom = { ...sheet, id: 'custom-1200-600', width: 1200, height: 600 };
   useProjectStore.getState().addCustomCatalogPanel(custom);

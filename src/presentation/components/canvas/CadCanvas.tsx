@@ -951,14 +951,15 @@ export const CadCanvas: React.FC = () => {
             {/* ИНТЕРАКТИВНЫЕ СТЫКИ И КРАЯ ПЛИТ (Поверх проемов и панелей для четкого отображения и кликабельности) */}
             {showProfiles &&
               layout?.joints.map((joint) => {
+                const selectableJointId = joint.sourceJointId ?? joint.id;
                 const isJointsMode = editMode === 'JOINTS';
                 const isHoriz = joint.orientation === 'HORIZONTAL';
                 const selectedJointConfig = selectedJointId ? selectedWall.customJoints[selectedJointId] : null;
                 const selectedGroupId = selectedJointConfig?.groupId;
 
                 const isJointSelected =
-                  selectedJointIds.includes(joint.id) ||
-                  selectedJointId === joint.id ||
+                  selectedJointIds.includes(selectableJointId) ||
+                  selectedJointId === selectableJointId ||
                   (Boolean(selectedGroupId) && joint.groupId === selectedGroupId);
 
                 const isLED = joint.isLED;
@@ -1006,7 +1007,7 @@ export const CadCanvas: React.FC = () => {
                           selectPanel(panelId, null, null, null);
                           return;
                         }
-                        selectJoint(joint.id, !!e.evt.shiftKey);
+                        selectJoint(selectableJointId, !!e.evt.shiftKey);
                       }}
                     >
                       <Line
@@ -1084,7 +1085,7 @@ export const CadCanvas: React.FC = () => {
                         selectPanel(panelId, null, null, null);
                         return;
                       }
-                      selectJoint(joint.id, !!e.evt.shiftKey);
+                      selectJoint(selectableJointId, !!e.evt.shiftKey);
                     }}
                   >
                     <Rect

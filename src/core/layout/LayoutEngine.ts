@@ -62,6 +62,7 @@ export interface CalculatedPanelPiece {
 
 export interface CalculatedJointLine {
   id: string;
+  sourceJointId?: string; // Editable source of a visible fragment clipped by an opening.
   name: string;
   x: number;
   y: number;
@@ -121,6 +122,31 @@ function subtractInterval(intervals: Interval1D[], removeStart: number, removeEn
     }
   }
   return result;
+}
+
+// Return the distances along the segment that lie strictly inside the opening.
+// Distances are in mm so subtractInterval uses the same tolerance for all orientations.
+function segmentOpeningInterval(p1: Point2D, p2: Point2D, opening: Opening): Interval1D | null {
+  if (opening.width <= 0 || opening.height <= 0) return null;
+  const length = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  if (length < 1e-6) return null;
+  let start = 0;
+  let end = length;
+  for (const [origin, direction, min, max] of [
+    [p1.x, (p2.x - p1.x) / length, opening.x, opening.x + opening.width],
+    [p1.y, (p2.y - p1.y) / length, opening.y, opening.y + opening.height],
+  ]) {
+    if (Math.abs(direction) < 1e-9) {
+      if (origin <= min || origin >= max) return null;
+      continue;
+    }
+    const a = (min - origin) / direction;
+    const b = (max - origin) / direction;
+    start = Math.max(start, Math.min(a, b));
+    end = Math.min(end, Math.max(a, b));
+    if (end - start <= 1e-6) return null; // A tangent touch must not remove material.
+  }
+  return { start, end };
 }
 
 /**
@@ -1012,6 +1038,12 @@ export class LayoutEngine {
     groupedJoints.forEach((jointsInGroup, groupId) => {
       if (jointsInGroup.length === 0) return;
       const first = jointsInGroup[0];
+      if (first.orientation === 'DIAGONAL') {
+        // Keep the actual endpoints for clipping; the axis-aligned merge below
+        // would turn a diagonal group into a vertical line.
+        finalJoints.push(...jointsInGroup);
+        return;
+      }
       const isHoriz = first.orientation === 'HORIZONTAL';
 
       if (isHoriz) {
@@ -1319,22 +1351,36 @@ export class LayoutEngine {
 
       // 1. Диагональные / наклонные швы (гипотенузы, наклонные резы)
       if (isDiag && j.p1 && j.p2) {
-        const midX = (j.p1.x + j.p2.x) / 2;
-        const midY = (j.p1.y + j.p2.y) / 2;
-        const insideOp = wall.openings.some(
-          (op) =>
-            op.isCutout !== false &&
-            midX > op.x &&
-            midX < op.x + op.width &&
-            midY > op.y &&
-            midY < op.y + op.height
-        );
-        if (!insideOp) {
+        const start = j.p1;
+        const dx = j.p2.x - start.x;
+        const dy = j.p2.y - start.y;
+        const length = Math.hypot(dx, dy);
+        if (length <= 3) return;
+        let intervals: Interval1D[] = [{ start: 0, end: length }];
+        for (const opening of wall.openings) {
+          if (opening.isCutout === false) continue;
+          const cut = segmentOpeningInterval(start, j.p2, opening);
+          if (cut) intervals = subtractInterval(intervals, cut.start, cut.end);
+        }
+        const pointAt = (distance: number): Point2D => ({
+          x: start.x + dx * distance / length,
+          y: start.y + dy * distance / length,
+        });
+        intervals.filter(interval => interval.end - interval.start > 3).forEach((interval, index) => {
+          const p1 = pointAt(interval.start);
+          const p2 = pointAt(interval.end);
           cleanFinalJoints.push({
             ...j,
+            id: index === 0 ? j.id : `${j.id}-part-${index}`,
+            sourceJointId: j.sourceJointId ?? j.id,
+            x: Math.min(p1.x, p2.x),
+            y: Math.min(p1.y, p2.y),
+            p1,
+            p2,
+            length: interval.end - interval.start,
             orientation: 'DIAGONAL',
           });
-        }
+        });
         return;
       }
 

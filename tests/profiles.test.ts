@@ -10,6 +10,7 @@ import { LayoutEngine } from '../src/core/layout/LayoutEngine';
 import { createDefaultOpening } from '../src/core/models/Opening';
 import { PdfExportService } from '../src/application/services/PdfExportService';
 import { NestingEngine } from '../src/core/layout/NestingEngine';
+import { localCatalogRepository } from '../src/infrastructure/repositories/LocalCatalogRepository';
 
 const material = DEFAULT_MATERIALS.find((m) => !m.isVoid && m.type === 'SHEET')!;
 
@@ -201,7 +202,8 @@ test('PDF accepts full slats and custom sheets, flags true oversize against actu
   }
 });
 
-test('custom catalog changes mark the project as requiring save', () => {
+test('custom catalog changes mark the project as requiring save', t => {
+  t.mock.method(localCatalogRepository, 'savePanel', () => undefined);
   const initial = useProjectStore.getState();
   const custom = { ...material, id: 'custom-save-test', isCustom: true, width: 900, height: 3500 };
   try {

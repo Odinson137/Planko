@@ -78,6 +78,7 @@ export const TopToolbar: React.FC = () => {
   const [exportingType, setExportingType] = useState<string | null>(null);
 
   const selectedWallId = project.selectedWallId;
+  const showSavedConfirmation = isSavedRecently && !isDirty;
 
   const handleSave = async () => {
     await saveCurrentProject();
@@ -186,9 +187,9 @@ export const TopToolbar: React.FC = () => {
           <Tooltip label="Сохранить проект в хранилище (Ctrl + S)" position="bottom">
             <Button
               size="xs"
-              variant={isSavedRecently ? 'light' : isDirty ? 'filled' : 'light'}
-              color={isSavedRecently ? 'green' : isDirty ? 'blue' : 'gray'}
-              leftSection={isSavedRecently ? <Check size={14} color="#10B981" /> : <Save size={14} />}
+              variant={showSavedConfirmation ? 'light' : isDirty ? 'filled' : 'light'}
+              color={showSavedConfirmation ? 'green' : isDirty ? 'blue' : 'gray'}
+              leftSection={showSavedConfirmation ? <Check size={14} color="#10B981" /> : <Save size={14} />}
               onClick={handleSave}
               styles={{
                 root: {
@@ -197,7 +198,7 @@ export const TopToolbar: React.FC = () => {
                 },
               }}
             >
-              {isSavedRecently
+              {showSavedConfirmation
                 ? 'Сохранено!'
                 : isDirty
                 ? 'Сохранить*'

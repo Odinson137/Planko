@@ -16,6 +16,7 @@ export interface Project {
   name: string;
   walls: Wall[];
   materials: Material[];
+  excludedCatalogPanelIds?: string[];
   selectedWallId: string | null;
   selectedOpeningId: string | null;
   createdAt: string;
