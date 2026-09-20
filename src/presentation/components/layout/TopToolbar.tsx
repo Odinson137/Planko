@@ -15,11 +15,7 @@ import {
   AppWindow,
   Tv,
   Square,
-  ZoomIn,
-  ZoomOut,
   Maximize2,
-  Grid,
-  Ruler,
   Layers,
   Palette,
   Save,
@@ -32,14 +28,12 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
-  Scissors,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
 import { PdfExportService } from '../../../application/services/PdfExportService';
 import { useAppTheme } from '../../theme/useAppTheme';
-import { usePanelCutStore } from '../../../application/stores/usePanelCutStore';
 
 export const TopToolbar: React.FC = () => {
   const t = useAppTheme();
@@ -48,19 +42,12 @@ export const TopToolbar: React.FC = () => {
     setViewMode,
     editMode,
     setEditMode,
-    zoom,
-    setZoom,
     resetView,
-    showGrid,
-    toggleGrid,
-    showDimensions,
-    toggleDimensions,
     showTextures,
     toggleTextures,
     showLeftSidebar,
     toggleLeftSidebar,
     setCurrentScreen,
-    activeTool,
   } = useEditorStore();
 
   const {
@@ -73,8 +60,6 @@ export const TopToolbar: React.FC = () => {
     selectJoint,
     selectPanel,
     selectOpening,
-    selectedPieceIds,
-    selectedSubPieceId,
   } = useProjectStore();
 
   const [catalogOpened, setCatalogOpened] = useState(false);
@@ -144,9 +129,18 @@ export const TopToolbar: React.FC = () => {
       <Modal opened={!!exportError} onClose={() => setExportError(null)} title="Экспорт требует исправления">
         <Text size="sm">{exportError}</Text>
       </Modal>
-      <Group justify="space-between" px="md" py={6} style={{ borderBottom: `1px solid ${t.border}`, backgroundColor: t.bgHeader }}>
+      <Group
+        role="toolbar"
+        aria-label="Верхнее меню"
+        justify="space-between"
+        wrap="nowrap"
+        gap="xs"
+        px="md"
+        py={6}
+        style={{ flexShrink: 0, overflowX: 'auto', borderBottom: `1px solid ${t.border}`, backgroundColor: t.bgHeader }}
+      >
         {/* Меню проектов, Сохранение и Экспорт */}
-        <Group gap="xs">
+        <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
           {/* Кнопка скрытия / показа списка стен */}
           <Tooltip label={showLeftSidebar ? "Скрыть меню стен" : "Показать меню стен"} position="bottom">
             <ActionIcon
@@ -304,13 +298,6 @@ export const TopToolbar: React.FC = () => {
           )}
 
           {/* Кнопка открытия каталога AllWall */}
-          {viewMode === '2D' && <Button size="xs" variant={activeTool === 'CUT_PANEL' ? 'filled' : 'light'}
-            leftSection={<Scissors size={14} />} disabled={!selectedWallId}
-            onClick={() => {
-              const cut = usePanelCutStore.getState();
-              if (activeTool === 'CUT_PANEL') cut.finish();
-              else if (selectedWallId) cut.begin(selectedWallId, selectedPieceIds[0] ?? selectedSubPieceId);
-            }}>Разрез</Button>}
           <Button
             size="xs"
             variant="gradient"
@@ -323,7 +310,7 @@ export const TopToolbar: React.FC = () => {
         </Group>
 
         {/* Инструменты добавления радиусов и проемов */}
-        <Group gap={6}>
+        <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
 
           {/* Меню добавления углов и поворотов */}
           <Menu shadow="md" width={200} position="bottom-start">
@@ -397,28 +384,8 @@ export const TopToolbar: React.FC = () => {
           </Menu>
         </Group>
 
-        {/* Управление холстом (зум, сетка, размеры) */}
-        <Group gap={6}>
-          <Tooltip label="Сетка (G)" position="bottom">
-            <ActionIcon
-              variant={showGrid ? 'light' : 'subtle'}
-              color={showGrid ? 'blue' : 'gray'}
-              onClick={toggleGrid}
-            >
-              <Grid size={16} />
-            </ActionIcon>
-          </Tooltip>
-
-          <Tooltip label="Размерные цепочки" position="bottom">
-            <ActionIcon
-              variant={showDimensions ? 'light' : 'subtle'}
-              color={showDimensions ? 'blue' : 'gray'}
-              onClick={toggleDimensions}
-            >
-              <Ruler size={16} />
-            </ActionIcon>
-          </Tooltip>
-
+        {/* Отображение текстур и центрирование холста */}
+        <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
           <Tooltip label={showTextures ? 'Скрыть текстуры — показывать только цвет' : 'Показать текстуры во всех режимах'} position="bottom">
             <ActionIcon
               aria-label="Показывать текстуры"
@@ -433,12 +400,6 @@ export const TopToolbar: React.FC = () => {
 
           <Divider orientation="vertical" />
 
-          <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom - 0.1)}>
-            <ZoomOut size={16} />
-          </ActionIcon>
-          <ActionIcon variant="subtle" color="gray" onClick={() => setZoom(zoom + 0.1)}>
-            <ZoomIn size={16} />
-          </ActionIcon>
           <Tooltip label="Центрировать вид" position="bottom">
             <ActionIcon variant="subtle" color="gray" onClick={resetView}>
               <Maximize2 size={16} />
