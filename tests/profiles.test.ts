@@ -197,7 +197,8 @@ test('PDF accepts full slats and custom sheets, flags true oversize against actu
       assert.equal(texts.includes('Нельзя разместить'), extra > 0);
       assert.equal(result.allSheets[0].sheetHeight, 3500);
       if (extra > 0) assert.ok(texts.includes(`на заготовке ${stock.width} × 3500 мм`));
-      else assert.ok(texts.some((text) => text.includes(`${stock.width} × 3500`)));
+      // The overview now places the stock dimensions on the drawing, without a description line.
+      else assert.ok(texts.includes(String(stock.width)) && texts.includes('3500'));
     }
   }
 });

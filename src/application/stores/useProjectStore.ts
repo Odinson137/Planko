@@ -3,14 +3,15 @@ import { TextureMapping, slopeTexturePiece, textureMappingError } from '../../co
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
-import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming } from '../../core/models/Opening';
+import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming, getOpeningTypeLabel } from '../../core/models/Opening';
 import { ProfileType, findProfileByArticle, DEFAULT_PROFILES, DEFAULT_JOINT_GAP_MM } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
 import { getPanelEdges } from '../../core/geometry/PanelEdges';
-import { edgeBelongsToJoint, getPanelEdgeJoint, getResolvedPanelEdges } from '../../core/geometry/PanelJointBinding';
+import { getPanelEdgeJoint, getResolvedPanelEdges } from '../../core/geometry/PanelJointBinding';
+import { resizePanelEdgeGap } from '../../core/geometry/PanelEdgeGapGeometry';
 import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 import { localCatalogRepository } from '../../infrastructure/repositories/LocalCatalogRepository';
@@ -653,6 +654,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   selectWall: (wallId: string) =>
     set((state) => ({
+      selectedPanelEdge: null,
       selectedColumnIndex: null,
       selectedSegmentIndex: null,
       selectedCellKeys: [],
@@ -670,6 +672,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   selectOpening: (openingId: string | null) =>
     set((state) => ({
+      selectedPanelEdge: null,
       selectedColumnIndex: null,
       selectedSegmentIndex: null,
       selectedCellKeys: [],
@@ -686,6 +689,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   selectWallBend: (bendId: string | null) =>
     set((state) => ({
+      selectedPanelEdge: null,
       selectedColumnIndex: null,
       selectedSegmentIndex: null,
       selectedCellKeys: [],
@@ -716,6 +720,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       return {
+        selectedPanelEdge: null,
         selectedColumnIndex: columnIndex,
         selectedSegmentIndex: segmentIndex ?? 0,
         selectedCellKeys: columnIndex !== null ? [`${columnIndex}-${segmentIndex ?? 0}`] : [],
@@ -733,6 +738,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   selectSubPiece: (subPieceId: string | null) =>
     set(() => ({
+      selectedPanelEdge: null,
       selectedSubPieceId: subPieceId,
     })),
 
@@ -767,6 +773,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       if (!isShift) {
         return {
+          selectedPanelEdge: null,
           selectedColumnIndex: columnIndex,
           selectedSegmentIndex: segmentIndex,
           selectedCellKeys: [key],
@@ -809,6 +816,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       }
 
       return {
+        selectedPanelEdge: null,
         selectedCellKeys: nextKeys,
         selectedPieceIds: nextPieceIds,
         selectedColumnIndex: nextKeys.length === 1 ? Number(nextKeys[0].split('-')[0]) : null,
@@ -2770,11 +2778,17 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     })),
 
   setSelectedPanelEdge: (selectedPanelEdge: SelectedPanelEdgeTarget | null) =>
-    set({
+    set((state) => ({
       selectedPanelEdge,
       selectedJointId: null,
       selectedJointIds: [],
-    }),
+      ...(selectedPanelEdge ? {
+        selectedPieceIds: [selectedPanelEdge.panelId],
+        selectedSubPieceId: null,
+        selectedWallBendId: null,
+        project: { ...state.project, selectedWallId: selectedPanelEdge.wallId, selectedOpeningId: null },
+      } : {}),
+    })),
 
   setPanelEdgeJoint: (
     wallId: string,
@@ -2782,32 +2796,36 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     edge: PanelEdgeSide | number,
     config: Partial<PanelEdgeJointConfig>
   ) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
+    set((state) => {
+      let selectedPanelEdge = state.selectedPanelEdge;
+      const walls = state.project.walls.map((w) => {
           if (w.id !== wallId) return w;
           const panel = w.panels?.find(p => p.id === panelId);
           const edgeInfo = panel && getPanelEdges(panel.points, panel.edges)
             .find(e => e.key === edge || e.index === edge || e.side === edge);
           const joint = edgeInfo && getPanelEdgeJoint(w, edgeInfo);
-          if (joint && edgeInfo && (config.width !== undefined || !(edgeInfo.config?.width))) {
-            // A shared cut is one setting, regardless of which adjacent panel was clicked.
-            const updated = { ...joint, ...edgeInfo.config, ...config,
+          if (joint && edgeInfo && panel && (config.width !== undefined || !(edgeInfo.config?.width))) {
+            // One shared gap, edited by moving only the selected panel boundary.
+            let updated = { ...joint, ...edgeInfo.config, ...config,
               width: config.width !== undefined ? Math.max(0, config.width) : joint.width,
               isLED: config.isLED ?? edgeInfo.config?.isLED ?? joint.isLED };
-            const panels = (w.panels ?? []).map(p => {
-              const edges = { ...p.edges };
-              getPanelEdges(p.points, p.edges).filter(e => edgeBelongsToJoint(e, joint)).forEach(e => {
-                delete edges[e.index];
-                if (e.side) delete edges[e.side];
-              });
-              return { ...p, edges };
-            });
-            const resized = PolygonSlicingEngine.cascadeChainJointWidthChange(panels,
-              (w.joints ?? []).map(j => j.id === joint.id ? updated : j), joint,
-              joint.width, updated.width, w.width, w.height, w.openings);
-            return { ...w, ...resized, customJoints: { ...w.customJoints,
+            let nextPanel = panel;
+            if (config.width !== undefined) {
+              const resized = resizePanelEdgeGap(w, panel, edgeInfo.index, joint, updated.width);
+              nextPanel = resized.panel;
+              updated = { ...updated, p1: resized.joint.p1, p2: resized.joint.p2 };
+              if (selectedPanelEdge?.wallId === wallId && selectedPanelEdge.panelId === panelId &&
+                (selectedPanelEdge.edge === edgeInfo.key || selectedPanelEdge.edge === edgeInfo.index)) {
+                selectedPanelEdge = { ...selectedPanelEdge, edge: resized.edgeKey };
+              }
+            } else if (panel.edges) {
+              const edges = { ...panel.edges };
+              delete edges[edgeInfo.index];
+              if (edgeInfo.side) delete edges[edgeInfo.side];
+              nextPanel = { ...panel, edges };
+            }
+            return { ...w, panels: w.panels?.map(p => p.id === panelId ? nextPanel : p),
+              joints: w.joints?.map(j => j.id === joint.id ? updated : j), customJoints: { ...w.customJoints,
               [joint.id]: { ...jointParameters(w, joint.id), width: updated.width, isLED: updated.isLED,
                 profileArticle: updated.profileArticle, profileColor: updated.profileColor,
                 orientation: updated.orientation ?? (Math.abs(updated.p1.x - updated.p2.x) < 1e-5 ? 'VERTICAL'
@@ -2832,9 +2850,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             };
           });
           return { ...w, panels: nextPanels };
-        }),
-      },
-    })),
+        });
+      return { selectedPanelEdge, project: { ...state.project, walls } };
+    }),
 
   setPanelEdgeWidth: (wallId, panelId, edge, width) => {
     get().setPanelEdgeJoint(wallId, panelId, edge, { width: Math.max(0, width) });
@@ -5532,9 +5550,17 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           w.id === wallId
             ? {
                 ...w,
-                openings: w.openings.map((op) =>
-                  op.id === updated.id ? { ...op, ...updated } : op
-                ),
+                openings: w.openings.map((op) => {
+                  if (op.id !== updated.id) return op;
+                  const next = { ...op, ...updated };
+                  if (op.type === 'DOOR' && updated.isPortal !== undefined) {
+                    if (updated.name === undefined && op.name === getOpeningTypeLabel(op)) {
+                      next.name = getOpeningTypeLabel(next);
+                    }
+                    if (next.isPortal) next.isCutout = true;
+                  }
+                  return next;
+                }),
               }
             : w
         ),

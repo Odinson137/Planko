@@ -65,6 +65,7 @@ export interface Opening {
   id: string;
   name: string;
   type: OpeningType;
+  isPortal?: boolean; // Режим двери без полотна; отсутствие поля сохраняет обычную дверь.
   x: number;          // расстояние от левого края стены (мм)
   y: number;          // расстояние от пола (мм)
   width: number;      // ширина проема/декора (мм)
@@ -75,6 +76,15 @@ export interface Opening {
   isApplied?: boolean; // false - черновик (можно свободно двигать и менять размеры), true - встроено в панели стены
   slopes?: SlopeConfig;
   framing?: OpeningFramingConfig; // Примыкание/стыки по контуру проема
+}
+
+export function getOpeningTypeLabel(op: Opening): string {
+  switch (op.type) {
+    case 'DOOR': return op.isPortal ? 'Портал' : 'Дверь';
+    case 'WINDOW': return 'Окно';
+    case 'TV_ZONE': return 'ТВ-зона';
+    case 'NICHE': return 'Ниша';
+  }
 }
 
 export function ensureOpeningSlopes(op: Opening): SlopeConfig {

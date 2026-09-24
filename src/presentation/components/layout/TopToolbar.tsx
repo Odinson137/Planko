@@ -25,6 +25,7 @@ import {
   FileText,
   Boxes,
   Wrench,
+  Ruler,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -106,6 +107,18 @@ export const TopToolbar: React.FC = () => {
       await PdfExportService.exportInstallerPdf(project);
     } catch (e) {
       console.error('Export installer doc failed', e);
+      setExportError(e instanceof Error ? e.message : 'Не удалось создать PDF.');
+    } finally {
+      setExportingType(null);
+    }
+  };
+
+  const handleExportCuttingDetails = async () => {
+    try {
+      setExportingType('CUTTING_DETAILS');
+      await PdfExportService.exportCuttingDetailsPdf(project);
+    } catch (e) {
+      console.error('Export cutting details failed', e);
       setExportError(e instanceof Error ? e.message : 'Не удалось создать PDF.');
     } finally {
       setExportingType(null);
@@ -256,6 +269,15 @@ export const TopToolbar: React.FC = () => {
                   <Text size="10px" c="dimmed">Сводка панелей, 2D стыки и расчет 3м профилей</Text>
                 </div>
               </Menu.Item>
+              <Menu.Item
+                leftSection={<Ruler size={16} color="#7c3aed" />}
+                onClick={handleExportCuttingDetails}
+              >
+                <div>
+                  <Text size="xs" fw={700} c="violet.6">4. Детали для раскроя (PDF)</Text>
+                  <Text size="10px" c="dimmed">Чертежи деталей, размеры, вырезы и косые резы</Text>
+                </div>
+              </Menu.Item>
             </Menu.Dropdown>
           </Menu>
 
@@ -358,7 +380,7 @@ export const TopToolbar: React.FC = () => {
                 leftSection={<DoorOpen size={15} />}
                 onClick={() => handleAddOpening('DOOR')}
               >
-                Дверь
+                Дверь / Портал
               </Menu.Item>
               <Menu.Item
                 leftSection={<AppWindow size={15} />}

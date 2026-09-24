@@ -1155,7 +1155,7 @@ export const Axonometric3DView: React.FC = () => {
       // =========================================================================
       // Отрисовка внутреннего заполнения проема (ПОЛОТНО/ОКНО СТОИТ НА ГЛУБИНЕ ПРОЕМА opDepth)
       // =========================================================================
-      if (op.type === 'DOOR') {
+      if (op.type === 'DOOR' && !op.isPortal) {
         const dp0 = project3D(getPointAtS(op.x + 10, op.y, opDepth), cx, cy, scale);
         const dp1 = project3D(getPointAtS(op.x + op.width - 10, op.y, opDepth), cx, cy, scale);
         const dp2 = project3D(getPointAtS(op.x + op.width - 10, op.y + op.height - 10, opDepth), cx, cy, scale);

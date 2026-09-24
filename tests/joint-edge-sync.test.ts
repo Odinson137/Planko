@@ -19,10 +19,69 @@ function fixture() {
   const wall = wallWithPanel(3600, 2750);
   wall.panels = [panel('left', 0, 0, 1218.5, 2750), panel('middle', 1221.5, 0, 1220, 2750),
     panel('right', 2444.5, 0, 1155.5, 2750)];
+  wall.panels.forEach((p, i) => { p.partLabel = `1.${i + 1}`; });
   wall.joints = [1220, 2443].map((x, i) => ({ id: `joint-${i}`, p1: { x, y: 0 }, p2: { x, y: 2750 },
     width: 3, isLED: false, profileArticle: 'MC-06', orientation: 'VERTICAL' }));
   return wall;
 }
+
+test('editing a middle panel edge leaves its opposite edge, neighbors and other joint unchanged', () => {
+  load(fixture());
+  const before = structuredClone(current());
+  const store = useProjectStore.getState();
+  store.setPanelEdgeWidth(current().id, 'middle', 'left', 56);
+  const wall = current();
+  assert.deepEqual(wall.panels![0], before.panels![0]);
+  assert.deepEqual(wall.panels![2], before.panels![2]);
+  close(Math.max(...wall.panels![1].points.map(p => p.x)), 2441.5);
+  close(Math.min(...wall.panels![1].points.map(p => p.x)), 1274.5);
+  assert.deepEqual(wall.joints![1], before.joints![1]);
+  assert.equal(wall.joints!.length, before.joints!.length);
+  assert.equal(getResolvedPanelEdges(wall, wall.panels![1]).find(e => e.key === 'right')!.config!.width, 3);
+  assert.equal(LayoutEngine.calculateWallLayout(wall, sheet, [sheet]).joints.filter(j => !j.isOuterEdge).length, 2);
+});
+
+test('selecting another panel or wall never retains a previously selected edge or changes the project geometry', () => {
+  load(fixture());
+  const store = useProjectStore.getState(), before = structuredClone(current());
+  store.selectPanel('left', 0, 0);
+  store.setSelectedPanelEdge({ wallId: current().id, panelId: 'left', edge: 'right' });
+  store.selectPanel('middle', 0, 1);
+  assert.equal(useProjectStore.getState().selectedPanelEdge, null);
+  store.setSelectedPanelEdge({ wallId: current().id, panelId: 'middle', edge: 'left' });
+  store.selectWall(current().id);
+  assert.equal(useProjectStore.getState().selectedPanelEdge, null);
+  assert.deepEqual(current(), before);
+});
+
+test('changing either edge of the middle panel keeps the other gap and profile independent', () => {
+  load(fixture());
+  const store = useProjectStore.getState();
+  store.setPanelEdgeWidth(current().id, 'middle', 'left', 56);
+  store.setPanelEdgeProfile(current().id, 'middle', 'left', 'MC-06', '#123456');
+  const left = structuredClone(current().joints![0]);
+  const neighbors = [structuredClone(current().panels![0]), structuredClone(current().panels![2])];
+  store.setSelectedPanelEdge({ wallId: current().id, panelId: 'middle', edge: 'left' });
+  store.setPanelEdgeWidth(current().id, 'middle', 'right', 20);
+  store.setPanelEdgeProfile(current().id, 'middle', 'right', 'MC-06-7', '#abcdef');
+  assert.deepEqual(current().joints![0], left);
+  assert.deepEqual([current().panels![0], current().panels![2]], neighbors);
+  const edges = getResolvedPanelEdges(current(), current().panels![1]);
+  assert.equal(edges.find(e => e.key === 'left')!.config!.width, 56);
+  assert.equal(edges.find(e => e.key === 'right')!.config!.width, 20);
+  assert.equal(useProjectStore.getState().selectedPanelEdge!.edge, 'left');
+  assert.equal(current().joints!.length, 2);
+});
+
+test('a gap that consumes the selected panel is rejected without altering any panel or joint', () => {
+  const wall = wallWithPanel(100, 100);
+  wall.panels = [panel('left', 0, 0, 50, 100), panel('right', 50, 0, 50, 100)];
+  wall.joints = [{ id: 'joint', p1: { x: 50, y: 0 }, p2: { x: 50, y: 100 }, width: 0, isLED: false }];
+  load(wall);
+  const before = structuredClone(current());
+  assert.throws(() => useProjectStore.getState().setPanelEdgeWidth(wall.id, 'right', 'left', 60), /Зазор/);
+  assert.deepEqual(current(), before);
+});
 
 test('saved cut gaps appear on both adjacent edges even when edge settings are missing or zero', () => {
   const wall = fixture();
@@ -45,7 +104,8 @@ test('editing either panel edge closes the saved three millimeter cuts in the st
   for (const x of wall.joints!.map(j => j.p1.x)) {
     assert.ok(wall.panels!.filter(p => p.points.some(pt => Math.abs(pt.x - x) < 1e-5)).length >= 2);
   }
-  assert.ok(layout.panels.every(p => p.width <= sheet.width), 'closing gaps preserves the stock format');
+  assert.equal(layout.panels.find(p => p.id === 'left')!.width, 1221.5, 'closing the gap grows only the selected panel');
+  assert.equal(layout.panels.find(p => p.id === 'middle')!.width, 1220, 'the neighboring stock stays in place');
   close(wall.panels!.reduce((sum, p) => sum + Geometry.calculatePolygonArea(p.points), 0), wall.width * wall.height);
   assert.ok(layout.joints.filter(j => j.id.startsWith('joint-')).every(j => j.width === 0));
   const texts: string[] = [];
@@ -104,9 +164,12 @@ for (const direction of ['HORIZONTAL', 'DIAGONAL'] as const) {
       close(current().joints![0].width, gap);
       for (const p of current().panels!) assert.ok(getResolvedPanelEdges(current(), p).some(e => e.joint && e.config!.width === gap));
     }
-    current().panels!.forEach((p, i) => p.points.forEach((point, j) => {
-      close(point.x, originalPoints[i][j].x); close(point.y, originalPoints[i][j].y);
-    }));
+    current().panels!.forEach((p, i) => {
+      const order = (points: typeof p.points) => [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+      const actual = order(p.points), expected = order(originalPoints[i]);
+      assert.equal(actual.length, expected.length, JSON.stringify({ actual, expected }));
+      actual.forEach((point, j) => { close(point.x, expected[j].x); close(point.y, expected[j].y); });
+    });
   });
 }
 

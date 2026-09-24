@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActionIcon, Badge, ColorSwatch, Group, Paper, Select, Stack, Switch, Text, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, ColorSwatch, Group, Paper, Select, Stack, Text, Tooltip } from '@mantine/core';
 import { ALLWALL_PROFILES_CATALOG, findProfileByArticle } from '../../../core/models/Profile';
 import { useAppTheme } from '../../theme/useAppTheme';
 
@@ -19,9 +19,9 @@ const COLORS = [
 ];
 
 /** Shared catalog controls for panel joints and slope joints. Gap is deliberately independent. */
-export function ProfileCatalogSettings({ article, color = '#212529', isLED, onProfile, onColor, onLED }: {
-  article?: string; color?: string; isLED?: boolean;
-  onProfile: (article: string) => void; onColor: (color: string) => void; onLED?: (enabled: boolean) => void;
+export function ProfileCatalogSettings({ article, color = '#212529', onProfile, onColor }: {
+  article?: string; color?: string;
+  onProfile: (article: string) => void; onColor: (color: string) => void;
 }) {
   const t = useAppTheme();
   const [filter, setFilter] = useState('ALL');
@@ -44,7 +44,6 @@ export function ProfileCatalogSettings({ article, color = '#212529', isLED, onPr
           <ColorSwatch color={c.hex} size={20} /></ActionIcon>
       </Tooltip>)}</Group>
     </div>
-    {onLED && <Switch size="xs" label="LED-подсветка" checked={!!isLED} onChange={event => onLED(event.currentTarget.checked)} />}
     {profile && <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCard, border: '1px solid #339af0' }}>
       <Stack gap={4}>
         <Group justify="space-between"><Badge size="xs">{profile.article}</Badge><Badge color="gray" size="xs">Хлыст {profile.stockLength} мм</Badge></Group>

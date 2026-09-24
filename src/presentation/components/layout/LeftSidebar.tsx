@@ -12,10 +12,10 @@ import {
   ActionIcon,
   Tooltip,
 } from '@mantine/core';
-import { Plus, Layout, DoorOpen, AppWindow, Tv, Square, Trash2, PanelLeftClose } from 'lucide-react';
+import { Plus, Layout, DoorOpen, RectangleVertical, AppWindow, Tv, Square, Trash2, PanelLeftClose } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
-import { OpeningType } from '../../../core/models/Opening';
+import { Opening, getOpeningTypeLabel } from '../../../core/models/Opening';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 export const LeftSidebar: React.FC = () => {
@@ -27,10 +27,10 @@ export const LeftSidebar: React.FC = () => {
 
   const currentWall = project.walls.find((w) => w.id === selectedWallId);
 
-  const getOpeningIcon = (type: OpeningType) => {
-    switch (type) {
+  const getOpeningIcon = (opening: Opening) => {
+    switch (opening.type) {
       case 'DOOR':
-        return <DoorOpen size={14} color="#4dabf7" />;
+        return opening.isPortal ? <RectangleVertical size={14} color="#4dabf7" /> : <DoorOpen size={14} color="#4dabf7" />;
       case 'WINDOW':
         return <AppWindow size={14} color="#38d9a9" />;
       case 'TV_ZONE':
@@ -172,8 +172,8 @@ export const LeftSidebar: React.FC = () => {
                         key={op.id}
                         active={op.id === selectedOpeningId}
                         label={op.name}
-                        description={`${op.width}×${op.height} мм`}
-                        leftSection={getOpeningIcon(op.type)}
+                        description={`${getOpeningTypeLabel(op)} · ${op.width}×${op.height} мм`}
+                        leftSection={getOpeningIcon(op)}
                         rightSection={
                           <Group gap={4}>
                             <Badge

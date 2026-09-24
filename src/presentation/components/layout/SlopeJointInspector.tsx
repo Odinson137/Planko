@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Alert, Badge, Button, Group, Paper, Stack, Text } from '@mantine/core';
-import { RotateCcw, Undo2, Redo2 } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { useSlopeJointStore } from '../../../application/stores/useSlopeJointStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { calculateSlopeGeometry, SLOPE_SIDE_LABELS, slopeJointHasProfile } from '../../../core/geometry/SlopeJointGeometry';
@@ -67,17 +67,13 @@ export function SlopeJointInspector({ wallId, opening }: { wallId: string; openi
           {SLOPE_SIDE_LABELS[current.sides[i]]}</Button>)}</Group>
         <Group justify="space-between"><Text size="xs" c="dimmed">{current.takeSide === 'BOTH' ? 'Поровну с обоих откосов' : `Только ${SLOPE_SIDE_LABELS[current.sides[current.takeSide === 'FIRST' ? 0 : 1]].toLowerCase()} откос`}</Text>
           <Button size="compact-xs" variant="subtle" leftSection={<RotateCcw size={12} />} onClick={() => change({ takeSide: 'BOTH' })}>Авто</Button></Group>
-        <ProfileCatalogSettings key={`profile-${opening.id}-${current.corner}`} article={current.profileArticle} color={current.profileColor} isLED={current.isLED}
-          onProfile={profileArticle => change({ profileArticle })} onColor={profileColor => change({ profileColor })} onLED={isLED => change({ isLED })} />
+        <ProfileCatalogSettings key={`profile-${opening.id}-${current.corner}`} article={current.profileArticle} color={current.profileColor}
+          onProfile={profileArticle => change({ profileArticle })} onColor={profileColor => change({ profileColor })} />
         <Text size="xs" c="dimmed">Длина — по общей границе откосов. Зазор вычитается из выбранных торцов по всей их глубине.</Text>
         <Button size="xs" variant="light" aria-label="Применить все настройки ко всем стыкам"
           onClick={() => editor.change(wallId, opening.id, current.corner, {}, true)}>Применить ко всем стыкам</Button>
       </>}
       {sameTarget && editor.error && <Alert color="red" role="alert">{editor.error}</Alert>}
-      <Group gap={6}>
-        <Button size="compact-xs" variant="default" leftSection={<Undo2 size={12} />} disabled={!sameTarget || !editor.past.length} onClick={editor.undo}>Отменить</Button>
-        <Button size="compact-xs" variant="default" leftSection={<Redo2 size={12} />} disabled={!sameTarget || !editor.future.length} onClick={editor.redo}>Повторить</Button>
-      </Group>
       <Text size="xs" c="dimmed">Профилей: {installed.length} · {installed.reduce((sum, j) => sum + j.length, 0).toLocaleString('ru-RU')} мм</Text>
     </Stack>
   </Paper>;

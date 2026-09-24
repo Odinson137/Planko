@@ -52,6 +52,51 @@ test('applying a door twice does not subtract the opening twice', () => {
   assert.deepEqual(currentWall(), once);
 });
 
+for (const applied of [false, true]) {
+  test(`switching a ${applied ? 'built-in' : 'draft'} door to a portal preserves its cutout and cladding`, () => {
+    const store = useProjectStore.getState();
+    const wallId = currentWall().id;
+    store.addOpening(wallId, 'DOOR');
+    const id = currentWall().openings[0].id;
+    store.updateOpening(wallId, { id, x: 300, width: 1100, height: 2200, depth: 240 });
+    store.setOpeningFramingSide(wallId, id, 'top', { width: 3, profileArticle: 'MC-06' });
+    if (applied) store.applyOpening(wallId, id);
+    const before = structuredClone(currentWall());
+    const layoutBefore = LayoutEngine.calculateWallLayout(before, sheet, [sheet]);
+    useProjectStore.setState({ isDirty: false });
+
+    store.updateOpening(wallId, { id, isPortal: true });
+    assert.equal(useProjectStore.getState().isDirty, true);
+    assert.deepEqual(currentWall().openings[0], { ...before.openings[0], isPortal: true, name: 'Портал' });
+    assert.deepEqual(currentWall().panels, before.panels);
+    assert.deepEqual(currentWall().joints, before.joints);
+    const layout = LayoutEngine.calculateWallLayout(currentWall(), sheet, [sheet]);
+    assert.deepEqual(layout.summary, layoutBefore.summary);
+    assert.deepEqual(layout.panels, layoutBefore.panels);
+    assert.deepEqual(layout.slopes!.map(s => [s.side, s.width, s.depth, s.materialId]),
+      layoutBefore.slopes!.map(s => [s.side, s.width, s.depth, s.materialId]));
+    assert.deepEqual(layout.slopes!.map(s => s.side).sort(), ['LEFT', 'RIGHT', 'TOP']);
+
+    store.updateOpening(wallId, { id, isPortal: false });
+    assert.deepEqual(currentWall().openings[0], { ...before.openings[0], isPortal: false });
+    assert.deepEqual(currentWall().panels, before.panels);
+  });
+}
+
+test('portal conversion keeps a custom name and turns a decorative door into a cutout', () => {
+  const store = useProjectStore.getState();
+  const wallId = currentWall().id;
+  store.addOpening(wallId, 'DOOR');
+  const id = currentWall().openings[0].id;
+  store.updateOpening(wallId, { id, name: 'Проход в гостиную', isCutout: false });
+  store.updateOpening(wallId, { id, isPortal: true });
+  assert.equal(currentWall().openings[0].isCutout, true);
+  assert.equal(currentWall().openings[0].name, 'Проход в гостиную');
+  assert.equal(LayoutEngine.calculateWallLayout(currentWall(), sheet, [sheet]).summary.cutoutsAreaSqM, 1.89);
+  store.updateOpening(wallId, { id, isPortal: false });
+  assert.equal(currentWall().openings[0].name, 'Проход в гостиную');
+});
+
 test('custom 1200 × 600 material controls subsequent sheet slicing', t => {
   t.mock.method(localCatalogRepository, 'savePanel', () => undefined);
   const wallId = currentWall().id;

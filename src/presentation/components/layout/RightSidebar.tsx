@@ -64,6 +64,7 @@ import { getResolvedPanelEdges } from '../../../core/geometry/PanelJointBinding'
 import {
   ensureOpeningSlopes,
   ensureOpeningFraming,
+  getOpeningTypeLabel,
   SlopeConfig,
   SlopeSideConfig,
 } from '../../../core/models/Opening';
@@ -92,6 +93,7 @@ export const RightSidebar: React.FC = () => {
   const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
   const [openingJointMode, setOpeningJointMode] = useState('SLOPES');
   const [selectedOpeningSide, setSelectedOpeningSide] = useState<'left' | 'top' | 'right' | 'bottom'>('top');
+  const [panelEdgeError, setPanelEdgeError] = useState<{ key: string; message: string } | null>(null);
   const {
     project,
     selectedColumnIndex,
@@ -477,7 +479,18 @@ export const RightSidebar: React.FC = () => {
 
             {/* Выбор ширины зазора / профиля */}
             <PanelGapInput key={`${targetPanelId}-${side}`} value={currentWidth}
-              onChange={width => setPanelEdgeWidth(currentWall.id, targetPanelId, side, width)} />
+              onChange={width => {
+                try {
+                  setPanelEdgeWidth(currentWall.id, targetPanelId, side, width);
+                  setPanelEdgeError(null);
+                } catch (error) {
+                  setPanelEdgeError({ key: `${currentWall.id}-${targetPanelId}-${side}`,
+                    message: error instanceof Error ? error.message : 'Не удалось изменить зазор.' });
+                }
+              }} />
+            {panelEdgeError?.key === `${currentWall.id}-${targetPanelId}-${side}` && (
+              <Alert color="red" role="alert">{panelEdgeError.message}</Alert>
+            )}
 
 
 
@@ -875,7 +888,7 @@ export const RightSidebar: React.FC = () => {
             <Divider color={t.border} />
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва */}
-            <PanelGapInput key={selectedJointId} value={currentWidth}
+            <PanelGapInput key={`gap-${selectedJointId}`} value={currentWidth}
               onChange={width => setJointWidth(currentWall.id, selectedJointId, width)} />
 
             {/* Направление взятия зазора (Стрелки) */}
@@ -983,7 +996,7 @@ export const RightSidebar: React.FC = () => {
               </Stack>
             </Paper>
 
-            <ProfileCatalogSettings key={selectedJointId} article={profileArticle} color={profileColor} isLED={isLED}
+            <ProfileCatalogSettings key={`profile-${selectedJointId}`} article={profileArticle} color={profileColor}
               onProfile={article => setJointProfile(currentWall.id, selectedJointId, article, profileColor)}
               onColor={color => setJointColor(currentWall.id, selectedJointId, color)}
               />
@@ -1041,7 +1054,7 @@ export const RightSidebar: React.FC = () => {
               </div>
               <Group gap={6}>
                 <Badge size="xs" color="blue">
-                  {currentOpening.type}
+                  {getOpeningTypeLabel(currentOpening)}
                 </Badge>
                 <Tooltip label="Снять выделение">
                   <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectOpening(null)}>
@@ -1052,6 +1065,31 @@ export const RightSidebar: React.FC = () => {
             </Group>
 
             <Divider color={t.border} />
+
+            {currentOpening.type === 'DOOR' && (
+              <div>
+                <Text size="xs" mb={4} c="dimmed">Тип проёма:</Text>
+                <SegmentedControl
+                  size="xs"
+                  fullWidth
+                  aria-label="Тип проёма"
+                  value={currentOpening.isPortal ? 'PORTAL' : 'DOOR'}
+                  onChange={(value) => updateOpening(currentWall.id, {
+                    id: currentOpening.id,
+                    isPortal: value === 'PORTAL',
+                  })}
+                  data={[
+                    { label: 'Дверь', value: 'DOOR' },
+                    { label: 'Портал', value: 'PORTAL' },
+                  ]}
+                />
+                {currentOpening.isPortal && (
+                  <Text size="xs" c="dimmed" mt={6}>
+                    Открытый проход без дверного полотна. Откосы и обрамление настраиваются ниже и в режиме «Стыки».
+                  </Text>
+                )}
+              </div>
+            )}
 
             {!currentOpening.isApplied ? (
               <Paper
@@ -1108,10 +1146,10 @@ export const RightSidebar: React.FC = () => {
                 {/* Кнопка разделения детали на фрамугу и боковины */}
                 <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
                   <Text size="xs" fw={500} mb={4} c="dimmed">
-                    Разделение детали двери:
+                    Разделение детали вокруг проёма:
                   </Text>
                   <Text size="xs" c="dimmed" mb={8}>
-                    Панель сейчас цельная с вырезом под дверь. При необходимости вы можете разрезать её на фрамугу и боковины:
+                    Панель сейчас цельная с вырезом под проём. При необходимости вы можете разрезать её на фрамугу и боковины:
                   </Text>
                   <Button
                     size="xs"
@@ -1205,7 +1243,7 @@ export const RightSidebar: React.FC = () => {
               />
             </Group>
 
-            <div>
+            {!(currentOpening.type === 'DOOR' && currentOpening.isPortal) && <div>
               <Text size="xs" mb={4} c="dimmed">
                 Режим размещения:
               </Text>
@@ -1224,7 +1262,7 @@ export const RightSidebar: React.FC = () => {
                   { label: '📺 Декор поверх плит', value: 'OVERLAY' },
                 ]}
               />
-            </div>
+            </div>}
 
             {/* Глубина проема в стене (для вырезов) */}
             {currentOpening.isCutout !== false && (
@@ -2596,7 +2634,7 @@ export const RightSidebar: React.FC = () => {
         <Stack gap="md" p="xs">
           {editMode === 'JOINTS' && (
             <Alert color="yellow" variant="light" title="⚡ Режим «Стыки и профили»" icon={<Sparkles size={16} />}>
-              Все стыки подсвечены на чертеже. Кликните по любому стыку или зажмите Shift для выбора нескольких, чтобы настроить ширину шва, профиль или включить LED-подсветку.
+              Выберите панель, затем её грань на чертеже или в списке справа, чтобы настроить зазор и профиль этой грани.
             </Alert>
           )}
 

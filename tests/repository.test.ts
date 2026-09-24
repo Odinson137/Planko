@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { LocalSQLiteRepository } from '../src/infrastructure/repositories/LocalSQLiteRepository';
 import { createDefaultProject } from '../src/core/models/Project';
-import { createDefaultOpening } from '../src/core/models/Opening';
+import { createDefaultOpening, getOpeningTypeLabel } from '../src/core/models/Opening';
 import { sheet, wallWithPanel } from './helpers/business';
 
 const savedStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -51,6 +51,20 @@ test('import gets a new project identity while preserving custom material and wa
   assert.deepEqual(imported.materials, project.materials);
   assert.ok(await repository.getProject(imported.id));
   assert.equal(await repository.getProject(project.id), null);
+});
+
+test('portal mode survives saving and JSON import alongside legacy doors', async () => {
+  const wall = wallWithPanel();
+  const door = createDefaultOpening('DOOR', wall.width, wall.height);
+  wall.openings = [door, { ...door, id: 'portal', name: 'Портал', isPortal: true }];
+  const project = { ...createDefaultProject('Portals'), id: 'portal-project', walls: [wall] };
+  await repository.saveProject(project);
+  const saved = (await repository.getProject(project.id))!;
+  const imported = await repository.importProjectFromJson(JSON.stringify(saved));
+  for (const restored of [saved, imported]) {
+    assert.deepEqual(restored.walls[0].openings, JSON.parse(JSON.stringify(wall.openings)));
+    assert.deepEqual(restored.walls[0].openings.map(getOpeningTypeLabel), ['Дверь', 'Портал']);
+  }
 });
 
 test('malformed JSON and projects without a walls array are rejected before saving', async () => {
