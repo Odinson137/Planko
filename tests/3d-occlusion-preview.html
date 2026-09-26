@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>Проверка перекрытия в 3D</title>
+<style>body{margin:0;font:14px sans-serif}header{padding:12px}#root{height:850px}</style>
+<header>Тестовая S-образная стена с пустыми участками на изгибах. <span id="status">Проверка маски…</span>
+<button id="benchmark">Проверить вращение (60 кадров)</button><output id="performance"></output></header>
+<div id="root"></div>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { MantineProvider } from '@mantine/core';
+import '@mantine/core/styles.css';
+import { Axonometric3DView } from '/src/presentation/components/canvas/Axonometric3DView.tsx';
+import { useProjectStore } from '/src/application/stores/useProjectStore.ts';
+import { useEditorStore } from '/src/application/stores/useEditorStore.ts';
+import { createDefaultWall } from '/src/core/models/Wall.ts';
+import { MATERIAL_NONE_ID, MATERIAL_NONE } from '/src/core/models/Material.ts';
+import { clipHiddenFaces, occludingFace } from '/src/core/geometry/FaceOcclusion.ts';
+import { LayoutEngine } from '/src/core/layout/LayoutEngine.ts';
+
+const wall = createDefaultWall('occlusion-preview');
+wall.width = 6570;
+wall.bends = [
+  { id:'inner', x:2000, type:'INNER_CORNER', radius:500, angleDeg:90 },
+  { id:'outer', x:3785, type:'OUTER_CORNER', radius:500, angleDeg:90 },
+];
+const colors = ['#d6cbbe','#141517','#b18a55','#141517','#c0c0ba'];
+const cuts = [0,2000,2785,3785,4570,6570];
+const materials = colors.map((color,i) => ({ id:`preview-${i}`,name:`Материал ${i}`,type:'SHEET',
+  width:2800,height:2800,thickness:5,color,isCustom:true }));
+wall.panels = colors.map((color,i) => ({ id:`panel-${i}`,partLabel:`${i+1}`,isVoid:i===1||i===3,
+  materialId:i===1||i===3?MATERIAL_NONE_ID:materials[i].id,
+  points:[{x:cuts[i],y:0},{x:cuts[i+1],y:0},{x:cuts[i+1],y:2750},{x:cuts[i],y:2750}] }));
+if (new URLSearchParams(location.search).has('dense')) {
+  wall.panels = wall.panels.flatMap(panel => Array.from({length:24},(_,i) => {
+    const x = panel.points[0].x, width = (panel.points[1].x-x)/6, height = 2750/4;
+    const left = x+(i%6)*width, bottom = Math.floor(i/6)*height;
+    return {...panel,id:`${panel.id}-${i}`,points:[{x:left,y:bottom},{x:left+width,y:bottom},
+      {x:left+width,y:bottom+height},{x:left,y:bottom+height}]};
+  }));
+}
+wall.zone.materialId = materials[0].id;
+const initial = useProjectStore.getState().project;
+useProjectStore.setState({ project:{...initial,id:'occlusion-preview',walls:[wall],selectedWallId:wall.id,
+  materials:[MATERIAL_NONE,...materials]} });
+useEditorStore.setState({showTextures:false});
+createRoot(document.getElementById('root')).render(React.createElement(MantineProvider,{defaultColorScheme:'light'},
+  React.createElement(Axonometric3DView)));
+
+// Pixel regression: two overlapping wall masks must remain opaque even where they overlap.
+const canvas = document.createElement('canvas'); canvas.width=100;canvas.height=100;
+const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,100,100);
+const quad=(left,right,depth)=>[{x:left,y:0,depth},{x:right,y:0,depth},{x:right,y:100,depth},{x:left,y:100,depth}];
+ctx.save();clipHiddenFaces(ctx,quad(0,100,0),[occludingFace(quad(40,70,10)),occludingFace(quad(60,90,20))]);
+ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,100,100);ctx.restore();
+const red=x=>ctx.getImageData(x,50,1,1).data[0];
+const passed=red(20)<100&&red(50)===255&&red(65)===255&&red(80)===255&&red(95)<100;
+document.getElementById('status').textContent=passed?'Маска перекрытия: OK.':'ОШИБКА маски перекрытия.';
+
+document.getElementById('benchmark').onclick = async () => {
+  const button = document.getElementById('benchmark'); button.disabled = true;
+  const output = document.getElementById('performance'); output.textContent = ' Измерение…';
+  const target = document.querySelector('#root canvas');
+  const context = target.getContext('2d');
+  const calculate = LayoutEngine.calculateWallLayout, clear = context.clearRect, clip = context.clip, restore = context.restore;
+  const width = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width');
+  let layouts = 0, renders = 0, clips = 0, resizes = 0;
+  let drawStart = 0, drawEnd = 0;
+  const drawTimes = [];
+  LayoutEngine.calculateWallLayout = function(...args) { layouts++; return calculate.apply(this,args); };
+  context.clearRect = function(...args) {
+    if (drawEnd > drawStart) drawTimes.push(drawEnd-drawStart);
+    drawStart=performance.now(); renders++; return clear.apply(this,args);
+  };
+  context.clip = function(...args) { clips++; return clip.apply(this,args); };
+  context.restore = function(...args) { const result = restore.apply(this,args); drawEnd=performance.now(); return result; };
+  Object.defineProperty(target,'width',{configurable:true,get(){return width.get.call(this);},
+    set(value){resizes++;width.set.call(this,value);}});
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+  const intervals = [];
+  const mouse = (type,x) => target.dispatchEvent(new MouseEvent(type,{bubbles:true,clientX:x,clientY:300,buttons:type==='mouseup'?0:1}));
+  try {
+    mouse('mousedown',200);
+    let previous = await nextFrame();
+    for(let i=1;i<=60;i++) {
+      mouse('mousemove',200+i*2);
+      const now = await nextFrame(); intervals.push(now-previous); previous = now;
+    }
+    mouse('mouseup',320); await nextFrame(); await nextFrame();
+    if (drawEnd > drawStart) drawTimes.push(drawEnd-drawStart);
+    drawTimes.sort((a,b)=>a-b);
+    intervals.sort((a,b)=>a-b);
+    output.textContent = ` Расчёты раскладки: ${layouts}; отрисовки: ${renders}; сбросы canvas: ${resizes}; `+
+      `clip: ${clips}; медиана: ${intervals[30].toFixed(1)} мс; p95: ${intervals[57].toFixed(1)} мс; `+
+      `отрисовка JS p95: ${drawTimes[Math.floor(drawTimes.length*.95)]?.toFixed(1)} мс; деталей: ${wall.panels.length}.`;
+  } finally {
+    LayoutEngine.calculateWallLayout = calculate; context.clearRect = clear; context.clip = clip; context.restore = restore;
+    delete target.width; button.disabled = false;
+  }
+};
+</script></html>

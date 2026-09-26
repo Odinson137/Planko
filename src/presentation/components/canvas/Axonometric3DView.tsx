@@ -1,9 +1,11 @@
 import { buildWallPath, resolvePathBends } from '../../../core/geometry/WallPath';
+import { clipHiddenFaces, occludingFace, type DepthPoint } from '../../../core/geometry/FaceOcclusion';
+import { wallOcclusionFaces, wallSurfaceSlices } from '../../../core/geometry/WallOcclusion';
 import { drawOpeningSlopes } from '../../../application/services/SlopeDrawing';
 import { useSlopeJointStore } from '../../../application/stores/useSlopeJointStore';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
 import { drawTextureFace } from '../../../core/textures/PhotoTextures';
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
 import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack } from '@mantine/core';
 import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
@@ -56,7 +58,7 @@ export const Axonometric3DView: React.FC = () => {
   const [zoomScale, setZoomScale] = useState<number>(0.24);      // Масштаб
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   const { project } = useProjectStore();
   const { showTextures, showProfiles } = useEditorStore();
@@ -69,29 +71,51 @@ export const Axonometric3DView: React.FC = () => {
   const selectedWallIndex = selectedWall ? project.walls.findIndex((w) => w.id === selectedWall.id) : -1;
   const selectedWallNumber = selectedWallIndex >= 0 ? selectedWallIndex + 1 : 1;
 
-  const layout =
+  const layout = useMemo(() =>
     selectedWall && selectedMaterial
       ? LayoutEngine.calculateWallLayout(selectedWall, selectedMaterial, project.materials, selectedWallNumber)
-      : null;
+      : null, [selectedWall, selectedMaterial, project.materials, selectedWallNumber]);
+
+  // Wall geometry does not change when the camera moves.
+  const sceneGeometry = useMemo(() => {
+    if (!selectedWall || !layout) return null;
+    const path = buildWallPath(selectedWall, resolvePathBends(selectedWall, layout.panels));
+    const surfaceSlices = wallSurfaceSlices(path.pathSections, [
+      ...layout.panels.flatMap(panel => [panel.x, panel.x + panel.width]),
+      ...selectedWall.openings.filter(op => op.isCutout !== false).flatMap(op => [op.x, op.x + op.width]),
+    ]);
+    return { ...path, surfaceSlices,
+      occlusionFaces: wallOcclusionFaces(selectedWall, path.pathSections, 150, surfaceSlices) };
+  }, [selectedWall, layout]);
+
+  // Keep textures for the current wall, avoiding repeated cache lookups for every curved slice.
+  const panelTextures = useMemo(() => {
+    const textures = new Map<CalculatedPanelPiece, HTMLCanvasElement | undefined>();
+    if (showTextures) for (const panel of layout?.panels ?? []) {
+      if (!panel.isVoid && panel.materialId !== MATERIAL_NONE_ID) textures.set(panel, getPieceTexture(panel));
+    }
+    return textures;
+  }, [layout, showTextures]);
 
   // Математическая 3D-проекция точки (X, Y, Z) в экранные 2D (x, y)
-  const project3D = useCallback(
-    (p: Point3D, cx: number, cy: number, scale: number): Point2D => {
-      const radA = (angleDeg * Math.PI) / 180;
-      const radE = (elevationDeg * Math.PI) / 180;
+  const project3D = useMemo(() => {
+    const radA = (angleDeg * Math.PI) / 180;
+    const radE = (elevationDeg * Math.PI) / 180;
+    const cosA = Math.cos(radA), sinA = Math.sin(radA);
+    const cosE = Math.cos(radE), sinE = Math.sin(radE);
+    return (p: Point3D, cx: number, cy: number, scale: number): DepthPoint => {
 
       // Вращение вокруг вертикальной оси Y
-      const xRot = p.x * Math.cos(radA) - p.z * Math.sin(radA);
-      const zRot = p.x * Math.sin(radA) + p.z * Math.cos(radA);
+      const xRot = p.x * cosA - p.z * sinA;
+      const zRot = p.x * sinA + p.z * cosA;
 
       // Проекция с учетом угла наклона камеры сверху
       const screenX = cx + xRot * scale + panOffset.x;
-      const screenY = cy - (p.y * Math.cos(radE) - zRot * Math.sin(radE)) * scale + panOffset.y;
+      const screenY = cy - (p.y * cosE - zRot * sinE) * scale + panOffset.y;
 
-      return { x: screenX, y: screenY };
-    },
-    [angleDeg, elevationDeg, panOffset]
-  );
+      return { x: screenX, y: screenY, depth: zRot * cosE + p.y * sinE };
+    };
+  }, [angleDeg, elevationDeg, panOffset]);
 
   // Отрисовка фотореалистичных текстур материалов на 3D-гранях панелей
   const draw3DMaterialTexture = (
@@ -104,7 +128,7 @@ export const Axonometric3DView: React.FC = () => {
     bounds: { x: number; y: number; width: number; height: number }
   ) => {
     const category = panel.textureCategory || 'WOOD';
-    const texture = getPieceTexture(panel);
+    const texture = panelTextures.get(panel);
     if (texture) {
       drawTextureFace(ctx, texture, p0, p1, p2, p3, {
         x: (bounds.x - panel.x) / panel.width,
@@ -321,7 +345,7 @@ export const Axonometric3DView: React.FC = () => {
   // Отрисовка всей монолитной 3D-сцены
   const renderScene = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !selectedWall || !layout) return;
+    if (!canvas || !selectedWall || !layout || !sceneGeometry) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -338,8 +362,7 @@ export const Axonometric3DView: React.FC = () => {
     // =========================================================================
     // 1. Построение непрерывной 3D траектории стены (с поворотами на WallBend)
     // =========================================================================
-    const activeBends = resolvePathBends(selectedWall, layout.panels);
-    const { pathSections, allPathPoints, getPointAtS } = buildWallPath(selectedWall, activeBends);
+    const { pathSections, allPathPoints, getPointAtS, surfaceSlices, occlusionFaces } = sceneGeometry;
 
     // Fit the entire chain, including a translated origin after prepending a wall.
     // Keep manual zoom and pan as offsets from this fit.
@@ -352,6 +375,10 @@ export const Axonometric3DView: React.FC = () => {
       Math.max(60, height - 230) / Math.max(100, y1-y0)) * zoomScale / 0.24;
     const cx = width / 2 - (x0+x1) * scale / 2;
     const cy = height * 0.43 - (y0+y1) * scale / 2;
+
+    const wallOccluders = occlusionFaces
+      .map(face => occludingFace(face.map(point => project3D(point, cx, cy, scale))))
+      .filter((face): face is NonNullable<typeof face> => face !== null);
 
     // =========================================================================
     // 2. Отрисовка пола (охватывает всю площадь сложной стены)
@@ -537,31 +564,7 @@ export const Axonometric3DView: React.FC = () => {
       if (panel.polygonPoints && panel.polygonPoints.length >= 3) {
         const thisPanelThick = isVoid ? 0 : (panel.thickness || (isSlat ? 15 : 5));
 
-        const polySliceBoundaries: number[] = [pStartS];
-        pathSections.forEach((sec) => {
-          if (sec.sEnd > pStartS && sec.sStart < pEndS) {
-            const overlapStart = Math.max(pStartS, sec.sStart);
-            const overlapEnd = Math.min(pEndS, sec.sEnd);
-            if (sec.isBend) {
-              const bendSlices = 14;
-              for (let k = 1; k <= bendSlices; k++) {
-                polySliceBoundaries.push(overlapStart + (k / bendSlices) * (overlapEnd - overlapStart));
-              }
-            } else {
-              polySliceBoundaries.push(overlapEnd);
-            }
-          }
-        });
-        activeBends.forEach((b) => {
-          if (b.sStart > pStartS && b.sStart < pEndS) {
-            polySliceBoundaries.push(b.sStart);
-          }
-          if (b.sEnd > pStartS && b.sEnd < pEndS) {
-            polySliceBoundaries.push(b.sEnd);
-          }
-        });
-        polySliceBoundaries.push(pEndS);
-        const sortedPolySlices = Array.from(new Set(polySliceBoundaries.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
+        const sortedPolySlices = surfaceSlices.filter(s => s >= pStartS && s <= pEndS);
 
         for (let i = 0; i < sortedPolySlices.length - 1; i++) {
           const s0 = sortedPolySlices[i];
@@ -591,6 +594,7 @@ export const Axonometric3DView: React.FC = () => {
           }
 
           ctx.save();
+          clipHiddenFaces(ctx, poly3D, wallOccluders);
           ctx.beginPath();
           ctx.moveTo(poly3D[0].x, poly3D[0].y);
           for (let pi = 1; pi < poly3D.length; pi++) {
@@ -690,6 +694,8 @@ export const Axonometric3DView: React.FC = () => {
             const p2 = project3D(getPointAtS(s1, segYTop, -slatThick), cx, cy, scale);
             const p3 = project3D(getPointAtS(s0, segYTop, -slatThick), cx, cy, scale);
 
+            ctx.save();
+            clipHiddenFaces(ctx, [p0, p1, p2, p3], wallOccluders);
             ctx.fillStyle = adjustBrightness(baseColor, 0.95);
             ctx.strokeStyle = adjustBrightness(baseColor, 0.6);
             ctx.lineWidth = 1;
@@ -705,6 +711,7 @@ export const Axonometric3DView: React.FC = () => {
             if (!isVoid && showTextures) {
               draw3DMaterialTexture(ctx, panel, p0, p1, p2, p3, { x: s0, y: segYBot, width: s1 - s0, height: segYTop - segYBot });
             }
+            ctx.restore();
 
             // Верхний торец рейки
             const pt0 = p3;
@@ -712,6 +719,8 @@ export const Axonometric3DView: React.FC = () => {
             const pt2 = project3D(getPointAtS(s1, segYTop, 0), cx, cy, scale);
             const pt3 = project3D(getPointAtS(s0, segYTop, 0), cx, cy, scale);
 
+            ctx.save();
+            clipHiddenFaces(ctx, [pt0, pt1, pt2, pt3], wallOccluders);
             ctx.fillStyle = adjustBrightness(baseColor, 1.08);
             ctx.beginPath();
             ctx.moveTo(pt0.x, pt0.y);
@@ -720,6 +729,7 @@ export const Axonometric3DView: React.FC = () => {
             ctx.lineTo(pt3.x, pt3.y);
             ctx.closePath();
             ctx.fill();
+            ctx.restore();
 
             // Нижний торец рейки (если висит над проемом)
             if (segYBot > yBot + 1 && elevationDeg < 20) {
@@ -728,6 +738,8 @@ export const Axonometric3DView: React.FC = () => {
               const pb2 = project3D(getPointAtS(s1, segYBot, 0), cx, cy, scale);
               const pb3 = project3D(getPointAtS(s0, segYBot, 0), cx, cy, scale);
 
+              ctx.save();
+              clipHiddenFaces(ctx, [pb0, pb1, pb2, pb3], wallOccluders);
               ctx.fillStyle = adjustBrightness(baseColor, 0.75);
               ctx.beginPath();
               ctx.moveTo(pb0.x, pb0.y);
@@ -736,6 +748,7 @@ export const Axonometric3DView: React.FC = () => {
               ctx.lineTo(pb3.x, pb3.y);
               ctx.closePath();
               ctx.fill();
+              ctx.restore();
             }
           }
         }
@@ -743,40 +756,7 @@ export const Axonometric3DView: React.FC = () => {
         // Листовые панели
         const thisPanelThick = isVoid ? 0 : (panel.thickness || 5);
 
-        const slicePoints: number[] = [pStartS];
-
-        pathSections.forEach((sec) => {
-          if (sec.sEnd > pStartS && sec.sStart < pEndS) {
-            const overlapStart = Math.max(pStartS, sec.sStart);
-            const overlapEnd = Math.min(pEndS, sec.sEnd);
-            if (sec.isBend) {
-              const bendSlices = 14;
-              for (let k = 1; k <= bendSlices; k++) {
-                const sVal = overlapStart + (k / bendSlices) * (overlapEnd - overlapStart);
-                slicePoints.push(sVal);
-              }
-            } else {
-              slicePoints.push(overlapEnd);
-            }
-          }
-        });
-
-        activeBends.forEach((b) => {
-          if (b.sStart > pStartS && b.sStart < pEndS) {
-            slicePoints.push(b.sStart);
-          }
-        });
-
-        // Добавляем границы вырезаемых проемов для аккуратной стыковки срезов
-        selectedWall.openings.forEach((op) => {
-          if (op.isCutout !== false) {
-            if (op.x > pStartS && op.x < pEndS) slicePoints.push(op.x);
-            if (op.x + op.width > pStartS && op.x + op.width < pEndS) slicePoints.push(op.x + op.width);
-          }
-        });
-
-        slicePoints.push(pEndS);
-        const sortedSlices = Array.from(new Set(slicePoints.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
+        const sortedSlices = surfaceSlices.filter(s => s >= pStartS && s <= pEndS);
 
         for (let i = 0; i < sortedSlices.length - 1; i++) {
           const s0 = sortedSlices[i];
@@ -816,6 +796,8 @@ export const Axonometric3DView: React.FC = () => {
               }
             }
 
+            ctx.save();
+            clipHiddenFaces(ctx, [p0, p1, p2, p3], wallOccluders);
             ctx.fillStyle = isVoid ? '#141517' : adjustBrightness(baseColor, lightFactor);
             ctx.strokeStyle = isVoid ? '#2c2e33' : '#141517';
             ctx.lineWidth = inBend ? 0.5 : 1.2;
@@ -831,6 +813,17 @@ export const Axonometric3DView: React.FC = () => {
             if (!isVoid && showTextures) {
               draw3DMaterialTexture(ctx, panel, p0, p1, p2, p3, { x: s0, y: segYBot, width: s1 - s0, height: segYTop - segYBot });
             }
+            if (isVoid) {
+              ctx.strokeStyle = '#343a40';
+              ctx.setLineDash([4, 4]);
+              ctx.beginPath();
+              ctx.moveTo(p0.x, p0.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.moveTo(p1.x, p1.y);
+              ctx.lineTo(p3.x, p3.y);
+              ctx.stroke();
+            }
+            ctx.restore();
 
             // Верхний торец панели
             const pt0 = p3;
@@ -838,6 +831,8 @@ export const Axonometric3DView: React.FC = () => {
             const pt2 = project3D(getPointAtS(s1, segYTop, 0), cx, cy, scale);
             const pt3 = project3D(getPointAtS(s0, segYTop, 0), cx, cy, scale);
 
+            ctx.save();
+            clipHiddenFaces(ctx, [pt0, pt1, pt2, pt3], wallOccluders);
             ctx.fillStyle = adjustBrightness(baseColor, 0.82);
             ctx.beginPath();
             ctx.moveTo(pt0.x, pt0.y);
@@ -846,23 +841,8 @@ export const Axonometric3DView: React.FC = () => {
             ctx.lineTo(pt3.x, pt3.y);
             ctx.closePath();
             ctx.fill();
+            ctx.restore();
           }
-        }
-
-        if (isVoid) {
-          const p0 = project3D(getPointAtS(pStartS, yBot, -panelThick), cx, cy, scale);
-          const p1 = project3D(getPointAtS(pEndS, yBot, -panelThick), cx, cy, scale);
-          const p2 = project3D(getPointAtS(pEndS, yTop, -panelThick), cx, cy, scale);
-          const p3 = project3D(getPointAtS(pStartS, yTop, -panelThick), cx, cy, scale);
-          ctx.strokeStyle = '#343a40';
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p3.x, p3.y);
-          ctx.stroke();
-          ctx.setLineDash([]);
         }
       }
     });
@@ -949,6 +929,8 @@ export const Axonometric3DView: React.FC = () => {
         const frame2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth), cx, cy, scale);
         const frame3 = project3D(getPointAtS(op.x, op.y + op.height, opDepth), cx, cy, scale);
 
+        ctx.save();
+        clipHiddenFaces(ctx, [frame0, frame1, frame2, frame3], wallOccluders);
         ctx.fillStyle = '#212529';
         ctx.strokeStyle = '#343a40';
         ctx.lineWidth = 1;
@@ -1004,6 +986,7 @@ export const Axonometric3DView: React.FC = () => {
         ctx.moveTo(imp0.x, imp0.y);
         ctx.lineTo(imp1.x, imp1.y);
         ctx.stroke();
+        ctx.restore();
       } else if (op.type === 'NICHE') {
         // Задняя стенка ниши на глубине opDepth
         const np0 = project3D(getPointAtS(op.x, op.y, opDepth), cx, cy, scale);
@@ -1052,7 +1035,8 @@ export const Axonometric3DView: React.FC = () => {
       ctx.stroke();
       ctx.restore();
     });
-  }, [selectedWall, layout, angleDeg, elevationDeg, zoomScale, panOffset, project3D, showTextures, showProfiles, slopeEditor, project.selectedOpeningId]);
+  }, [selectedWall, layout, sceneGeometry, panelTextures, elevationDeg, zoomScale, panOffset, project3D,
+    showTextures, showProfiles, slopeEditor, project.id, project.selectedOpeningId, t.isDark]);
 
   function adjustBrightness(hex: string, percent: number): string {
     if (!hex || !hex.startsWith('#')) return hex || '#888';
@@ -1063,12 +1047,31 @@ export const Axonometric3DView: React.FC = () => {
     return `rgb(${r}, ${g}, ${b})`;
   }
 
+  const renderSceneRef = useRef(renderScene);
+  const frameRef = useRef<number | null>(null);
+  const scheduleRender = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      renderSceneRef.current();
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    renderSceneRef.current = renderScene;
+    scheduleRender();
+  }, [renderScene, scheduleRender]);
+
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current && canvasRef.current) {
-        canvasRef.current.width = containerRef.current.clientWidth;
-        canvasRef.current.height = containerRef.current.clientHeight;
-        renderScene();
+        const canvas = canvasRef.current;
+        const { clientWidth, clientHeight } = containerRef.current;
+        if (canvas.width !== clientWidth || canvas.height !== clientHeight) {
+          canvas.width = clientWidth;
+          canvas.height = clientHeight;
+          scheduleRender();
+        }
       }
     };
 
@@ -1086,22 +1089,21 @@ export const Axonometric3DView: React.FC = () => {
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', handleResize);
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
     };
-  }, [renderScene]);
-
-  useEffect(() => {
-    renderScene();
-  }, [renderScene]);
+  }, [scheduleRender]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    dragStart.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
+    if (!dragStart.current) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    dragStart.current = { x: e.clientX, y: e.clientY };
 
     if (e.shiftKey || e.buttons === 4) {
       // Панорамирование при зажатом Shift или колесе мыши
@@ -1121,10 +1123,12 @@ export const Axonometric3DView: React.FC = () => {
         return Math.max(-89, Math.min(89, Math.round(newElev * 10) / 10));
       });
     }
-    setDragStart({ x: e.clientX, y: e.clientY });
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    dragStart.current = null;
+    setIsDragging(false);
+  };
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -1135,6 +1139,10 @@ export const Axonometric3DView: React.FC = () => {
   const handleExportPNG = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Flush a pending frame so export uses the latest camera position.
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    renderSceneRef.current();
     const link = document.createElement('a');
     link.download = `${project.name || 'AllWall'}_3D_Render_${Math.round(angleDeg)}deg.png`;
     link.href = canvas.toDataURL('image/png', 1.0);

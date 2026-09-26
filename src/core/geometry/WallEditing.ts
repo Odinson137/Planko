@@ -14,6 +14,58 @@ function blank(x: number, y: number, width: number, height: number): WallPanelPi
   return { id: `wall-void-${uid()}`, points: rectangle(x, y, width, height), materialId: MATERIAL_NONE_ID, isVoid: true, partLabel: 'ПУСТО' };
 }
 
+const uuidPattern = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
+const automaticBlankId = new RegExp(`^wall-void-${uuidPattern}(?:-${uuidPattern})*$`, 'i');
+const blankFields = new Set(['id', 'points', 'materialId', 'isVoid', 'partLabel']);
+function automaticBlankBounds(panel: WallPanelPiece) {
+  // Includes strips made by previous versions, but excludes manual cuts and any
+  // material, notes, texture or edge settings subsequently assigned by the user.
+  if (!automaticBlankId.test(panel.id) || panel.materialId !== MATERIAL_NONE_ID || !panel.isVoid || panel.partLabel !== 'ПУСТО' ||
+    Object.entries(panel).some(([key, value]) => !blankFields.has(key) && value !== undefined) || panel.points.length < 4) return null;
+  const { min: left, max: right } = range(panel.points);
+  const bottom = Math.min(...panel.points.map(p => p.y)), top = Math.max(...panel.points.map(p => p.y));
+  if (right-left <= EPS || top-bottom <= EPS) return null;
+  let area = 0;
+  for (let i=0; i<panel.points.length; i++) {
+    const a=panel.points[i], b=panel.points[(i+1)%panel.points.length];
+    if ((Math.abs(a.x-left)>EPS && Math.abs(a.x-right)>EPS) || (Math.abs(a.y-bottom)>EPS && Math.abs(a.y-top)>EPS)) return null;
+    area += a.x*b.y-b.x*a.y;
+  }
+  if (Math.abs(Math.abs(area)/2-(right-left)*(top-bottom)) > EPS) return null;
+  return { left, right, bottom, top };
+}
+
+/** Coalesce only untouched generated rectangles inside this corner's arc. */
+function coalesceCornerBlanks(wall: Wall, bend: WallBend): Wall {
+  const end = bend.x+bendLength(bend);
+  const candidates = (wall.panels ?? []).flatMap(panel => {
+    const bounds = automaticBlankBounds(panel);
+    if (!bounds || bounds.left < bend.x-EPS || bounds.right > end+EPS ||
+      Object.keys(wall.customJoints).some(key => key.includes(panel.id))) return [];
+    return [{ panel, ...bounds }];
+  }).sort((a,b) => a.bottom-b.bottom || a.top-b.top || a.left-b.left);
+  const replacements = new Map<string, WallPanelPiece>(), removed = new Set<string>();
+  let previous: typeof candidates[number] | undefined;
+  for (const candidate of candidates) {
+    const seam = candidate.left;
+    const hasJoint = wall.joints?.some(j => {
+      const dx = j.p2.x-j.p1.x;
+      if (Math.abs(dx) < EPS) return Math.abs(j.p1.x-seam) < EPS &&
+        Math.max(j.p1.y,j.p2.y) > candidate.bottom+EPS && Math.min(j.p1.y,j.p2.y) < candidate.top-EPS;
+      const t = (seam-j.p1.x)/dx, y = j.p1.y+t*(j.p2.y-j.p1.y);
+      return t >= 0 && t <= 1 && y > candidate.bottom+EPS && y < candidate.top-EPS;
+    });
+    if (previous && Math.abs(previous.right-seam)<EPS && Math.abs(previous.bottom-candidate.bottom)<EPS &&
+      Math.abs(previous.top-candidate.top)<EPS && !hasJoint) {
+      previous = { ...previous, right: candidate.right };
+      replacements.set(previous.panel.id, { ...previous.panel,
+        points: rectangle(previous.left, previous.bottom, previous.right-previous.left, previous.top-previous.bottom) });
+      removed.add(candidate.panel.id);
+    } else previous = candidate;
+  }
+  return removed.size ? { ...wall, panels: wall.panels!.filter(p => !removed.has(p.id)).map(p => replacements.get(p.id) ?? p) } : wall;
+}
+
 function clip(points: WallPanelPiece['points'], coordinate: 'x' | 'y', value: number, below: boolean) {
   const out: typeof points = [];
   for (let i = 0; i < points.length; i++) {
@@ -183,6 +235,7 @@ export function changeWallCorner(wall: Wall, bendId: string, patch: Pick<WallBen
   const end = bend.x + bendLength(bend), delta = bendLength(patch) - bendLength(bend);
   let next = delta >= 0 ? spliceSurface(wall, end, end, delta) : spliceSurface(wall, end + delta, end, 0);
   next = { ...next, bends: next.bends?.map(b => b.id === bendId ? { ...bend, ...patch } : b) };
+  next = coalesceCornerBlanks(next, { ...bend, ...patch });
   validateWallPath(next);
   return next;
 }
