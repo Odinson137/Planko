@@ -37,6 +37,18 @@ export class LocalCatalogRepository {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...panels.values()]));
   }
 
+  /** Restore only the entries changed by an editor action, in one storage write. */
+  restorePanels(changes: { id: string; panel: Material | undefined }[]): void {
+    const panels = new Map(this.getPanels().map(panel => [panel.id, panel]));
+    for (const { id, panel } of changes) {
+      if (panel) {
+        if (!isCatalogPanel(panel)) throw new Error('Некорректные параметры панели');
+        panels.set(id, panel);
+      } else panels.delete(id);
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...panels.values()]));
+  }
+
   mergePanels(materials: Material[], useSharedVersions = false, excludedIds: string[] = []): Material[] {
     const shared = this.getPanels();
     const byId = new Map(materials.map(panel => [panel.id, panel]));

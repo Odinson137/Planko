@@ -16,6 +16,7 @@ import { resizePanelEdgeGap } from '../../core/geometry/PanelEdgeGapGeometry';
 import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 import { localCatalogRepository } from '../../infrastructure/repositories/LocalCatalogRepository';
+import { equalData, historyState, projectContent, recordChange, sameProjectContent, type CatalogChange, type ProjectHistory } from '../commands/ProjectHistory';
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
 export type JointPreset = 'NONE' | '0.8' | '3' | '7' | '5' | '8' | '10' | 'LED_10';
@@ -46,6 +47,20 @@ export interface JointValidationResult {
 
 interface ProjectState {
   project: Project;
+  history: ProjectHistory;
+  canUndo: boolean;
+  canRedo: boolean;
+  savedProject: Project;
+  historyRevision: number;
+  projectSession: number;
+  historyError: string | null;
+  undo: () => boolean;
+  redo: () => boolean;
+  clearHistoryError: () => void;
+  beginHistoryGroup: () => void;
+  endHistoryGroup: () => void;
+  withHistoryGroup: (action: () => void) => void;
+  replaceWall: (wallId: string, wall: Wall | null) => void;
   selectedColumnIndex: number | null;
   selectedSegmentIndex: number | null;
   selectedCellKeys: string[];
@@ -615,33 +630,116 @@ function assignJointProfile(wall: Wall, ids: string[], article: string, colorHex
 // Store actions update these fields immutably. Selection and save timestamps
 // do not change the design and must not turn on the unsaved indicator.
 function projectContentChanged(previous: Project, next: Project): boolean {
-  return previous.id !== next.id || previous.name !== next.name ||
-    previous.walls !== next.walls || previous.materials !== next.materials ||
-    previous.excludedCatalogPanelIds !== next.excludedCatalogPanelIds;
+  return !sameProjectContent(previous, next);
 }
 
 export const useProjectStore = create<ProjectState>((setRaw, get) => {
+  let group: object | undefined;
+  let pendingCatalog: CatalogChange[] = [];
   const set: typeof setRaw = (partial, replace) => {
+    const catalog = pendingCatalog;
+    pendingCatalog = [];
     setRaw((state) => {
       const nextState = typeof partial === 'function' ? (partial as any)(state) : partial;
       if (nextState === state) return state;
       if (nextState && nextState.project && nextState.project.walls) {
+        const project = nextState.project.walls === state.project.walls
+          ? nextState.project : renumberProjectWalls(nextState.project);
+        const changed = projectContentChanged(state.project, project);
+        const catalogChanged = catalog.some(change => !equalData(change.before, change.after));
+        const savedProject = !state.isDirty && !state.history.past.length ? state.project : state.savedProject;
         return {
           ...nextState,
-          isDirty: nextState.isDirty ?? (state.isDirty || projectContentChanged(state.project, nextState.project)),
-          project: nextState.project.walls === state.project.walls
-            ? nextState.project
-            : renumberProjectWalls(nextState.project),
+          project,
+          savedProject,
+          isDirty: changed ? projectContentChanged(savedProject, project) : state.isDirty,
+          ...(changed || catalogChanged ? {
+            ...historyState(recordChange(state.history, state.project, project, group, catalog)),
+            historyError: null,
+          } : {}),
         };
       }
       return nextState;
     }, replace);
   };
 
+  function replaceProjectState(next: Partial<ProjectState> & { project: Project }) {
+    group = undefined;
+    const project = renumberProjectWalls(next.project);
+    setRaw(state => ({ ...next, project, savedProject: project, ...historyState(),
+      historyRevision: state.historyRevision + 1, projectSession: state.projectSession + 1,
+      historyError: null, isDirty: false, selectedPanelEdge: null, isSlicingModalOpen: false, slicingTarget: null }));
+  }
+
+  function saveCatalogPanel(panel: Material) {
+    const before = localCatalogRepository.getPanels().find(item => item.id === panel.id);
+    localCatalogRepository.savePanel(panel);
+    pendingCatalog = [{ id: panel.id, before, after: panel }];
+  }
+
+  function restore(redo: boolean): boolean {
+    group = undefined;
+    const state = get(), stack = redo ? state.history.future : state.history.past;
+    const entry = stack[stack.length - 1];
+    if (!entry) return false;
+    // A replaced document must never receive snapshots from a different session.
+    if (!sameProjectContent(state.project, redo ? entry.before : entry.after)) {
+      setRaw({ ...historyState(), historyError: 'Проект изменился вне истории. История очищена.' });
+      return false;
+    }
+    try {
+      if (entry.catalog.length) localCatalogRepository.restorePanels(entry.catalog.map(change => ({
+        id: change.id, panel: redo ? change.after : change.before,
+      })));
+    } catch (error) {
+      setRaw({ historyError: error instanceof Error ? error.message : 'Не удалось восстановить каталог.' });
+      return false;
+    }
+    const snapshot = redo ? entry.after : entry.before;
+    const project = { ...state.project, ...projectContent(snapshot),
+      selectedWallId: snapshot.walls.some(wall => wall.id === snapshot.selectedWallId)
+        ? snapshot.selectedWallId : snapshot.walls[0]?.id ?? null,
+      selectedOpeningId: null };
+    setRaw({ project, isDirty: projectContentChanged(state.savedProject, project),
+      ...historyState({
+        past: redo ? [...state.history.past, entry] : state.history.past.slice(0, -1),
+        future: redo ? state.history.future.slice(0, -1) : [...state.history.future, entry],
+      }),
+      historyRevision: state.historyRevision + 1, historyError: null,
+      selectedColumnIndex: null, selectedSegmentIndex: null, selectedCellKeys: [], selectedPieceIds: [],
+      selectedJointId: null, selectedJointIds: [], selectedWallBendId: null, selectedSubPieceId: null,
+      selectedPanelEdge: null, isSlicingModalOpen: false, slicingTarget: null,
+    });
+    return true;
+  }
+
+  const initialProject = renumberProjectWalls({
+    ...createDefaultProject(), materials: localCatalogRepository.mergePanels(DEFAULT_MATERIALS, true),
+  });
+
   return {
-    project: renumberProjectWalls({
-      ...createDefaultProject(),
-      materials: localCatalogRepository.mergePanels(DEFAULT_MATERIALS, true),
+    project: initialProject,
+    savedProject: initialProject,
+    ...historyState(),
+    historyRevision: 0,
+    projectSession: 0,
+    historyError: null,
+    undo: () => restore(false),
+    redo: () => restore(true),
+    clearHistoryError: () => setRaw({ historyError: null }),
+    beginHistoryGroup: () => { group = {}; },
+    endHistoryGroup: () => { group = undefined; },
+    withHistoryGroup: action => {
+      const previous = group;
+      group ??= {};
+      try { action(); } finally { group = previous; }
+    },
+    replaceWall: (wallId, wall) => set(state => {
+      if (!state.project.walls.some(item => item.id === wallId)) return state;
+      return { project: { ...state.project,
+        walls: wall ? state.project.walls.map(item => item.id === wallId ? wall : item)
+          : state.project.walls.filter(item => item.id !== wallId),
+        selectedWallId: wall?.id ?? null, selectedOpeningId: null } };
     }),
     isDirty: false,
     selectedColumnIndex: null,
@@ -3119,7 +3217,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     }),
 
   addCustomCatalogPanel: (panel: Material) => {
-    localCatalogRepository.savePanel(panel);
+    saveCatalogPanel(panel);
     set((state) => ({
       isDirty: true,
       project: {
@@ -3134,7 +3232,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     const current = get().project.materials.find(panel => panel.id === panelId);
     if (!current) return;
     const updated = { ...current, ...updates, id: panelId };
-    localCatalogRepository.savePanel(updated);
+    saveCatalogPanel(updated);
     set((state) => ({
       isDirty: true,
       project: {
@@ -5816,19 +5914,23 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   // Сохранение и управление проектами
   saveCurrentProject: async () => {
+    // Ctrl+S can leave an input focused: subsequent typing starts a fresh group.
+    group = group ? {} : undefined;
     const currentProject = get().project;
+    const session = get().projectSession;
     const updated = {
       ...currentProject,
       updatedAt: new Date().toISOString(),
     };
     await localProjectRepository.saveProject(updated);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    set((state) => {
-      if (state.project.id !== currentProject.id) return state;
+    setRaw((state) => {
+      if (state.project.id !== currentProject.id || state.projectSession !== session) return state;
       const changedWhileSaving = projectContentChanged(currentProject, state.project);
       return {
         project: changedWhileSaving ? state.project : { ...state.project, updatedAt: updated.updatedAt },
         isDirty: changedWhileSaving,
+        savedProject: updated,
         lastSavedAt: timeStr,
       };
     });
@@ -5839,7 +5941,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     if (!loaded) return false;
     const initialWallId = loaded.walls[0]?.id || null;
     const timeStr = new Date(loaded.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    set({
+    replaceProjectState({
       project: {
         ...loaded,
         materials: localCatalogRepository.mergePanels(loaded.materials, false, loaded.excludedCatalogPanelIds),
@@ -5865,7 +5967,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     newProj.materials = localCatalogRepository.mergePanels(newProj.materials, true);
     localProjectRepository.saveProject(newProj);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    set({
+    replaceProjectState({
       project: newProj,
       selectedColumnIndex: null,
       selectedSegmentIndex: null,
@@ -5884,7 +5986,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
   setProject: (project: Project) => {
     const initialWallId = project.walls[0]?.id || null;
     const timeStr = new Date(project.updatedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    set({
+    replaceProjectState({
       project: {
         ...project,
         materials: localCatalogRepository.mergePanels(project.materials, false, project.excludedCatalogPanelIds),

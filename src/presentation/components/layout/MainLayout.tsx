@@ -11,8 +11,10 @@ import { WallInspector } from './WallInspector';
 import { WallPlanCanvas } from '../canvas/WallPlanCanvas';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useAppTheme } from '../../theme/useAppTheme';
+import { useProjectHistory } from '../../useProjectHistory';
 
 export const MainLayout: React.FC = () => {
+  useProjectHistory();
   const { viewMode, editMode, showLeftSidebar, toggleLeftSidebar, activeTool } = useEditorStore();
   const editingWalls = viewMode === '2D' && editMode === 'WALLS';
   const t = useAppTheme();

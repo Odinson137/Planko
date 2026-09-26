@@ -56,10 +56,7 @@ export const WallInspector: React.FC = () => {
     <Group justify="space-between"><Title order={5}>Стены</Title><Badge variant="light">Вид сверху</Badge></Group>
     <ScrollArea offsetScrollbars style={{ flex: 1 }}><Stack gap="md">
       {editor.error && <Alert color="red" role="alert" title="Изменение не применено">{editor.error}</Alert>}
-      {!wall && editor.past.at(-1)?.after === null && <>
-        <Text size="sm">Цепочка удалена. Её можно восстановить вместе с отделкой и проёмами.</Text>
-        <Button variant="light" onClick={editor.undo}>Отменить удаление</Button>
-      </>}
+      {!wall && <Text size="sm">Выберите или добавьте стену. Удаление можно отменить кнопкой «Назад» в верхнем меню или Ctrl+Z.</Text>}
       {wall && <>
         <Text size="sm" fw={600}>{wall.name}</Text>
         <Text size="xs" c="dimmed">Участков: {segments.length} · развёртка {Math.round(wall.width)} мм</Text>

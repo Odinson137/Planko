@@ -27,8 +27,6 @@ export const PanelCutLayer: React.FC<{ width: number; height: number; zoom: numb
         if (cut.p1 || cut.p2) cut.clearLine(); else cut.finish();
       } else if (!input && event.key === 'Enter') {
         event.preventDefault(); cut.apply();
-      } else if (!input && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
-        event.preventDefault(); cut.undo();
       }
     };
     window.addEventListener('keydown', onKey);

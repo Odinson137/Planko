@@ -5,13 +5,11 @@ import { materializeWall } from '../services/WallEditing';
 import { useProjectStore } from './useProjectStore';
 
 type Selection = { kind: 'segment' | 'corner'; id: string } | null;
-interface Change { before: Wall; after: Wall | null; wallIndex: number }
 interface WallEditorState {
   target: { projectId: string; wallId: string } | null;
   selection: Selection;
   drawEnd: WallEnd | null;
   error: string | null;
-  past: Change[]; future: Change[];
   camera: { x: number; y: number; zoom: number } | null;
   syncTarget: (projectId: string, wallId: string) => void;
   select: (selection: Selection) => void;
@@ -35,20 +33,12 @@ export const useWallEditorStore = create<WallEditorState>((set, get) => {
     return target?.projectId === project.id && target.wallId === project.selectedWallId
       ? project.walls.find(w => w.id === target.wallId) : undefined;
   }
-  function write(wall: Wall | null, wallIndex: number) {
+  function write(wall: Wall | null) {
     const target = get().target;
     if (!target) return;
     writing = true;
-    try {
-      useProjectStore.setState(state => {
-        const walls = [...state.project.walls];
-        const index = walls.findIndex(w => w.id === target.wallId);
-        if (!wall) { if (index >= 0) walls.splice(index, 1); }
-        else if (index >= 0) walls[index] = wall;
-        else walls.splice(wallIndex, 0, wall);
-        return { isDirty: true, project: { ...state.project, walls, selectedWallId: wall?.id ?? null, selectedOpeningId: null } };
-      });
-    } finally { writing = false; }
+    try { useProjectStore.getState().replaceWall(target.wallId, wall); }
+    finally { writing = false; }
   }
   function apply(operation: (wall: Wall) => Wall | null) {
     const before = current();
@@ -56,34 +46,16 @@ export const useWallEditorStore = create<WallEditorState>((set, get) => {
     try {
       const after = operation(materializeWall(useProjectStore.getState().project, before));
       if (equal(before, after)) { set({ error: null }); return true; }
-      const state = get();
-      const past = state.past.length && !equal(state.past[state.past.length-1].after, before) ? [] : state.past;
-      const wallIndex = useProjectStore.getState().project.walls.findIndex(w => w.id === before.id);
-      write(after, wallIndex);
-      set({ past: [...past.slice(-49), { before, after, wallIndex }], future: [], error: null });
+      write(after);
+      set({ error: null });
       return true;
     } catch (e) { set({ error: e instanceof Error ? e.message : String(e) }); return false; }
   }
-  function restore(redo: boolean) {
-    const state = get(), wall = current();
-    const entry = redo ? state.future[state.future.length-1] : state.past[state.past.length-1];
-    const project = useProjectStore.getState().project;
-    if (!entry || state.target?.projectId !== project.id) return;
-    // An outside material/opening edit invalidates this history instead of being overwritten.
-    if ((project.selectedWallId !== state.target.wallId && project.selectedWallId !== null) ||
-      !equal(wall ?? null, redo ? entry.before : entry.after) ||
-      (!wall && project.walls.some(w => w.id === state.target?.wallId))) {
-      set({ past: [], future: [], drawEnd: null, error: 'Стена изменилась вне режима. История построения обновлена.' }); return;
-    }
-    write(redo ? entry.after : entry.before, entry.wallIndex);
-    set({ past: redo ? [...state.past, entry] : state.past.slice(0,-1),
-      future: redo ? state.future.slice(0,-1) : [...state.future, entry], error: null, drawEnd: null, selection: null });
-  }
   return {
-    target: null, selection: null, drawEnd: null, error: null, past: [], future: [], camera: null,
+    target: null, selection: null, drawEnd: null, error: null, camera: null,
     syncTarget: (projectId, wallId) => {
       if (get().target?.projectId !== projectId || get().target?.wallId !== wallId)
-        set({ target: { projectId, wallId }, selection: null, drawEnd: null, error: null, past: [], future: [], camera: null });
+        set({ target: { projectId, wallId }, selection: null, drawEnd: null, error: null, camera: null });
     },
     select: selection => set({ selection, drawEnd: null, error: null }),
     begin: drawEnd => set({ drawEnd, selection: null, error: null }),
@@ -103,7 +75,7 @@ export const useWallEditorStore = create<WallEditorState>((set, get) => {
     },
     details: (name, roomName) => { apply(w => ({ ...w, name: name.trim() || w.name, roomName: roomName.trim() || undefined })); },
     height: height => { apply(w => resizeWallHeight(w, height)); },
-    undo: () => restore(false), redo: () => restore(true),
+    undo: () => { useProjectStore.getState().undo(); }, redo: () => { useProjectStore.getState().redo(); },
   };
 });
 
@@ -113,7 +85,7 @@ useProjectStore.subscribe((state, previous) => {
   if (!target) return;
   const wall = state.project.walls.find(w => w.id === target.wallId);
   const oldWall = previous.project.walls.find(w => w.id === target.wallId);
-  const awaitingRestore = !wall && state.project.selectedWallId === null && editor.past.at(-1)?.after === null;
-  if (state.project.id !== target.projectId || (!awaitingRestore && state.project.selectedWallId !== target.wallId) || wall !== oldWall)
-    useWallEditorStore.setState({ past: [], future: [], drawEnd: null, selection: null, error: null });
+  if (state.historyRevision !== previous.historyRevision || state.project.id !== target.projectId ||
+    state.project.selectedWallId !== target.wallId || wall !== oldWall)
+    useWallEditorStore.setState({ drawEnd: null, selection: null, error: null });
 });

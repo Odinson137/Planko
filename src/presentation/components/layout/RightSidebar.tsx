@@ -734,7 +734,7 @@ export const RightSidebar: React.FC = () => {
                   onChange={(val) => {
                     const newType = val || 'ALL';
                     setSelectedProfileType(newType);
-                    selectedJointIds.forEach((id) => {
+                    useProjectStore.getState().withHistoryGroup(() => selectedJointIds.forEach((id) => {
                       const custom = currentWall.customJoints[id];
                       if (custom?.profileArticle) {
                         const prof = findProfileByArticle(custom.profileArticle);
@@ -742,7 +742,7 @@ export const RightSidebar: React.FC = () => {
                           setJointProfile(currentWall.id, id, '', custom.profileColor || '#212529');
                         }
                       }
-                    });
+                    }));
                   }}
                   allowDeselect={false}
                 />

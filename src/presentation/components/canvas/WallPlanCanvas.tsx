@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Group, Text } from '@mantine/core';
 import { useElementSize } from '@mantine/hooks';
-import { Maximize2, Redo2, Undo2 } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useWallEditorStore } from '../../../application/stores/useWallEditorStore';
 import { wallPlanBends } from '../../../application/services/WallEditing';
@@ -44,14 +44,10 @@ export const WallPlanCanvas: React.FC = () => {
       if ((e.target as HTMLElement)?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (e.key === 'Escape') { e.preventDefault(); editor.finish(); }
       if (e.key === 'Enter' && editor.drawEnd && !(e.target as HTMLElement)?.closest('[role="button"], button')) { e.preventDefault(); commit(); }
-      if ((e.ctrlKey || e.metaKey) && ['z', 'y', 'я', 'н'].includes(e.key.toLowerCase())) {
-        e.preventDefault();
-        if (e.shiftKey || ['y','н'].includes(e.key.toLowerCase())) editor.redo(); else editor.undo();
-      }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [editor.drawEnd, editor.finish, editor.undo, editor.redo, commit]);
+  }, [editor.drawEnd, editor.finish, commit]);
   function local(clientX: number, clientY: number) {
     const bounds = svgRef.current!.getBoundingClientRect();
     return { x: clientX - bounds.left, y: clientY - bounds.top };
@@ -77,8 +73,6 @@ export const WallPlanCanvas: React.FC = () => {
       <div><Text size="sm" fw={600}>Стены · вид сверху</Text><Text size="xs" c="dimmed">
         {editor.drawEnd ? 'Клик — поставить стену · Esc — завершить · Alt — без привязок' : '+ — добавить участок · Жёлтая точка или угол в списке — изменить угол'}</Text></div>
       <Group gap={6}>
-        <Button size="compact-xs" variant="subtle" aria-label="Отменить построение" disabled={!editor.past.length} onClick={editor.undo}><Undo2 size={16}/></Button>
-        <Button size="compact-xs" variant="subtle" aria-label="Повторить построение" disabled={!editor.future.length} onClick={editor.redo}><Redo2 size={16}/></Button>
         <Button size="compact-xs" variant="subtle" aria-label="Показать всю цепочку" onClick={fit}><Maximize2 size={16}/></Button>
         {editor.drawEnd && <Button size="compact-xs" onClick={editor.finish}>Завершить</Button>}
       </Group>

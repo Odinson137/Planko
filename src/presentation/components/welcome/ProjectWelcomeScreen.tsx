@@ -613,6 +613,8 @@ export const ProjectWelcomeScreen: React.FC = () => {
                 <Stack gap="xs">
                   {[
                     { key: 'Ctrl + S / Cmd + S', desc: 'Сохранить проект в локальную базу данных' },
+                    { key: 'Ctrl + Z / Cmd + Z', desc: 'Отменить последнее изменение проекта; в текстовом поле — ввод текста' },
+                    { key: 'Ctrl + Shift + Z / Ctrl + Y', desc: 'Повторить отменённое изменение (на macOS — Cmd + Shift + Z)' },
                     { key: 'Shift + Клик', desc: 'Мульти-выбор панелей или стыков для пакетного редактирования' },
                     { key: 'G', desc: 'Включить / отключить координатную CAD-сетку' },
                     { key: 'Колесико мыши', desc: 'Масштабирование (Zoom In / Zoom Out)' },

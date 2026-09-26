@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Stack, Text, Button, Group, Select, NumberInput, SimpleGrid, Divider, Alert, ScrollArea } from '@mantine/core';
-import { Scissors, Undo2, X } from 'lucide-react';
+import { Scissors, X } from 'lucide-react';
 import { usePanelCutStore } from '../../../application/stores/usePanelCutStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { cuttableWall, findCutPanel, panelBounds, previewPanelCut } from '../../../core/geometry/PanelCutEngine';
@@ -14,8 +14,6 @@ export const PanelCutSidebar: React.FC = () => {
   const source = useMemo(() => wall && cuttableWall(wall, project.materials), [wall, project.materials]);
   const panel = source && findCutPanel(source, cut.panelId);
   const preview = useMemo(() => panel && cut.p1 && cut.p2 ? previewPanelCut(panel, cut.p1, cut.p2) : null, [panel, cut.p1, cut.p2]);
-  const last = cut.history[cut.history.length - 1];
-  const canUndo = last?.projectId === project.id && last?.after === wall;
   const length = cut.p1 && cut.p2 ? Math.hypot(cut.p2.x - cut.p1.x, cut.p2.y - cut.p1.y) : 0;
   const angle = cut.p1 && cut.p2 ? (Math.atan2(cut.p2.y - cut.p1.y, cut.p2.x - cut.p1.x) * 180 / Math.PI + 180) % 180 : 0;
 
@@ -53,8 +51,7 @@ export const PanelCutSidebar: React.FC = () => {
       {cut.error && <Alert color="red">{cut.error}</Alert>}
       <Button leftSection={<Scissors size={16} />} disabled={!preview} onClick={cut.apply}>Разрезать</Button>
       <Button variant="default" onClick={cut.clearLine} disabled={!cut.p1 && !cut.p2}>Сбросить линию</Button>
-      <Button variant="light" leftSection={<Undo2 size={16} />} disabled={!canUndo} onClick={cut.undo}>Отменить разрез</Button>
-      <Text size="xs" c="dimmed">Shift — угол с шагом 45°. Enter — разрезать. Esc — сбросить линию / выйти. Ctrl+Z — отменить разрез в этом режиме.</Text>
+      <Text size="xs" c="dimmed">Shift — угол с шагом 45°. Enter — разрезать. Esc — сбросить линию / выйти. Ctrl+Z — отменить последнее действие. Ctrl+Shift+Z — повторить.</Text>
       <Text size="xs" c="dimmed">Профиль и монтажный зазор можно задать после разреза в меню стыков.</Text>
     </Stack>
   </ScrollArea>;

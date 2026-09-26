@@ -20,6 +20,8 @@ import {
   Layers,
   Palette,
   Save,
+  Undo2,
+  Redo2,
   FolderKanban,
   Check,
   Download,
@@ -59,6 +61,12 @@ export const TopToolbar: React.FC = () => {
     isDirty,
     lastSavedAt,
     saveCurrentProject,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    historyError,
+    clearHistoryError,
     addOpening,
     selectJoint,
     selectPanel,
@@ -136,6 +144,9 @@ export const TopToolbar: React.FC = () => {
 
   return (
     <>
+      <Modal opened={!!historyError} onClose={clearHistoryError} title="Не удалось отменить или повторить действие">
+        <Text size="sm">{historyError}</Text>
+      </Modal>
       <Modal opened={!!exportError} onClose={() => setExportError(null)} title="Экспорт требует исправления">
         <Text size="sm">{exportError}</Text>
       </Modal>
@@ -191,6 +202,17 @@ export const TopToolbar: React.FC = () => {
               Проекты
             </Button>
           </Tooltip>
+
+          <Group gap={4} wrap="nowrap" aria-label="История изменений">
+            <Tooltip label="Назад — отменить (Ctrl+Z)" position="bottom">
+              <ActionIcon size="lg" variant="subtle" color="gray" aria-label="Назад — отменить"
+                disabled={!canUndo} onClick={undo}><Undo2 size={18} /></ActionIcon>
+            </Tooltip>
+            <Tooltip label="Вперёд — повторить (Ctrl+Shift+Z / Ctrl+Y)" position="bottom">
+              <ActionIcon size="lg" variant="subtle" color="gray" aria-label="Вперёд — повторить"
+                disabled={!canRedo} onClick={redo}><Redo2 size={18} /></ActionIcon>
+            </Tooltip>
+          </Group>
 
           {/* Кнопка "Сохранить проект" */}
           <Tooltip label="Сохранить проект в хранилище (Ctrl + S)" position="bottom">

@@ -180,11 +180,14 @@ test('multiple cuts can be undone one at a time', () => {
   assert.deepEqual(currentWall().panels![0].points, rectangle(0, 0, 1000, 1000));
 });
 
-test('undo never overwrites unrelated later edits or another project', () => {
+test('undo walks later edits before cuts and never crosses into another project', () => {
   const cut = prepareCut(); cut.apply();
   useProjectStore.getState().updateWallName(currentWall().id, 'Later edit');
-  assert.equal(cut.undo(), false);
-  assert.equal(currentWall().name, 'Later edit');
+  assert.equal(cut.undo(), true);
+  assert.notEqual(currentWall().name, 'Later edit');
+  assert.equal(currentWall().panels!.length, 2);
+  assert.equal(cut.undo(), true);
+  assert.equal(currentWall().panels!.length, 1);
   useProjectStore.getState().setProject({ ...createDefaultProject(), id: 'another' });
   assert.equal(cut.undo(), false); assert.equal(cut.apply(), false);
 });

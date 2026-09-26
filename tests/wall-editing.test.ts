@@ -16,7 +16,7 @@ import { close, sheet, panel } from './helpers/business';
 const path = (wall: ReturnType<typeof createDefaultWall>) => buildWallPath(wall, resolvePathBends(wall));
 const originalProject = useProjectStore.getState(), originalEditor = useWallEditorStore.getState();
 beforeEach(() => {
-  useWallEditorStore.setState({ ...originalEditor, target: null, past: [], future: [] });
+  useWallEditorStore.setState({ ...originalEditor, target: null });
   useProjectStore.setState({ ...originalProject, project: createDefaultProject(), isDirty: false });
 });
 afterEach(() => { useWallEditorStore.setState(originalEditor); useProjectStore.setState(originalProject); });
@@ -177,17 +177,19 @@ test('undo and redo restore exact walls including absent pose; preview does not 
   editor.undo(); assert.deepEqual(useProjectStore.getState().project.walls[0],before);
   editor.redo(); assert.deepEqual(useProjectStore.getState().project.walls[0],after);
   editor.undo(); editor.begin('end'); editor.extend(1000,0);
-  assert.equal(useWallEditorStore.getState().future.length,0);
+  assert.equal(useProjectStore.getState().history.future.length,0);
 });
 
-test('external edits invalidate geometry history instead of overwriting materials or openings', () => {
+test('geometry and external edits share chronological undo history', () => {
   const editor=useWallEditorStore.getState(), project=useProjectStore.getState().project;
   editor.syncTarget(project.id,project.walls[0].id); editor.begin('end'); editor.extend(1000,Math.PI/2);
   useProjectStore.getState().updateWall(project.walls[0].id,{name:'Changed outside'});
   editor.undo();
-  assert.equal(useProjectStore.getState().project.walls[0].name,'Changed outside');
+  assert.equal(useProjectStore.getState().project.walls[0].name,project.walls[0].name);
   assert.equal(useProjectStore.getState().project.walls[0].width,4600);
-  assert.equal(useWallEditorStore.getState().past.length,0);
+  assert.equal(useProjectStore.getState().history.past.length,1);
+  editor.undo();
+  assert.deepEqual(useProjectStore.getState().project.walls[0], project.walls[0]);
 });
 
 test('legacy procedural layouts and bend columns materialize with the same geometry', () => {
@@ -331,9 +333,11 @@ test('deleting a section is one undoable transaction with dirty state and cleare
   const id=path(before).pathSections[1].id;
   editor.select({kind:'segment',id}); editor.remove(id);
   assert.equal(useWallEditorStore.getState().selection,null);
-  assert.equal(useProjectStore.getState().isDirty,true);
+  // Adding and then removing the section returns to the saved geometry.
+  assert.equal(useProjectStore.getState().isDirty,false);
   assert.equal(useProjectStore.getState().project.walls[0].width,3600);
   editor.undo(); assert.deepEqual(useProjectStore.getState().project.walls[0],before);
+  assert.equal(useProjectStore.getState().isDirty,true);
   editor.redo(); assert.equal(useProjectStore.getState().project.walls[0].width,3600);
 });
 

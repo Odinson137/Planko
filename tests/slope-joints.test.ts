@@ -171,21 +171,27 @@ test('3D renderer uses depth-directed tracks and matching trimmed faces', () => 
   assert.equal(b.z - a.z, 300);
 });
 
-test('batch edit is one undo step, preserves later dimensions, and redo restores all settings', () => {
+test('batch joints and later dimensions undo and redo in chronological order', () => {
   const wall = wallWithPanel(), op = windowOpening(); wall.openings = [op];
   useProjectStore.setState({ project: { ...createDefaultProject(), walls: [wall], materials: [sheet] }, isDirty: false });
   const editor = useSlopeJointStore.getState();
   editor.change(wall.id, op.id, 'top-left', { width: 8, profileArticle: 'MC-02', profileColor: '#c9a25b', takeSide: 'FIRST' }, true);
-  assert.equal(useSlopeJointStore.getState().past.length, 1);
+  assert.equal(useProjectStore.getState().history.past.length, 1);
   assert.equal(useProjectStore.getState().isDirty, true);
   useProjectStore.getState().updateOpening(wall.id, { id: op.id, width: 1500 });
   editor.undo();
+  const resized = useProjectStore.getState().project.walls[0].openings[0];
+  assert.equal(resized.width, op.width);
+  assert.ok(Object.values(resolveSlopeJoints(resized)).every(j => j.profileArticle === 'MC-02'));
+  editor.undo();
   const undone = useProjectStore.getState().project.walls[0].openings[0];
-  assert.equal(undone.width, 1500);
+  assert.equal(undone.width, op.width);
   assert.ok(Object.values(resolveSlopeJoints(undone)).every(j => !j.profileArticle));
   editor.redo();
   const redone = useProjectStore.getState().project.walls[0].openings[0];
   assert.ok(Object.values(resolveSlopeJoints(redone)).every(j => j.profileColor === '#c9a25b' && j.width === 8 && j.takeSide === 'FIRST'));
+  editor.redo();
+  assert.equal(useProjectStore.getState().project.walls[0].openings[0].width, 1500);
 });
 
 test('selecting a corner does not dirty the project; failed batch leaves geometry and history intact', () => {
@@ -195,7 +201,7 @@ test('selecting a corner does not dirty the project; failed batch leaves geometr
   assert.equal(useProjectStore.getState().isDirty, false);
   useSlopeJointStore.getState().change(wall.id, op.id, 'top-right', { width: 8 }, true);
   assert.match(useSlopeJointStore.getState().error!, /полностью/);
-  assert.equal(useSlopeJointStore.getState().past.length, 0);
+  assert.equal(useProjectStore.getState().history.past.length, 0);
   assert.equal(useProjectStore.getState().isDirty, false);
 });
 

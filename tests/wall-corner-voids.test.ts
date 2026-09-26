@@ -58,7 +58,7 @@ test('reapplying an unchanged corner repairs old strips with exact undo, redo an
   const previousProject=useProjectStore.getState(), previousEditor=useWallEditorStore.getState();
   try {
     const project=createDefaultProject(), wall=fragmentedCorner(), before=structuredClone(wall);
-    useWallEditorStore.setState({target:null,past:[],future:[]});
+    useWallEditorStore.setState({target:null});
     useProjectStore.setState({project:{...project,walls:[wall],selectedWallId:wall.id},isDirty:false});
     const editor=useWallEditorStore.getState();
     editor.syncTarget(project.id,wall.id); editor.corner(wall.bends![0].id,wall.bends![0]);
