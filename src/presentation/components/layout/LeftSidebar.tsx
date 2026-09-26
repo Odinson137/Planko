@@ -20,8 +20,9 @@ import { useAppTheme } from '../../theme/useAppTheme';
 
 export const LeftSidebar: React.FC = () => {
   const t = useAppTheme();
-  const { toggleLeftSidebar } = useEditorStore();
-  const { project, selectedWallBendId, selectWall, selectOpening, selectWallBend, addWall, removeOpening, deleteWallBend } = useProjectStore();
+  const { toggleLeftSidebar, editMode, viewMode, setViewMode, setEditMode } = useEditorStore();
+  const editingWalls = editMode === 'WALLS' && viewMode === '2D';
+  const { project, selectWall, selectOpening, addWall, removeOpening } = useProjectStore();
   const selectedWallId = project.selectedWallId;
   const selectedOpeningId = project.selectedOpeningId;
 
@@ -31,6 +32,8 @@ export const LeftSidebar: React.FC = () => {
     switch (opening.type) {
       case 'DOOR':
         return opening.isPortal ? <RectangleVertical size={14} color="#4dabf7" /> : <DoorOpen size={14} color="#4dabf7" />;
+      case 'PORTAL':
+        return <RectangleVertical size={14} color="#4dabf7" />;
       case 'WINDOW':
         return <AppWindow size={14} color="#38d9a9" />;
       case 'TV_ZONE':
@@ -62,7 +65,7 @@ export const LeftSidebar: React.FC = () => {
             size="compact-xs"
             variant="light"
             leftSection={<Plus size={12} />}
-            onClick={() => addWall()}
+            onClick={() => { addWall(); setViewMode('2D'); setEditMode('WALLS'); }}
           >
             Стена
           </Button>
@@ -83,13 +86,12 @@ export const LeftSidebar: React.FC = () => {
         <Stack gap={4}>
           {project.walls.map((wall) => {
             const isWallSelected = wall.id === selectedWallId;
-            const bendsCount = wall.bends?.length || 0;
-            const totalElements = wall.openings.length + bendsCount;
+            const totalElements = wall.openings.length;
 
             return (
               <div key={wall.id}>
                 <NavLink
-                  active={isWallSelected && !selectedOpeningId && !selectedWallBendId}
+                  active={isWallSelected && !selectedOpeningId}
                   label={
                     <Group justify="space-between" wrap="nowrap" gap={4}>
                       <Text size="xs" fw={500} truncate style={{ flex: 1, color: isWallSelected ? undefined : t.textPrimary }}>
@@ -118,54 +120,8 @@ export const LeftSidebar: React.FC = () => {
                   }}
                 />
 
-                {/* Список изгибов и углов стены */}
-                {isWallSelected && wall.bends && wall.bends.length > 0 && (
-                  <Stack gap={2} pl="lg" mt={2}>
-                    {wall.bends.map((bend) => {
-                      const arcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
-                      return (
-                        <NavLink
-                          key={bend.id}
-                          active={bend.id === selectedWallBendId}
-                          label={bend.name || 'Угол'}
-                          description={bend.radius === 0 ? `X: ${bend.x} мм, Острый (R=0)` : `X: ${bend.x} мм, R: ${bend.radius}`}
-                          leftSection={<Text size="xs" fw={700} c="cyan.5" style={{ fontFamily: 'JetBrains Mono' }}>{bend.radius === 0 ? '📐' : '⌒'}</Text>}
-                          rightSection={
-                            <Group gap={4}>
-                              <Badge size="xs" variant="light" color="cyan">
-                                {bend.radius === 0 ? `${bend.angleDeg || 90}°` : `${arcLen} мм`}
-                              </Badge>
-                              <Tooltip label="Удалить">
-                                <ActionIcon
-                                  size="xs"
-                                  variant="subtle"
-                                  color="red"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteWallBend(wall.id, bend.id);
-                                  }}
-                                >
-                                  <Trash2 size={12} />
-                                </ActionIcon>
-                              </Tooltip>
-                            </Group>
-                          }
-                          onClick={() => {
-                            selectWall(wall.id);
-                            selectWallBend(bend.id);
-                          }}
-                          style={{
-                            borderRadius: 4,
-                            fontSize: '12px',
-                          }}
-                        />
-                      );
-                    })}
-                  </Stack>
-                )}
-
                 {/* Список проемов текущей стены */}
-                {isWallSelected && wall.openings.length > 0 && (
+                {!editingWalls && isWallSelected && wall.openings.length > 0 && (
                   <Stack gap={2} pl="lg" mt={2}>
                     {wall.openings.map((op) => (
                       <NavLink

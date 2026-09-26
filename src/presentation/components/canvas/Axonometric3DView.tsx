@@ -1,3 +1,4 @@
+import { buildWallPath, resolvePathBends } from '../../../core/geometry/WallPath';
 import { drawOpeningSlopes } from '../../../application/services/SlopeDrawing';
 import { useSlopeJointStore } from '../../../application/stores/useSlopeJointStore';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
@@ -9,7 +10,7 @@ import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine, CalculatedPanelPiece } from '../../../core/layout/LayoutEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
-import { RadiusType } from '../../../core/models/Wall';
+import { isDoorOrPortal, isPortalOpening } from '../../../core/models/Opening';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 interface Point3D {
@@ -329,10 +330,6 @@ export const Axonometric3DView: React.FC = () => {
 
     ctx.clearRect(0, 0, width, height);
 
-    const cx = width * 0.38;
-    const cy = height * 0.68;
-    const scale = zoomScale;
-
     const wallW = selectedWall.width;
     const wallH = selectedWall.height;
     const wallThick = 150; // Толщина несущей стены (мм)
@@ -341,260 +338,20 @@ export const Axonometric3DView: React.FC = () => {
     // =========================================================================
     // 1. Построение непрерывной 3D траектории стены (с поворотами на WallBend)
     // =========================================================================
-    interface ActiveBend3D {
-      id: string;
-      sStart: number;
-      sEnd: number;
-      arcLen: number;
-      radius: number;
-      angleDeg: number;
-      type: RadiusType;
-    }
+    const activeBends = resolvePathBends(selectedWall, layout.panels);
+    const { pathSections, allPathPoints, getPointAtS } = buildWallPath(selectedWall, activeBends);
 
-    const activeBends: ActiveBend3D[] = [];
-
-    if (selectedWall.bends && selectedWall.bends.length > 0) {
-      selectedWall.bends.forEach((b) => {
-        const arcLen = Math.round((Math.PI * b.radius * (b.angleDeg || 90)) / 180);
-        activeBends.push({
-          id: b.id,
-          sStart: b.x,
-          sEnd: b.x + arcLen,
-          arcLen,
-          radius: b.radius,
-          angleDeg: b.angleDeg || 90,
-          type: b.type,
-        });
-      });
-    } else {
-      // Обратная совместимость со старыми колонками
-      layout.panels.forEach((p) => {
-        if (p.radiusConfig && !activeBends.some((b) => b.sStart === p.x)) {
-          const arcLen = p.arcLength || Math.round((Math.PI * p.radiusConfig.radius * (p.radiusConfig.angleDeg || 90)) / 180);
-          activeBends.push({
-            id: `legacy-${p.id}`,
-            sStart: p.x,
-            sEnd: p.x + arcLen,
-            arcLen,
-            radius: p.radiusConfig.radius,
-            angleDeg: p.radiusConfig.angleDeg || 90,
-            type: p.radiusConfig.type,
-          });
-        }
-      });
-    }
-
-    activeBends.sort((a, b) => a.sStart - b.sStart);
-
-    interface PathSection3D {
-      sStart: number;
-      sEnd: number;
-      isBend: boolean;
-      bend?: ActiveBend3D;
-      startPoint: Point3D;
-      endPoint: Point3D;
-      startHeading: number;
-      endHeading: number;
-      centerPoint?: Point3D;
-      totalTurn?: number;
-      getPoint: (s: number, y: number, depthOffset: number) => Point3D;
-    }
-
-    const pathSections: PathSection3D[] = [];
-    let curS = 0;
-    let curPt: Point3D = { x: 0, y: 0, z: 0 };
-    let curHeading = 0;
-    const allPathPoints: Point3D[] = [{ x: 0, y: 0, z: 0 }];
-
-    activeBends.forEach((bend) => {
-      // 1. Прямой участок стены до изгиба
-      if (bend.sStart > curS + 0.5) {
-        const straightLen = bend.sStart - curS;
-        const straightStartPt = { ...curPt };
-        const straightHeading = curHeading;
-        const sStart = curS;
-        const sEnd = bend.sStart;
-        const straightEndPt = {
-          x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
-          y: 0,
-          z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
-        };
-
-        pathSections.push({
-          sStart,
-          sEnd,
-          isBend: false,
-          startPoint: straightStartPt,
-          endPoint: straightEndPt,
-          startHeading: straightHeading,
-          endHeading: straightHeading,
-          getPoint: (s: number, y: number, depthOffset = 0) => {
-            const dist = Math.max(0, Math.min(straightLen, s - sStart));
-            const normX = -Math.sin(straightHeading) * depthOffset;
-            const normZ = -Math.cos(straightHeading) * depthOffset;
-            return {
-              x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
-              y,
-              z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
-            };
-          },
-        });
-
-        curPt = { ...straightEndPt };
-        curS = sEnd;
-        allPathPoints.push({ ...curPt });
-      }
-
-      // 2. Участок изгиба / угла
-      const R = bend.radius;
-      const totalTurn = ((bend.angleDeg || 90) * Math.PI) / 180;
-      const psi = curHeading;
-      const bendStartPt = { ...curPt };
-
-      if (R <= 0 || bend.arcLen <= 0) {
-        // Острый угол (R = 0): мгновенный поворот направления в текущей точке
-        if (bend.type === 'INNER_CORNER') {
-          curHeading = psi - totalTurn;
-        } else {
-          curHeading = psi + totalTurn;
-        }
-        curS = bend.sStart;
-        allPathPoints.push({ ...curPt });
-      } else {
-        const sStart = curS;
-        const sEnd = curS + bend.arcLen;
-
-        if (bend.type === 'INNER_CORNER') {
-          const cX = bendStartPt.x + Math.sin(psi) * R;
-          const cZ = bendStartPt.z + Math.cos(psi) * R;
-          const centerPt = { x: cX, y: 0, z: cZ };
-          const endPhi = psi + Math.PI / 2 - totalTurn;
-          const bendEndPt = {
-            x: cX + Math.cos(endPhi) * R,
-            y: 0,
-            z: cZ - Math.sin(endPhi) * R,
-          };
-          const endHeading = psi - totalTurn;
-
-          pathSections.push({
-            sStart,
-            sEnd,
-            isBend: true,
-            bend,
-            startPoint: bendStartPt,
-            endPoint: bendEndPt,
-            startHeading: psi,
-            endHeading,
-            centerPoint: centerPt,
-            totalTurn,
-            getPoint: (s: number, y: number, depthOffset = 0) => {
-              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
-              const alpha = u * totalTurn;
-              const phi = psi + Math.PI / 2 - alpha;
-              const effR = Math.max(5, R + depthOffset);
-              return {
-                x: cX + Math.cos(phi) * effR,
-                y,
-                z: cZ - Math.sin(phi) * effR,
-              };
-            },
-          });
-
-          curPt = { ...bendEndPt };
-          curHeading = endHeading;
-        } else {
-          // OUTER_CORNER
-          const cX = bendStartPt.x - Math.sin(psi) * R;
-          const cZ = bendStartPt.z - Math.cos(psi) * R;
-          const centerPt = { x: cX, y: 0, z: cZ };
-          const endPhi = psi - Math.PI / 2 + totalTurn;
-          const bendEndPt = {
-            x: cX + Math.cos(endPhi) * R,
-            y: 0,
-            z: cZ - Math.sin(endPhi) * R,
-          };
-          const endHeading = psi + totalTurn;
-
-          pathSections.push({
-            sStart,
-            sEnd,
-            isBend: true,
-            bend,
-            startPoint: bendStartPt,
-            endPoint: bendEndPt,
-            startHeading: psi,
-            endHeading,
-            centerPoint: centerPt,
-            totalTurn,
-            getPoint: (s: number, y: number, depthOffset = 0) => {
-              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
-              const alpha = u * totalTurn;
-              const phi = psi - Math.PI / 2 + alpha;
-              const effR = Math.max(5, R - depthOffset);
-              return {
-                x: cX + Math.cos(phi) * effR,
-                y,
-                z: cZ - Math.sin(phi) * effR,
-              };
-            },
-          });
-
-          curPt = { ...bendEndPt };
-          curHeading = endHeading;
-        }
-
-        curS = sEnd;
-        allPathPoints.push({ ...curPt });
-      }
-    });
-
-    // 3. Завершающий прямой участок стены
-    if (curS < wallW) {
-      const straightLen = wallW - curS;
-      const straightStartPt = { ...curPt };
-      const straightHeading = curHeading;
-      const sStart = curS;
-      const sEnd = wallW;
-      const straightEndPt = {
-        x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
-        y: 0,
-        z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
-      };
-
-      pathSections.push({
-        sStart,
-        sEnd,
-        isBend: false,
-        startPoint: straightStartPt,
-        endPoint: straightEndPt,
-        startHeading: straightHeading,
-        endHeading: straightHeading,
-        getPoint: (s: number, y: number, depthOffset = 0) => {
-          const dist = Math.max(0, Math.min(straightLen, s - sStart));
-          const normX = -Math.sin(straightHeading) * depthOffset;
-          const normZ = -Math.cos(straightHeading) * depthOffset;
-          return {
-            x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
-            y,
-            z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
-          };
-        },
-      });
-
-      curPt = { ...straightEndPt };
-      allPathPoints.push({ ...curPt });
-    }
-
-    // 4. Постобработка прямых секций: сохраняем строгую перпендикулярность нормали
-    // getPoint использует постоянный вектор нормали (-sin(heading), -cos(heading)),
-    // исключая перекос и сдвиг откосов дверей, окон и панелей.
-
-    const getPointAtS = (s: number, y: number, depthOffset = 0): Point3D => {
-      const clampedS = Math.max(0, Math.min(wallW, s));
-      const section = pathSections.find((sec) => clampedS >= sec.sStart && clampedS <= sec.sEnd) || pathSections[pathSections.length - 1];
-      if (!section) return { x: 0, y, z: 0 };
-      return section.getPoint(clampedS, y, depthOffset);
-    };
+    // Fit the entire chain, including a translated origin after prepending a wall.
+    // Keep manual zoom and pan as offsets from this fit.
+    const projected = allPathPoints.flatMap(p => [project3D(p, 0, 0, 1), project3D({ ...p, y: wallH }, 0, 0, 1)]);
+    const x0 = Math.min(...projected.map(p => p.x)) - panOffset.x;
+    const x1 = Math.max(...projected.map(p => p.x)) - panOffset.x;
+    const y0 = Math.min(...projected.map(p => p.y)) - panOffset.y;
+    const y1 = Math.max(...projected.map(p => p.y)) - panOffset.y;
+    const scale = Math.min(Math.max(60, width - 160) / Math.max(100, x1-x0),
+      Math.max(60, height - 230) / Math.max(100, y1-y0)) * zoomScale / 0.24;
+    const cx = width / 2 - (x0+x1) * scale / 2;
+    const cy = height * 0.43 - (y0+y1) * scale / 2;
 
     // =========================================================================
     // 2. Отрисовка пола (охватывает всю площадь сложной стены)
@@ -653,7 +410,7 @@ export const Axonometric3DView: React.FC = () => {
         // Вычитаем сквозные проемы (окна, двери)
         let intervals: Interval1D[] = [{ start: 0, end: wallH }];
         selectedWall.openings.forEach((op) => {
-          if (op.isCutout !== false && (op.type === 'WINDOW' || op.type === 'DOOR') && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+          if (op.isCutout !== false && (op.type === 'WINDOW' || isDoorOrPortal(op)) && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
             intervals = subtractInterval(intervals, op.y, op.y + op.height);
           }
         });
@@ -1155,7 +912,7 @@ export const Axonometric3DView: React.FC = () => {
       // =========================================================================
       // Отрисовка внутреннего заполнения проема (ПОЛОТНО/ОКНО СТОИТ НА ГЛУБИНЕ ПРОЕМА opDepth)
       // =========================================================================
-      if (op.type === 'DOOR' && !op.isPortal) {
+      if (op.type === 'DOOR' && !isPortalOpening(op)) {
         const dp0 = project3D(getPointAtS(op.x + 10, op.y, opDepth), cx, cy, scale);
         const dp1 = project3D(getPointAtS(op.x + op.width - 10, op.y, opDepth), cx, cy, scale);
         const dp2 = project3D(getPointAtS(op.x + op.width - 10, op.y + op.height - 10, opDepth), cx, cy, scale);

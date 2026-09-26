@@ -3,7 +3,7 @@ import { create } from 'zustand';
 export type ActiveTool = 'SELECT' | 'PAN' | 'CUT_PANEL' | 'ADD_DOOR' | 'ADD_WINDOW' | 'ADD_TV_ZONE' | 'ADD_NICHE';
 
 export type ViewMode = '2D' | '3D';
-export type EditMode = 'PANELS' | 'JOINTS' | 'TEXTURES';
+export type EditMode = 'WALLS' | 'PANELS' | 'JOINTS' | 'TEXTURES';
 export type AppScreen = 'WELCOME' | 'EDITOR';
 
 interface EditorState {

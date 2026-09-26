@@ -1,6 +1,9 @@
 import { Wall, createDefaultWall } from './Wall';
 import { Material, DEFAULT_MATERIALS } from './Material';
 
+// Increment when older projects need a compatibility warning. Saving alone is not a migration.
+export const CURRENT_PROJECT_FORMAT_VERSION = 1;
+
 export interface ProjectMetadata {
   id: string;
   name: string;
@@ -9,10 +12,13 @@ export interface ProjectMetadata {
   materialsCount: number;
   createdAt: string;
   updatedAt: string;
+  isLegacy: boolean;
 }
 
 export interface Project {
   id: string;
+  /** Missing in older projects. Preserve on save, duplication and import. */
+  formatVersion?: number;
   name: string;
   walls: Wall[];
   materials: Material[];
@@ -37,6 +43,7 @@ export function getProjectMetadata(project: Project): ProjectMetadata {
     materialsCount: project.materials.length,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    isLegacy: (project.formatVersion ?? 0) < CURRENT_PROJECT_FORMAT_VERSION,
   };
 }
 
@@ -51,6 +58,7 @@ export function createDefaultProject(name: string = 'Новый проект р�
 
   return {
     id: `proj-${Date.now()}`,
+    formatVersion: CURRENT_PROJECT_FORMAT_VERSION,
     name,
     walls: [initialWall],
     materials: DEFAULT_MATERIALS,

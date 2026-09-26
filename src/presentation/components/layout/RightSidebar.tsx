@@ -8,7 +8,6 @@ import {
   Title,
   NumberInput,
   TextInput,
-  Autocomplete,
   ColorInput,
   Select,
   SegmentedControl,
@@ -39,8 +38,6 @@ import {
   Search,
   Scissors,
   Grid,
-  Home,
-  Layout,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -65,31 +62,15 @@ import {
   ensureOpeningSlopes,
   ensureOpeningFraming,
   getOpeningTypeLabel,
+  isDoorOrPortal,
+  isPortalOpening,
   SlopeConfig,
   SlopeSideConfig,
 } from '../../../core/models/Opening';
 
-const POPULAR_ROOM_PRESETS = [
-  'Гостиная',
-  'Спальня',
-  'Кухня',
-  'Прихожая',
-  'Коридор',
-  'Кабинет',
-  'Ванная',
-  'Детская',
-  'Гардеробная',
-  'Холл',
-  'Столовая',
-  'Мастер-спальня',
-  'Санузел',
-  'Лоджия',
-  'Офис',
-];
-
 export const RightSidebar: React.FC = () => {
   const t = useAppTheme();
-  const { editMode } = useEditorStore();
+  const { editMode, setViewMode, setEditMode } = useEditorStore();
   const [selectedProfileType, setSelectedProfileType] = useState<string>('ALL');
   const [openingJointMode, setOpeningJointMode] = useState('SLOPES');
   const [selectedOpeningSide, setSelectedOpeningSide] = useState<'left' | 'top' | 'right' | 'bottom'>('top');
@@ -102,7 +83,6 @@ export const RightSidebar: React.FC = () => {
     selectedPieceIds,
     selectedJointId,
     selectedJointIds,
-    selectedWallBendId,
     selectedSubPieceId,
     selectedPanelEdge,
     setSelectedPanelEdge,
@@ -110,22 +90,17 @@ export const RightSidebar: React.FC = () => {
     setPanelEdgeProfile,
     setPanelEdgeColor,
     setPanelEdgeJoint,
+    selectWall,
     selectOpening,
     selectPanel,
     selectSubPiece,
     selectJoint,
-    selectWallBend,
-    updateWallDimensions,
-    updateWallName,
-    updateWallRoom,
     updateOpening,
     applyOpening,
     removeOpening,
     setOpeningFramingSide,
     splitPanelAroundOpening,
     slicePanelToSheetFormat,
-    updateWallBend,
-    deleteWallBend,
     mergeSelectedCells,
     setMaterialForSelectedCells,
     validateSelectedJoints,
@@ -154,7 +129,6 @@ export const RightSidebar: React.FC = () => {
 
   const currentWall = project.walls.find((w) => w.id === selectedWallId);
   const currentOpening = currentWall?.openings.find((op) => op.id === selectedOpeningId);
-  const currentWallBend = currentWall?.bends?.find((b) => b.id === selectedWallBendId);
   const currentMaterial = project.materials.find(
     (m) => m.id === (currentWall?.zone.materialId || MATERIAL_NONE_ID)
   ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
@@ -230,7 +204,7 @@ export const RightSidebar: React.FC = () => {
             <Group justify="space-between" align="center">
               <div>
                 <Title order={6} c={isLED ? 'yellow.4' : 'blue.4'}>
-                  {currentOpening.type === 'DOOR' ? '🚪' : currentOpening.type === 'WINDOW' ? '🪟' : '📦'} {currentOpening.name.toUpperCase()}
+                  {isPortalOpening(currentOpening) ? '▯' : currentOpening.type === 'DOOR' ? '🚪' : currentOpening.type === 'WINDOW' ? '🪟' : '📦'} {currentOpening.name.toUpperCase()}
                 </Title>
                 <Text size="xs" c="dimmed">
                   {openingJointMode === 'SLOPES' ? 'Стыки откосов' : 'Обрамление проёма'} ({currentOpening.width} × {currentOpening.height} мм)
@@ -264,7 +238,7 @@ export const RightSidebar: React.FC = () => {
               </Text>
               <Group grow gap={4}>
                 {(['left', 'top', 'right', 'bottom'] as const)
-                  .filter((s) => currentOpening.type !== 'DOOR' || s !== 'bottom')
+                  .filter((s) => !isDoorOrPortal(currentOpening) || s !== 'bottom')
                   .map((s) => {
                     const sInf = sideLabels[s];
                     const sConf = framing[s];
@@ -1066,29 +1040,10 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color={t.border} />
 
-            {currentOpening.type === 'DOOR' && (
-              <div>
-                <Text size="xs" mb={4} c="dimmed">Тип проёма:</Text>
-                <SegmentedControl
-                  size="xs"
-                  fullWidth
-                  aria-label="Тип проёма"
-                  value={currentOpening.isPortal ? 'PORTAL' : 'DOOR'}
-                  onChange={(value) => updateOpening(currentWall.id, {
-                    id: currentOpening.id,
-                    isPortal: value === 'PORTAL',
-                  })}
-                  data={[
-                    { label: 'Дверь', value: 'DOOR' },
-                    { label: 'Портал', value: 'PORTAL' },
-                  ]}
-                />
-                {currentOpening.isPortal && (
-                  <Text size="xs" c="dimmed" mt={6}>
-                    Открытый проход без дверного полотна. Откосы и обрамление настраиваются ниже и в режиме «Стыки».
-                  </Text>
-                )}
-              </div>
+            {isPortalOpening(currentOpening) && (
+              <Text size="xs" c="dimmed">
+                Открытый проход без дверного полотна. Откосы и обрамление настраиваются ниже и в режиме «Стыки».
+              </Text>
             )}
 
             {!currentOpening.isApplied ? (
@@ -1243,7 +1198,7 @@ export const RightSidebar: React.FC = () => {
               />
             </Group>
 
-            {!(currentOpening.type === 'DOOR' && currentOpening.isPortal) && <div>
+            {!isPortalOpening(currentOpening) && <div>
               <Text size="xs" mb={4} c="dimmed">
                 Режим размещения:
               </Text>
@@ -1686,240 +1641,6 @@ export const RightSidebar: React.FC = () => {
               onClick={() => removeOpening(currentWall.id, currentOpening.id)}
             >
               Удалить проем
-            </Button>
-          </Stack>
-        </ScrollArea>
-      </Stack>
-    );
-  }
-
-  // =========================================================================
-  // РЕЖИМ 2.2: Выбрана ЗОНА ИЗГИБА / УГОЛ СТЕНЫ (WallBend)
-  // =========================================================================
-  if (currentWallBend) {
-    const arcLen = Math.round((Math.PI * currentWallBend.radius * (currentWallBend.angleDeg || 90)) / 180);
-
-    return (
-      <Stack
-        h="100%"
-        gap="xs"
-        p="xs"
-        style={{
-          borderLeft: `1px solid ${t.border}`,
-          backgroundColor: t.bgSidebar,
-          width: 320,
-          minWidth: 320,
-          flexShrink: 0,
-        }}
-      >
-        <ScrollArea style={{ flex: 1 }}>
-          <Stack gap="md" p="xs">
-            <Group justify="space-between" align="center">
-              <div>
-                <Title order={6} c="cyan.4">
-                  ⌒ ИЗГИБ / УГОЛ СТЕНЫ
-                </Title>
-                <Text size="xs" c="dimmed">
-                  Геометрическая зона изгиба стены
-                </Text>
-              </div>
-              <Group gap={6}>
-                <Badge size="xs" color="cyan">
-                  {currentWallBend.radius === 0 ? 'ОСТРЫЙ' : currentWallBend.type === 'INNER_CORNER' ? 'ВНУТР' : 'ВНЕШН'}
-                </Badge>
-                <Tooltip label="Снять выделение">
-                  <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectWallBend(null)}>
-                    <X size={14} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
-            </Group>
-
-            <Divider color={t.border} />
-
-            {/* Тип изгиба */}
-            <SegmentedControl
-              size="xs"
-              fullWidth
-              value={currentWallBend.type}
-              onChange={(val: any) =>
-                updateWallBend(currentWall.id, currentWallBend.id, {
-                  type: val,
-                  name: val === 'INNER_CORNER' ? 'Внутренний угол' : 'Внешний угол',
-                  angleDeg: currentWallBend.angleDeg || 90,
-                })
-              }
-              data={[
-                { label: '⌒ Внешн 90°', value: 'OUTER_CORNER' },
-                { label: '╭ Внутр 90°', value: 'INNER_CORNER' },
-              ]}
-            />
-
-            {/* Координата X на стене */}
-            <NumberInput
-              size="xs"
-              label="Позиция X от левого края (мм)"
-              description={currentWallBend.radius === 0 ? 'Точка перегиба / угла' : 'Отступ начала зоны скругления'}
-              value={currentWallBend.x}
-              clampBehavior="blur"
-              allowNegative={false}
-              allowDecimal={false}
-              min={0}
-              max={Math.max(0, currentWall.width - arcLen)}
-              step={10}
-              onChange={(val) =>
-                updateWallBend(currentWall.id, currentWallBend.id, {
-                  x: typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                })
-              }
-            />
-
-            <Group grow>
-              <NumberInput
-                size="xs"
-                label="Радиус R (мм)"
-                value={currentWallBend.radius}
-                clampBehavior="blur"
-                allowNegative={false}
-                allowDecimal={false}
-                min={0}
-                max={2000}
-                step={25}
-                onChange={(val) =>
-                  updateWallBend(currentWall.id, currentWallBend.id, {
-                    radius: typeof val === 'number' ? val : 0,
-                  })
-                }
-              />
-              <NumberInput
-                size="xs"
-                label="Угол охвата (°)"
-                value={currentWallBend.angleDeg}
-                clampBehavior="blur"
-                allowNegative={false}
-                allowDecimal={false}
-                min={15}
-                max={180}
-                step={15}
-                onChange={(val) =>
-                  updateWallBend(currentWall.id, currentWallBend.id, {
-                    angleDeg: typeof val === 'number' ? val : 90,
-                  })
-                }
-              />
-            </Group>
-
-            {/* Интерактивная векторная мини-схема сечения сверху */}
-            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
-              <Text size="xs" fw={600} mb={6} c="dimmed">
-                Схема сечения (Вид сверху):
-              </Text>
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 75 }}>
-                <svg width="220" height="65" viewBox="0 0 220 65">
-                  {currentWallBend.type === 'INNER_CORNER' ? (
-                    currentWallBend.radius === 0 ? (
-                      <g>
-                        <path d="M 30 15 L 100 15 L 100 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="square" strokeLinejoin="miter" />
-                        <rect x="90" y="15" width="10" height="10" fill="none" stroke="#69db7c" strokeWidth="1.5" />
-                        <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                          ╭ Внутр {currentWallBend.angleDeg || 90}°
-                        </text>
-                        <text x="135" y="44" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
-                          Острый (R = 0)
-                        </text>
-                      </g>
-                    ) : (
-                      <g>
-                        <path d="M 30 15 L 80 15 A 50 50 0 0 1 130 55 L 190 55" fill="none" stroke="#40c057" strokeWidth="4" strokeLinecap="round" />
-                        <text x="135" y="28" fill="#69db7c" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                          ╭ Внутр R={currentWallBend.radius}
-                        </text>
-                        <text x="135" y="44" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
-                          L = {arcLen} мм
-                        </text>
-                      </g>
-                    )
-                  ) : (
-                    currentWallBend.radius === 0 ? (
-                      <g>
-                        <path d="M 30 50 L 100 50 L 100 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="square" strokeLinejoin="miter" />
-                        <rect x="90" y="40" width="10" height="10" fill="none" stroke="#74c0fc" strokeWidth="1.5" />
-                        <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                          ⌒ Внешн {currentWallBend.angleDeg || 90}°
-                        </text>
-                        <text x="125" y="56" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
-                          Острый (R = 0)
-                        </text>
-                      </g>
-                    ) : (
-                      <g>
-                        <path d="M 30 50 L 80 50 A 50 50 0 0 0 130 15 L 190 15" fill="none" stroke="#339af0" strokeWidth="4" strokeLinecap="round" />
-                        <text x="125" y="42" fill="#74c0fc" fontSize="11" fontFamily="JetBrains Mono" fontWeight="bold">
-                          ⌒ Внешн R={currentWallBend.radius}
-                        </text>
-                        <text x="125" y="56" fill={t.isDark ? '#ced4da' : '#475569'} fontSize="10" fontFamily="JetBrains Mono">
-                          L = {arcLen} мм
-                        </text>
-                      </g>
-                    )
-                  )}
-                </svg>
-              </div>
-            </Paper>
-
-            {/* Информационная плашка с расчетом развертки дуги */}
-            <Paper p="xs" withBorder style={{ backgroundColor: t.bgCard, borderColor: t.border }}>
-              <Stack gap={4}>
-                {currentWallBend.radius === 0 ? (
-                  <>
-                    <Group justify="space-between">
-                      <Text size="xs" c="dimmed">Тип угла:</Text>
-                      <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
-                        Острый угол (R = 0)
-                      </Text>
-                    </Group>
-                    <Group justify="space-between">
-                      <Text size="xs" c="dimmed">Вершина перегиба:</Text>
-                      <Text size="xs" c="gray.3" style={{ fontFamily: 'JetBrains Mono' }}>
-                        {currentWallBend.x} мм от края
-                      </Text>
-                    </Group>
-                    <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.3 }}>
-                      💡 Прямой поворот стены (запил под 45° или фрезеровка V-паза). Скругление отсутствует.
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Group justify="space-between">
-                      <Text size="xs" c="dimmed">Развертка дуги (L):</Text>
-                      <Text size="xs" fw={700} c="cyan.4" style={{ fontFamily: 'JetBrains Mono' }}>
-                        {arcLen} мм
-                      </Text>
-                    </Group>
-                    <Group justify="space-between">
-                      <Text size="xs" c="dimmed">Зона скругления:</Text>
-                      <Text size="xs" c="gray.3" style={{ fontFamily: 'JetBrains Mono' }}>
-                        от {currentWallBend.x} до {currentWallBend.x + arcLen} мм
-                      </Text>
-                    </Group>
-                    <Text size="xs" c="dimmed" mt={4} style={{ lineHeight: 1.3 }}>
-                      💡 Листы и рейки автоматически огибают радиус с керф-пропилами.
-                    </Text>
-                  </>
-                )}
-              </Stack>
-            </Paper>
-
-            {/* Кнопка удаления изгиба */}
-            <Button
-              size="xs"
-              variant="light"
-              color="red"
-              fullWidth
-              leftSection={<Trash2 size={14} />}
-              onClick={() => deleteWallBend(currentWall.id, currentWallBend.id)}
-            >
-              Удалить изгиб со стены
             </Button>
           </Stack>
         </ScrollArea>
@@ -2638,115 +2359,11 @@ export const RightSidebar: React.FC = () => {
             </Alert>
           )}
 
-          {/* Основная информация о стене и помещении */}
-          <div>
-            <Title order={6} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }} mb="xs">
-              Параметры стены
-            </Title>
-            <Stack gap="xs">
-              <TextInput
-                size="xs"
-                label="Название стены"
-                placeholder="например: Стена 1"
-                leftSection={<Layout size={14} color="#339af0" />}
-                value={currentWall.name}
-                onChange={(e) => updateWallName(currentWall.id, e.currentTarget.value)}
-              />
-
-              <div>
-                <Autocomplete
-                  size="xs"
-                  label="Помещение"
-                  placeholder="например: Гостиная, Спальня..."
-                  leftSection={<Home size={14} color="#fab005" />}
-                  value={currentWall.roomName || ''}
-                  data={Array.from(
-                    new Set([
-                      ...project.walls
-                        .map((w) => w.roomName?.trim())
-                        .filter((r): r is string => Boolean(r && r.length > 0)),
-                      ...POPULAR_ROOM_PRESETS,
-                    ])
-                  )}
-                  onChange={(val) => updateWallRoom(currentWall.id, val)}
-                  clearable
-                />
-                <Group gap={4} mt={6}>
-                  {Array.from(
-                    new Set([
-                      ...project.walls
-                        .map((w) => w.roomName?.trim())
-                        .filter((r): r is string => Boolean(r && r.length > 0)),
-                      'Гостиная',
-                      'Спальня',
-                      'Кухня',
-                      'Прихожая',
-                      'Коридор',
-                    ])
-                  )
-                    .slice(0, 5)
-                    .map((r) => (
-                      <Badge
-                        key={r}
-                        size="xs"
-                        variant={currentWall.roomName === r ? 'filled' : 'light'}
-                        color={currentWall.roomName === r ? 'yellow' : 'gray'}
-                        style={{ cursor: 'pointer', textTransform: 'none' }}
-                        onClick={() => updateWallRoom(currentWall.id, r)}
-                      >
-                        {r}
-                      </Badge>
-                    ))}
-                </Group>
-              </div>
-            </Stack>
-          </div>
-
-          <Divider color={t.border} />
-
-          {/* Габариты всей стены */}
-          <Title order={6} size="xs" c="dimmed">
-            Габариты
-          </Title>
-          <Group grow>
-            <NumberInput
-              size="xs"
-              label="Ширина стены (мм)"
-              value={currentWall.width || ''}
-              clampBehavior="blur"
-              allowNegative={false}
-              allowDecimal={false}
-              min={100}
-              max={30000}
-              step={50}
-              onChange={(val) =>
-                updateWallDimensions(
-                  currentWall.id,
-                  typeof val === 'number' ? val : (val === '' ? 0 : Number(val)),
-                  currentWall.height
-                )
-              }
-            />
-            <NumberInput
-              size="xs"
-              label="Высота стены (мм)"
-              value={currentWall.height || ''}
-              clampBehavior="blur"
-              allowNegative={false}
-              allowDecimal={false}
-              min={100}
-              max={10000}
-              step={50}
-              onChange={(val) =>
-                updateWallDimensions(
-                  currentWall.id,
-                  currentWall.width,
-                  typeof val === 'number' ? val : (val === '' ? 0 : Number(val))
-                )
-              }
-            />
-          </Group>
-
+          <Text size="sm" fw={600}>{currentWall.name}</Text>
+          <Text size="xs" c="dimmed">Развёртка: {Math.round(currentWall.width)} × {currentWall.height} мм</Text>
+          <Button size="xs" variant="light" onClick={() => {
+            selectWall(currentWall.id); setViewMode('2D'); setEditMode('WALLS');
+          }}>Редактировать стену</Button>
           <Divider color={t.border} />
 
           {/* Предварительный расчет и баланс площадей */}

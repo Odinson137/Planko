@@ -7,11 +7,14 @@ import { RightSidebar } from './RightSidebar';
 import { CadCanvas } from '../canvas/CadCanvas';
 import { Axonometric3DView } from '../canvas/Axonometric3DView';
 import { PanelCutSidebar } from './PanelCutSidebar';
+import { WallInspector } from './WallInspector';
+import { WallPlanCanvas } from '../canvas/WallPlanCanvas';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useAppTheme } from '../../theme/useAppTheme';
 
 export const MainLayout: React.FC = () => {
-  const { viewMode, showLeftSidebar, toggleLeftSidebar, activeTool } = useEditorStore();
+  const { viewMode, editMode, showLeftSidebar, toggleLeftSidebar, activeTool } = useEditorStore();
+  const editingWalls = viewMode === '2D' && editMode === 'WALLS';
   const t = useAppTheme();
 
   return (
@@ -48,11 +51,11 @@ export const MainLayout: React.FC = () => {
             </Tooltip>
           )}
 
-          {viewMode === '3D' ? <Axonometric3DView /> : <CadCanvas />}
+          {editingWalls ? <WallPlanCanvas /> : viewMode === '3D' ? <Axonometric3DView /> : <CadCanvas />}
         </Box>
 
         {/* Правая панель инспектора */}
-        {activeTool === 'CUT_PANEL' && viewMode === '2D' ? <PanelCutSidebar /> : <RightSidebar />}
+        {editingWalls ? <WallInspector /> : activeTool === 'CUT_PANEL' && viewMode === '2D' ? <PanelCutSidebar /> : <RightSidebar />}
       </Flex>
 
     </Flex>

@@ -1,5 +1,6 @@
 import { slopeJointHasProfile } from '../geometry/SlopeJointGeometry';
 import { Wall } from '../models/Wall';
+import { isDoorOrPortal } from '../models/Opening';
 import { LayoutEngine, LayoutCalculationResult, CalculatedJointLine } from './LayoutEngine';
 import { Material, DEFAULT_MATERIALS } from '../models/Material';
 import { findProfileByArticle } from '../models/Profile';
@@ -226,7 +227,7 @@ export class ProfileSpecificationEngine {
         if (op.isCutout === false) return;
         if (op.framing) {
           for (const side of ['left', 'right', 'top', 'bottom'] as const) {
-            if (side === 'bottom' && op.type === 'DOOR' && op.y <= 5) continue;
+            if (side === 'bottom' && isDoorOrPortal(op) && op.y <= 5) continue;
             const edge = op.framing[side];
             if (!edge || (edge.width <= 0 && !edge.profileArticle && !edge.isLED)) continue;
             const joint = { ...edge, isOuterEdge: true } as CalculatedJointLine;
@@ -242,7 +243,7 @@ export class ProfileSpecificationEngine {
         const hasSlopes = op.slopes?.enabled !== false;
         const opCat: StandardProfileCategory = hasSlopes ? 'CORNER' : 'END_CAP';
 
-        const perim = op.type === 'DOOR'
+        const perim = isDoorOrPortal(op)
           ? (op.y <= 5 ? op.width + op.height * 2 : (op.width + op.height) * 2)
           : (op.width + op.height) * 2;
 
@@ -251,8 +252,8 @@ export class ProfileSpecificationEngine {
           const key = profileKey(identity);
           const entry = map.get(key) || { identity, lengths: [], count: 0 };
           entry.lengths.push(op.width, op.height, op.height);
-          if (op.type !== 'DOOR' || op.y > 5) entry.lengths.push(op.width);
-          entry.count += (op.type === 'DOOR' && op.y <= 5 ? 3 : 4);
+          if (!isDoorOrPortal(op) || op.y > 5) entry.lengths.push(op.width);
+          entry.count += (isDoorOrPortal(op) && op.y <= 5 ? 3 : 4);
           map.set(key, entry);
         }
       });

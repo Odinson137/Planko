@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { LocalSQLiteRepository } from '../src/infrastructure/repositories/LocalSQLiteRepository';
-import { createDefaultProject } from '../src/core/models/Project';
+import { createDefaultProject, CURRENT_PROJECT_FORMAT_VERSION, getProjectMetadata } from '../src/core/models/Project';
 import { createDefaultOpening, getOpeningTypeLabel } from '../src/core/models/Opening';
 import { sheet, wallWithPanel } from './helpers/business';
 
@@ -53,17 +53,18 @@ test('import gets a new project identity while preserving custom material and wa
   assert.equal(await repository.getProject(project.id), null);
 });
 
-test('portal mode survives saving and JSON import alongside legacy doors', async () => {
+test('separate portals and legacy portal mode survive saving and JSON import alongside doors', async () => {
   const wall = wallWithPanel();
   const door = createDefaultOpening('DOOR', wall.width, wall.height);
-  wall.openings = [door, { ...door, id: 'portal', name: 'Портал', isPortal: true }];
+  wall.openings = [door, createDefaultOpening('PORTAL', wall.width, wall.height),
+    { ...door, id: 'legacy-portal', name: 'Портал', isPortal: true }];
   const project = { ...createDefaultProject('Portals'), id: 'portal-project', walls: [wall] };
   await repository.saveProject(project);
   const saved = (await repository.getProject(project.id))!;
   const imported = await repository.importProjectFromJson(JSON.stringify(saved));
   for (const restored of [saved, imported]) {
     assert.deepEqual(restored.walls[0].openings, JSON.parse(JSON.stringify(wall.openings)));
-    assert.deepEqual(restored.walls[0].openings.map(getOpeningTypeLabel), ['Дверь', 'Портал']);
+    assert.deepEqual(restored.walls[0].openings.map(getOpeningTypeLabel), ['Дверь', 'Портал', 'Портал']);
   }
 });
 
@@ -100,3 +101,42 @@ test('project list skips corrupt records, sorts newest first, and clearing keeps
   assert.deepEqual(await repository.listProjects(), []);
   assert.equal(localStorage.getItem('planko-theme'), 'dark');
 });
+
+test('new projects keep their current format through saving, copying and JSON import', async () => {
+  const project = { ...createDefaultProject('Current'), id: 'current-format', createdAt: '2000-01-01' };
+  assert.equal(project.formatVersion, CURRENT_PROJECT_FORMAT_VERSION);
+  await repository.saveProject(project);
+  const copied = await repository.duplicateProject(project.id);
+  const imported = await repository.importProjectFromJson(JSON.stringify(project));
+  for (const restored of [await repository.getProject(project.id), copied, imported]) {
+    assert.ok(restored);
+    assert.equal(restored.formatVersion, CURRENT_PROJECT_FORMAT_VERSION);
+    assert.equal(getProjectMetadata(restored).isLegacy, false);
+  }
+  assert.ok((await repository.listProjects()).every(item => !item.isLegacy));
+});
+
+for (const formatVersion of [undefined, CURRENT_PROJECT_FORMAT_VERSION - 1]) {
+  test(`legacy format ${formatVersion ?? 'unversioned'} stays marked after save, rename, copy and import`, async () => {
+    const project = { ...createDefaultProject('Legacy'), id: 'legacy-format', formatVersion,
+      createdAt: '2099-01-01', updatedAt: '2099-01-01' };
+    const raw = JSON.stringify(project);
+    localStorage.setItem(`planko_projects_db_${project.id}`, raw);
+
+    assert.equal((await repository.listProjects())[0].isLegacy, true);
+    assert.equal(localStorage.getItem(`planko_projects_db_${project.id}`), raw);
+    const loaded = await repository.getProject(project.id);
+    assert.ok(loaded);
+    await repository.saveProject(loaded);
+    await repository.renameProject(project.id, 'Renamed legacy');
+    const copied = await repository.duplicateProject(project.id);
+    const imported = await repository.importProjectFromJson(JSON.stringify(loaded));
+    for (const restored of [await repository.getProject(project.id), copied, imported]) {
+      assert.ok(restored);
+      assert.equal(restored.formatVersion, formatVersion);
+      assert.deepEqual(restored.walls, JSON.parse(raw).walls);
+      assert.equal(getProjectMetadata(restored).isLegacy, true);
+    }
+    assert.ok((await repository.listProjects()).every(item => item.isLegacy));
+  });
+}

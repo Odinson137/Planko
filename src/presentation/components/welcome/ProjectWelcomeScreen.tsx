@@ -476,7 +476,7 @@ export const ProjectWelcomeScreen: React.FC = () => {
                         >
                           <Group justify="space-between" align="center" wrap="nowrap">
                             {/* Левая часть: 2-буквенный аватар и название */}
-                            <Group gap="sm" wrap="nowrap" style={{ overflow: 'hidden' }}>
+                            <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
                               <Box
                                 style={{
                                   width: 36,
@@ -495,10 +495,23 @@ export const ProjectWelcomeScreen: React.FC = () => {
                                 {initials}
                               </Box>
 
-                              <Stack gap={2} style={{ overflow: 'hidden' }}>
-                                <Text fw={600} size="sm" c={t.textPrimary} truncate>
-                                  {item.name}
-                                </Text>
+                              <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                                <Group gap="xs" wrap="nowrap">
+                                  <Text fw={600} size="sm" c={t.textPrimary} truncate style={{ minWidth: 0 }}>
+                                    {item.name}
+                                  </Text>
+                                  {item.isLegacy && (
+                                    <Badge
+                                      size="xs"
+                                      color="yellow"
+                                      variant="light"
+                                      leftSection={<AlertTriangle size={11} aria-hidden="true" />}
+                                      style={{ flexShrink: 0, textTransform: 'none' }}
+                                    >
+                                      Старая версия
+                                    </Badge>
+                                  )}
+                                </Group>
                                 <Group gap="xs" wrap="nowrap">
                                   <Group gap={4}>
                                     <GitBranch size={12} color={t.textDimmed} />
@@ -514,11 +527,16 @@ export const ProjectWelcomeScreen: React.FC = () => {
                                     </Text>
                                   </Group>
                                 </Group>
+                                {item.isLegacy && (
+                                  <Text size="xs" c={t.isDark ? 'yellow.3' : 'yellow.9'} mt={3} style={{ lineHeight: 1.4 }}>
+                                    Возможны ошибки при открытии и расчётах. Рекомендуем создать новый проект.
+                                  </Text>
+                                )}
                               </Stack>
                             </Group>
 
                             {/* Правая часть: быстрые действия */}
-                            <Group gap={6} wrap="nowrap" onClick={(e) => e.stopPropagation()}>
+                            <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                               <Tooltip label="Переименовать проект">
                                 <ActionIcon
                                   size="sm"

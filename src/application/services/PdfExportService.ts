@@ -1,3 +1,4 @@
+import { buildWallPath, resolvePathBends } from '../../core/geometry/WallPath';
 import { drawOpeningSlopes } from './SlopeDrawing';
 import { slopeJointHasProfile } from '../../core/geometry/SlopeJointGeometry';
 import { getPieceTexture } from '../../core/textures/PieceTextures';
@@ -5,8 +6,8 @@ import { drawTextureFace } from '../../core/textures/PhotoTextures';
 import { slopeTexturePiece } from '../../core/textures/TextureMapping';
 import { jsPDF } from 'jspdf';
 import { Project } from '../../core/models/Project';
-import { getOpeningTypeLabel } from '../../core/models/Opening';
-import { Wall, RadiusType } from '../../core/models/Wall';
+import { getOpeningTypeLabel, isDoorOrPortal, isPortalOpening } from '../../core/models/Opening';
+import { Wall } from '../../core/models/Wall';
 import { LayoutEngine, LayoutCalculationResult } from '../../core/layout/LayoutEngine';
 import { NestingEngine, NestingPartInput, ProjectNestingResult, NestingSheet, NestingCutout } from '../../core/layout/NestingEngine';
 import { ProfileSpecificationEngine, ProjectProfilesReport, WallProfilesReport } from '../../core/layout/ProfileSpecificationEngine';
@@ -51,7 +52,7 @@ export class PdfExportService {
                 width: Math.round((interX2 - interX1) * 10) / 10,
                 height: Math.round((interY2 - interY1) * 10) / 10,
                 type: op.type,
-                label: op.type === 'DOOR' ? `Вырез ${op.isPortal ? 'портала' : 'двери'} ${op.width}×${op.height}` : `Вырез ${op.width}×${op.height}`,
+                label: isDoorOrPortal(op) ? `Вырез ${isPortalOpening(op) ? 'портала' : 'двери'} ${op.width}×${op.height}` : `Вырез ${op.width}×${op.height}`,
               });
             }
           });
@@ -565,12 +566,12 @@ export class PdfExportService {
       const opH = op.height * scale;
 
       ctx.save();
-      if (op.type === 'DOOR') {
+      if (isDoorOrPortal(op)) {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(opTopLeft.x, opTopLeft.y, opW, opH);
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 3.5;
-        if (op.isPortal) {
+        if (isPortalOpening(op)) {
           ctx.beginPath();
           ctx.moveTo(opTopLeft.x, opTopLeft.y + opH);
           ctx.lineTo(opTopLeft.x, opTopLeft.y);
@@ -1696,63 +1697,6 @@ export class PdfExportService {
     const panelThick = 8;
 
     // 1. Построение 3D траектории стены (с поворотами на WallBend)
-    interface ActiveBend3D {
-      id: string;
-      sStart: number;
-      sEnd: number;
-      arcLen: number;
-      radius: number;
-      angleDeg: number;
-      type: RadiusType;
-    }
-
-    const activeBends: ActiveBend3D[] = [];
-    if (wall.bends && wall.bends.length > 0) {
-      wall.bends.forEach((b) => {
-        const arcLen = Math.round((Math.PI * b.radius * (b.angleDeg || 90)) / 180);
-        activeBends.push({
-          id: b.id,
-          sStart: b.x,
-          sEnd: b.x + arcLen,
-          arcLen,
-          radius: b.radius,
-          angleDeg: b.angleDeg || 90,
-          type: b.type,
-        });
-      });
-    } else {
-      layout.panels.forEach((p) => {
-        if (p.radiusConfig && !activeBends.some((b) => b.sStart === p.x)) {
-          const arcLen = p.arcLength || Math.round((Math.PI * p.radiusConfig.radius * (p.radiusConfig.angleDeg || 90)) / 180);
-          activeBends.push({
-            id: `legacy-${p.id}`,
-            sStart: p.x,
-            sEnd: p.x + arcLen,
-            arcLen,
-            radius: p.radiusConfig.radius,
-            angleDeg: p.radiusConfig.angleDeg || 90,
-            type: p.radiusConfig.type,
-          });
-        }
-      });
-    }
-
-    activeBends.sort((a, b) => a.sStart - b.sStart);
-
-    interface PathSection3D {
-      sStart: number;
-      sEnd: number;
-      isBend: boolean;
-      bend?: ActiveBend3D;
-      startPoint: Point3D;
-      endPoint: Point3D;
-      startHeading: number;
-      endHeading: number;
-      centerPoint?: Point3D;
-      totalTurn?: number;
-      getPoint: (s: number, y: number, depthOffset: number) => Point3D;
-    }
-
     const computeMiterVector = (psi1: number, psi2: number, d: number): { x: number; z: number } => {
       const n1x = -Math.sin(psi1);
       const n1z = -Math.cos(psi1);
@@ -1775,192 +1719,8 @@ export class PdfExportService {
       return { x: mX * scale, z: mZ * scale };
     };
 
-    const pathSections: PathSection3D[] = [];
-    let curS = 0;
-    let curPt: Point3D = { x: 0, y: 0, z: 0 };
-    let curHeading = 0;
-    const allPathPoints: Point3D[] = [{ x: 0, y: 0, z: 0 }];
-
-    activeBends.forEach((bend) => {
-      if (bend.sStart > curS + 0.5) {
-        const straightLen = bend.sStart - curS;
-        const straightStartPt = { ...curPt };
-        const straightHeading = curHeading;
-        const sStart = curS;
-        const sEnd = bend.sStart;
-        const straightEndPt = {
-          x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
-          y: 0,
-          z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
-        };
-
-        pathSections.push({
-          sStart,
-          sEnd,
-          isBend: false,
-          startPoint: straightStartPt,
-          endPoint: straightEndPt,
-          startHeading: straightHeading,
-          endHeading: straightHeading,
-          getPoint: (s: number, y: number, depthOffset = 0) => {
-            const dist = Math.max(0, Math.min(straightLen, s - sStart));
-            const normX = -Math.sin(straightHeading) * depthOffset;
-            const normZ = -Math.cos(straightHeading) * depthOffset;
-            return {
-              x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
-              y,
-              z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
-            };
-          },
-        });
-
-        curPt = { ...straightEndPt };
-        curS = sEnd;
-        allPathPoints.push({ ...curPt });
-      }
-
-      const R = bend.radius;
-      const totalTurn = ((bend.angleDeg || 90) * Math.PI) / 180;
-      const psi = curHeading;
-      const bendStartPt = { ...curPt };
-
-      if (R <= 0 || bend.arcLen <= 0) {
-        if (bend.type === 'INNER_CORNER') {
-          curHeading = psi - totalTurn;
-        } else {
-          curHeading = psi + totalTurn;
-        }
-        curS = bend.sStart;
-        allPathPoints.push({ ...curPt });
-      } else {
-        const sStart = curS;
-        const sEnd = curS + bend.arcLen;
-
-        if (bend.type === 'INNER_CORNER') {
-          const cX = bendStartPt.x + Math.sin(psi) * R;
-          const cZ = bendStartPt.z + Math.cos(psi) * R;
-          const centerPt = { x: cX, y: 0, z: cZ };
-          const endPhi = psi + Math.PI / 2 - totalTurn;
-          const bendEndPt = {
-            x: cX + Math.cos(endPhi) * R,
-            y: 0,
-            z: cZ - Math.sin(endPhi) * R,
-          };
-          const endHeading = psi - totalTurn;
-
-          pathSections.push({
-            sStart,
-            sEnd,
-            isBend: true,
-            bend,
-            startPoint: bendStartPt,
-            endPoint: bendEndPt,
-            startHeading: psi,
-            endHeading,
-            centerPoint: centerPt,
-            totalTurn,
-            getPoint: (s: number, y: number, depthOffset = 0) => {
-              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
-              const alpha = u * totalTurn;
-              const phi = psi + Math.PI / 2 - alpha;
-              const effR = Math.max(5, R + depthOffset);
-              return {
-                x: cX + Math.cos(phi) * effR,
-                y,
-                z: cZ - Math.sin(phi) * effR,
-              };
-            },
-          });
-
-          curPt = { ...bendEndPt };
-          curHeading = endHeading;
-        } else {
-          const cX = bendStartPt.x - Math.sin(psi) * R;
-          const cZ = bendStartPt.z - Math.cos(psi) * R;
-          const centerPt = { x: cX, y: 0, z: cZ };
-          const endPhi = psi - Math.PI / 2 + totalTurn;
-          const bendEndPt = {
-            x: cX + Math.cos(endPhi) * R,
-            y: 0,
-            z: cZ - Math.sin(endPhi) * R,
-          };
-          const endHeading = psi + totalTurn;
-
-          pathSections.push({
-            sStart,
-            sEnd,
-            isBend: true,
-            bend,
-            startPoint: bendStartPt,
-            endPoint: bendEndPt,
-            startHeading: psi,
-            endHeading,
-            centerPoint: centerPt,
-            totalTurn,
-            getPoint: (s: number, y: number, depthOffset = 0) => {
-              const u = Math.max(0, Math.min(1, (s - sStart) / bend.arcLen));
-              const alpha = u * totalTurn;
-              const phi = psi - Math.PI / 2 + alpha;
-              const effR = Math.max(5, R - depthOffset);
-              return {
-                x: cX + Math.cos(phi) * effR,
-                y,
-                z: cZ - Math.sin(phi) * effR,
-              };
-            },
-          });
-
-          curPt = { ...bendEndPt };
-          curHeading = endHeading;
-        }
-
-        curS = sEnd;
-        allPathPoints.push({ ...curPt });
-      }
-    });
-
-    if (curS < wallW) {
-      const straightLen = wallW - curS;
-      const straightStartPt = { ...curPt };
-      const straightHeading = curHeading;
-      const sStart = curS;
-      const sEnd = wallW;
-      const straightEndPt = {
-        x: straightStartPt.x + Math.cos(straightHeading) * straightLen,
-        y: 0,
-        z: straightStartPt.z - Math.sin(straightHeading) * straightLen,
-      };
-
-      pathSections.push({
-        sStart,
-        sEnd,
-        isBend: false,
-        startPoint: straightStartPt,
-        endPoint: straightEndPt,
-        startHeading: straightHeading,
-        endHeading: straightHeading,
-        getPoint: (s: number, y: number, depthOffset = 0) => {
-          const dist = Math.max(0, Math.min(straightLen, s - sStart));
-          const normX = -Math.sin(straightHeading) * depthOffset;
-          const normZ = -Math.cos(straightHeading) * depthOffset;
-          return {
-            x: straightStartPt.x + Math.cos(straightHeading) * dist + normX,
-            y,
-            z: straightStartPt.z - Math.sin(straightHeading) * dist + normZ,
-          };
-        },
-      });
-
-      curPt = { ...straightEndPt };
-      allPathPoints.push({ ...curPt });
-    }
-
-    const getPointAtS = (s: number, y: number, depthOffset = 0): Point3D => {
-      const clampedS = Math.max(0, Math.min(wallW, s));
-      const section = pathSections.find((sec) => clampedS >= sec.sStart && clampedS <= sec.sEnd) || pathSections[pathSections.length - 1];
-      if (!section) return { x: 0, y, z: 0 };
-      return section.getPoint(clampedS, y, depthOffset);
-    };
+    const activeBends = resolvePathBends(wall, layout.panels);
+    const { pathSections, allPathPoints, getPointAtS } = buildWallPath(wall, activeBends);
 
     // Динамический расчет масштаба и центрирования
     const minX = Math.min(...allPathPoints.map((p) => p.x), 0) - 600;
@@ -2054,7 +1814,7 @@ export class PdfExportService {
 
         let intervals: Interval1D[] = [{ start: 0, end: wallH }];
         wall.openings.forEach((op) => {
-          if (op.isCutout !== false && (op.type === 'WINDOW' || op.type === 'DOOR') && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
+          if (op.isCutout !== false && (op.type === 'WINDOW' || isDoorOrPortal(op)) && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
             intervals = subtractInterval(intervals, op.y, op.y + op.height);
           }
         });
@@ -2381,7 +2141,7 @@ export class PdfExportService {
     // 6. Проемы (Двери, Окна, ТВ, Ниши)
     wall.openings.forEach((op) => {
       // Облицовка портала рисуется общим drawOpeningSlopes ниже, заполнение не требуется.
-      if (op.type === 'DOOR' && op.isPortal) return;
+      if (isPortalOpening(op)) return;
       const opDepth = op.depth || 150;
 
       if (op.type === 'DOOR') {

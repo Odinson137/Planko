@@ -41,16 +41,40 @@ test('draft opening can be moved and removed without altering the source panels'
   assert.equal(useProjectStore.getState().project.selectedOpeningId, null);
 });
 
-test('applying a door twice does not subtract the opening twice', () => {
+test('doors and portals are added and edited as separate objects', () => {
+  const store = useProjectStore.getState();
   const wallId = currentWall().id;
-  useProjectStore.getState().addOpening(wallId, 'DOOR');
-  const id = currentWall().openings[0].id;
-  useProjectStore.getState().applyOpening(wallId, id);
-  const once = structuredClone(currentWall());
-  close(once.panels!.reduce((sum, p) => sum + PolygonSlicingEngine.calculatePolygonArea(p.points), 0), 3110000);
-  useProjectStore.getState().applyOpening(wallId, id);
-  assert.deepEqual(currentWall(), once);
+  store.addOpening(wallId, 'DOOR');
+  const door = structuredClone(currentWall().openings[0]);
+  store.addOpening(wallId, 'PORTAL');
+  const portal = currentWall().openings[1];
+  assert.notEqual(portal.id, door.id);
+  assert.equal(portal.type, 'PORTAL');
+  assert.equal(portal.name, 'Портал');
+  assert.equal(useProjectStore.getState().project.selectedOpeningId, portal.id);
+  store.updateOpening(wallId, { id: portal.id, width: 1200, depth: 250 });
+  store.setOpeningFramingPreset(wallId, portal.id, 'LED_10');
+  const updatedPortal = currentWall().openings[1];
+  assert.equal(updatedPortal.width, 1200);
+  assert.equal(updatedPortal.depth, 250);
+  assert.equal(updatedPortal.framing!.top!.isLED, true);
+  assert.equal(updatedPortal.framing!.bottom!.isLED, false);
+  assert.equal(updatedPortal.framing!.bottom!.width, 0);
+  assert.deepEqual(currentWall().openings[0], door);
 });
+
+for (const type of ['DOOR', 'PORTAL'] as const) {
+  test(`applying a ${type} twice does not subtract the opening twice`, () => {
+    const wallId = currentWall().id;
+    useProjectStore.getState().addOpening(wallId, type);
+    const id = currentWall().openings[0].id;
+    useProjectStore.getState().applyOpening(wallId, id);
+    const once = structuredClone(currentWall());
+    close(once.panels!.reduce((sum, p) => sum + PolygonSlicingEngine.calculatePolygonArea(p.points), 0), 3110000);
+    useProjectStore.getState().applyOpening(wallId, id);
+    assert.deepEqual(currentWall(), once);
+  });
+}
 
 for (const applied of [false, true]) {
   test(`switching a ${applied ? 'built-in' : 'draft'} door to a portal preserves its cutout and cladding`, () => {

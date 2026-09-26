@@ -27,14 +27,14 @@ test('TV overlay leaves cladding intact and adds neither slopes nor cutout area'
   assert.deepEqual(layout.slopes, []);
 });
 
-test('door has three slopes, window has four; dimensions and stock orientation are preserved', () => {
-  for (const type of ['DOOR', 'WINDOW'] as const) {
+test('doors and portals have three slopes, windows have four; dimensions and stock orientation are preserved', () => {
+  for (const type of ['DOOR', 'PORTAL', 'WINDOW'] as const) {
     const wall = wallWithPanel();
     const opening = createDefaultOpening(type, wall.width, wall.height);
     wall.openings = [opening];
     const layout = LayoutEngine.calculateWallLayout(wall, sheet, [sheet], 2);
     const slopes = layout.slopes!;
-    assert.equal(slopes.length, type === 'DOOR' ? 3 : 4);
+    assert.equal(slopes.length, type === 'WINDOW' ? 4 : 3);
     assert.equal(slopes.some(p => p.side === 'BOTTOM'), type === 'WINDOW');
     for (const p of slopes) {
       assert.equal(p.width, p.side === 'LEFT' || p.side === 'RIGHT' ? opening.height : opening.width);

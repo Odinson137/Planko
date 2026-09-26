@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS openings (
     id TEXT PRIMARY KEY,
     wall_id TEXT NOT NULL,
     name TEXT NOT NULL,
-    type TEXT CHECK(type IN ('DOOR', 'WINDOW', 'TV_ZONE', 'NICHE')) NOT NULL,
+    type TEXT CHECK(type IN ('DOOR', 'PORTAL', 'WINDOW', 'TV_ZONE', 'NICHE')) NOT NULL,
     pos_x REAL NOT NULL,
     pos_y REAL NOT NULL,
     width REAL NOT NULL,

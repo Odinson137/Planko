@@ -154,6 +154,8 @@ export interface WallZone {
 
 export interface Wall {
   id: string;
+  /** Origin and heading (radians) of the unfolded surface in the horizontal plan. */
+  planPose?: { x: number; z: number; heading: number };
   name: string;
   roomName?: string;               // Название помещения (например, 'Гостиная', 'Спальня', 'Кухня')
   width: number;                   // ширина стены в мм

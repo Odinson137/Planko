@@ -11,7 +11,7 @@ import { useElementSize } from '@mantine/hooks';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
-import { Opening, ensureOpeningSlopes, ensureOpeningFraming } from '../../../core/models/Opening';
+import { Opening, ensureOpeningSlopes, ensureOpeningFraming, isDoorOrPortal, isPortalOpening } from '../../../core/models/Opening';
 import { TextureRegistry } from '../../../core/textures/TextureRegistry';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
@@ -31,7 +31,6 @@ export const CadCanvas: React.FC = () => {
     selectedPieceIds,
     selectedJointId,
     selectedJointIds,
-    selectedWallBendId,
     selectedSubPieceId,
     selectedPanelEdge,
     setSelectedPanelEdge,
@@ -39,8 +38,6 @@ export const CadCanvas: React.FC = () => {
     selectPanel,
     toggleCellSelection,
     selectJoint,
-    selectWallBend,
-    updateWallBend,
     updateOpening,
   } = useProjectStore();
   const {
@@ -126,6 +123,7 @@ export const CadCanvas: React.FC = () => {
   const getOpeningColor = (type: Opening['type']) => {
     switch (type) {
       case 'DOOR':
+      case 'PORTAL':
         return '#339af0';
       case 'WINDOW':
         return '#20c997';
@@ -644,7 +642,7 @@ export const CadCanvas: React.FC = () => {
               const opX = op.x;
               const opY = wallH - (op.y + op.height);
               const isSelected = op.id === project.selectedOpeningId;
-              const isPortal = op.type === 'DOOR' && op.isPortal;
+              const isPortal = isPortalOpening(op);
               const openingStroke = isSelected ? '#339AF0' : (!isApplied ? '#FF922B' : getOpeningColor(op.type));
               const openingStrokeWidth = isSelected ? 4 / zoom : (!isApplied ? 2.5 / zoom : (op.isCutout !== false ? 2 / zoom : 3 / zoom));
 
@@ -673,8 +671,8 @@ export const CadCanvas: React.FC = () => {
                     let rawY = Math.round(wallH - e.target.y() - op.height);
 
                     // 1. Умная привязка по высоте (Y):
-                    if (op.type === 'DOOR' || Math.abs(rawY) <= 50) {
-                      rawY = 0; // Дверь примагничивается к полу
+                    if (isDoorOrPortal(op) || Math.abs(rawY) <= 50) {
+                      rawY = 0; // Дверь и портал примагничиваются к полу
                     } else if (Math.abs(rawY - (wallH - op.height)) <= 30) {
                       rawY = wallH - op.height; // Примагничивание к верхнему краю стены
                     } else {
@@ -976,50 +974,24 @@ export const CadCanvas: React.FC = () => {
                 );
               })}
 
-            {/* ИНТЕРАКТИВНЫЕ МАРКЕРЫ ЗОН ИЗГИБА СТЕНЫ (WallBend) */}
+            {/* ОТМЕТКИ УГЛОВ НА РАЗВЁРТКЕ: геометрия редактируется в режиме «Стены» */}
             {selectedWall.bends?.map((bend) => {
               const arcLen = Math.round((Math.PI * bend.radius * (bend.angleDeg || 90)) / 180);
-              const isBendSelected = selectedWallBendId === bend.id;
-              const isPanelsMode = (editMode === 'PANELS' || editMode === 'TEXTURES');
 
               return (
                 <Group
                   key={bend.id}
                   x={bend.x}
                   y={0}
-                  draggable={isPanelsMode}
-                  listening={isPanelsMode}
-                  dragBoundFunc={(pos) => {
-                    const stageX = pos.x;
-                    const minX = panX;
-                    const maxX = panX + (wallW - arcLen) * zoom;
-                    const clampedStageX = Math.max(minX, Math.min(stageX, maxX));
-                    return { x: clampedStageX, y: panY };
-                  }}
-                  onDragStart={(e) => {
-                    e.cancelBubble = true;
-                    selectWallBend(bend.id);
-                  }}
-                  onDragEnd={(e) => {
-                    e.cancelBubble = true;
-                    const currentStageX = e.target.x();
-                    const wallX = Math.max(0, Math.min(wallW - arcLen, Math.round((currentStageX - panX) / zoom)));
-                    const roundedX = Math.round(wallX / 10) * 10;
-                    e.target.position({ x: roundedX, y: 0 });
-                    updateWallBend(selectedWall.id, bend.id, { x: roundedX });
-                  }}
-                  onClick={(e) => {
-                    e.cancelBubble = true;
-                    selectWallBend(bend.id);
-                  }}
+                  listening={false}
                 >
                   {bend.radius <= 0 || arcLen <= 0 ? (
                     <>
                       {/* Острый угол (R = 0): вертикальная осевая линия перегиба стены */}
                       <Line
                         points={[0, 0, 0, wallH]}
-                        stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
-                        strokeWidth={isBendSelected ? 3 / zoom : 1.8 / zoom}
+                        stroke={'#4DABF7'}
+                        strokeWidth={1.8 / zoom}
                         dash={[8, 5]}
                       />
                       {/* Верхняя плашка с названием угла */}
@@ -1028,7 +1000,7 @@ export const CadCanvas: React.FC = () => {
                           width={160}
                           height={24}
                           fill={t.canvasBadgeBg}
-                          stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                          stroke={'#4DABF7'}
                           strokeWidth={1.5}
                           cornerRadius={4}
                         />
@@ -1049,9 +1021,9 @@ export const CadCanvas: React.FC = () => {
                       <Rect
                         width={arcLen}
                         height={wallH}
-                        fill={isBendSelected ? 'rgba(51, 154, 240, 0.16)' : 'rgba(77, 171, 247, 0.07)'}
-                        stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
-                        strokeWidth={isBendSelected ? 2.5 / zoom : 1.2 / zoom}
+                        fill={'rgba(77, 171, 247, 0.07)'}
+                        stroke={'#4DABF7'}
+                        strokeWidth={1.2 / zoom}
                         dash={[8, 6]}
                       />
 
@@ -1061,7 +1033,7 @@ export const CadCanvas: React.FC = () => {
                           width={Math.min(arcLen - 8, 170)}
                           height={24}
                           fill={t.canvasBadgeBg}
-                          stroke={isBendSelected ? '#339AF0' : '#4DABF7'}
+                          stroke={'#4DABF7'}
                           strokeWidth={1.5}
                           cornerRadius={4}
                         />
@@ -1092,7 +1064,7 @@ export const CadCanvas: React.FC = () => {
               const framing = ensureOpeningFraming(op);
 
               const sides: ('left' | 'top' | 'right' | 'bottom')[] =
-                op.type === 'DOOR' ? ['left', 'top', 'right'] : ['left', 'top', 'right', 'bottom'];
+                isDoorOrPortal(op) ? ['left', 'top', 'right'] : ['left', 'top', 'right', 'bottom'];
 
               return (
                 <Group key={`op-framing-overlay-${op.id}`} name="op-framing-overlay" listening={true}>

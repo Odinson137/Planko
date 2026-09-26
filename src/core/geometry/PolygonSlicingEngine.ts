@@ -3,6 +3,7 @@ import type { TextureMapping } from '../textures/TextureMapping';
 import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
+import { isDoorOrPortal } from '../models/Opening';
 import { DEFAULT_JOINT_GAP_MM } from '../models/Profile';
 import { resizeJointGap } from './JointGapGeometry';
 import { MATERIAL_NONE_ID, Material } from '../models/Material';
@@ -1867,7 +1868,7 @@ export class PolygonSlicingEngine {
         });
       }
 
-      if (op.type !== 'DOOR' && (dB > 0 || op.framing?.bottom?.isLED || op.framing?.bottom?.profileArticle)) {
+      if (!isDoorOrPortal(op) && (dB > 0 || op.framing?.bottom?.isLED || op.framing?.bottom?.profileArticle)) {
         openingFramingJoints.push({
           id: `joint-op-${op.id}-bottom`,
           p1: { x: op.x - dL, y: op.y - dB / 2 },
@@ -1955,7 +1956,7 @@ export class PolygonSlicingEngine {
       });
     }
 
-    if (opBottom > minY + 0.5 && opening.type !== 'DOOR') {
+    if (opBottom > minY + 0.5 && !isDoorOrPortal(opening)) {
       pieces.push({
         ...panel,
         id: `${panel.id}-split-bottom-${Date.now()}`,

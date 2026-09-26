@@ -12,6 +12,7 @@ import {
 } from '@mantine/core';
 import {
   DoorOpen,
+  RectangleVertical,
   AppWindow,
   Tv,
   Square,
@@ -32,9 +33,11 @@ import {
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
+import { useWallEditorStore } from '../../../application/stores/useWallEditorStore';
 import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
 import { PdfExportService } from '../../../application/services/PdfExportService';
 import { useAppTheme } from '../../theme/useAppTheme';
+import type { OpeningType } from '../../../core/models/Opening';
 
 export const TopToolbar: React.FC = () => {
   const t = useAppTheme();
@@ -57,10 +60,10 @@ export const TopToolbar: React.FC = () => {
     lastSavedAt,
     saveCurrentProject,
     addOpening,
-    addWallBend,
     selectJoint,
     selectPanel,
     selectOpening,
+    selectWallBend,
   } = useProjectStore();
 
   const [catalogOpened, setCatalogOpened] = useState(false);
@@ -125,15 +128,9 @@ export const TopToolbar: React.FC = () => {
     }
   };
 
-  const handleAddOpening = (type: 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE') => {
+  const handleAddOpening = (type: OpeningType) => {
     if (selectedWallId) {
       addOpening(selectedWallId, type);
-    }
-  };
-
-  const handleAddRadius = (type: 'OUTER_CORNER' | 'INNER_CORNER', radius: number, angleDeg?: number) => {
-    if (selectedWallId) {
-      addWallBend(selectedWallId, type, undefined, radius, angleDeg);
     }
   };
 
@@ -302,6 +299,12 @@ export const TopToolbar: React.FC = () => {
                 value={editMode}
                 onChange={(val: any) => {
                   setEditMode(val);
+                  if (val === 'WALLS') {
+                    selectJoint(null);
+                    selectPanel(null, null, null);
+                    selectOpening(null);
+                    selectWallBend(null);
+                  }
                   if (val === 'PANELS' || val === 'TEXTURES') {
                     selectJoint(null);
                   } else if (val === 'JOINTS') {
@@ -310,6 +313,7 @@ export const TopToolbar: React.FC = () => {
                   }
                 }}
                 data={[
+                  { label: 'Стены', value: 'WALLS' },
                   { label: '📄 Панели', value: 'PANELS' },
                   { label: 'Стыки', value: 'JOINTS' },
                   { label: 'Текстуры', value: 'TEXTURES' },
@@ -331,36 +335,8 @@ export const TopToolbar: React.FC = () => {
           </Button>
         </Group>
 
-        {/* Инструменты добавления радиусов и проемов */}
+        {/* Инструменты добавления проемов */}
         <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
-
-          {/* Меню добавления углов и поворотов */}
-          <Menu shadow="md" width={200} position="bottom-start">
-            <Menu.Target>
-              <Button
-                size="xs"
-                variant="light"
-                color="cyan"
-                leftSection={<Text size="xs" fw={700} style={{ fontFamily: 'JetBrains Mono' }}>⌒</Text>}
-                disabled={!selectedWallId}
-              >
-                Угол стены
-              </Button>
-            </Menu.Target>
-
-            <Menu.Dropdown>
-              <Menu.Label>Углы и повороты</Menu.Label>
-              <Menu.Item onClick={() => handleAddRadius('OUTER_CORNER', 0, 90)}>
-                ⌒ Внешний угол
-              </Menu.Item>
-              <Menu.Item onClick={() => handleAddRadius('INNER_CORNER', 0, 90)}>
-                ╭ Внутренний угол
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-
-          <Divider orientation="vertical" />
-
           {/* Меню добавления проемов и зон */}
           <Menu shadow="md" width={200} position="bottom-start">
             <Menu.Target>
@@ -368,7 +344,7 @@ export const TopToolbar: React.FC = () => {
                 size="xs"
                 variant="default"
                 leftSection={<DoorOpen size={14} />}
-                disabled={!selectedWallId}
+                disabled={!selectedWallId || (editMode === 'WALLS' && viewMode === '2D')}
               >
                 Проём / Зона
               </Button>
@@ -380,7 +356,13 @@ export const TopToolbar: React.FC = () => {
                 leftSection={<DoorOpen size={15} />}
                 onClick={() => handleAddOpening('DOOR')}
               >
-                Дверь / Портал
+                Дверь
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<RectangleVertical size={15} />}
+                onClick={() => handleAddOpening('PORTAL')}
+              >
+                Портал
               </Menu.Item>
               <Menu.Item
                 leftSection={<AppWindow size={15} />}
@@ -423,7 +405,10 @@ export const TopToolbar: React.FC = () => {
           <Divider orientation="vertical" />
 
           <Tooltip label="Центрировать вид" position="bottom">
-            <ActionIcon variant="subtle" color="gray" onClick={resetView}>
+            <ActionIcon variant="subtle" color="gray" onClick={() => {
+              if (editMode === 'WALLS' && viewMode === '2D') useWallEditorStore.getState().setCamera(null);
+              else resetView();
+            }}>
               <Maximize2 size={16} />
             </ActionIcon>
           </Tooltip>

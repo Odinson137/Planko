@@ -1,5 +1,5 @@
 import type { TextureMapping } from '../textures/TextureMapping';
-export type OpeningType = 'DOOR' | 'WINDOW' | 'TV_ZONE' | 'NICHE';
+export type OpeningType = 'DOOR' | 'PORTAL' | 'WINDOW' | 'TV_ZONE' | 'NICHE';
 
 export type SlopeJointProfileType = 'NONE' | 'CORNER' | 'LED_10' | 'JOINT_3' | 'JOINT_7' | 'JOINT_8';
 
@@ -65,7 +65,7 @@ export interface Opening {
   id: string;
   name: string;
   type: OpeningType;
-  isPortal?: boolean; // Режим двери без полотна; отсутствие поля сохраняет обычную дверь.
+  isPortal?: boolean; // Совместимость со старыми порталами, сохранёнными с типом DOOR.
   x: number;          // расстояние от левого края стены (мм)
   y: number;          // расстояние от пола (мм)
   width: number;      // ширина проема/декора (мм)
@@ -78,9 +78,18 @@ export interface Opening {
   framing?: OpeningFramingConfig; // Примыкание/стыки по контуру проема
 }
 
+export function isPortalOpening(op: Opening): boolean {
+  return op.type === 'PORTAL' || (op.type === 'DOOR' && op.isPortal === true);
+}
+
+export function isDoorOrPortal(op: Opening): boolean {
+  return op.type === 'DOOR' || op.type === 'PORTAL';
+}
+
 export function getOpeningTypeLabel(op: Opening): string {
   switch (op.type) {
     case 'DOOR': return op.isPortal ? 'Портал' : 'Дверь';
+    case 'PORTAL': return 'Портал';
     case 'WINDOW': return 'Окно';
     case 'TV_ZONE': return 'ТВ-зона';
     case 'NICHE': return 'Ниша';
@@ -88,9 +97,9 @@ export function getOpeningTypeLabel(op: Opening): string {
 }
 
 export function ensureOpeningSlopes(op: Opening): SlopeConfig {
-  const defaultOpeningDepth = op.depth ?? (op.type === 'DOOR' ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 0);
+  const defaultOpeningDepth = op.depth ?? (isDoorOrPortal(op) ? 150 : op.type === 'WINDOW' ? 200 : op.type === 'NICHE' ? 150 : 0);
   const baseDepth = op.slopes?.depth ?? op.slopeDepth ?? defaultOpeningDepth;
-  const isDoor = op.type === 'DOOR';
+  const isDoorway = isDoorOrPortal(op);
 
   if (!op.slopes) {
     return {
@@ -103,7 +112,7 @@ export function ensureOpeningSlopes(op: Opening): SlopeConfig {
       jointProfileType: 'NONE',
       showUnfold2D: false,
       top: { enabled: true, depth: baseDepth, materialId: null },
-      bottom: { enabled: !isDoor, depth: baseDepth, materialId: null },
+      bottom: { enabled: !isDoorway, depth: baseDepth, materialId: null },
       left: { enabled: true, depth: baseDepth, materialId: null },
       right: { enabled: true, depth: baseDepth, materialId: null },
     };
@@ -127,7 +136,7 @@ export function ensureOpeningSlopes(op: Opening): SlopeConfig {
     },
     bottom: {
       textureMapping: op.slopes.bottom?.textureMapping,
-      enabled: op.slopes.bottom?.enabled ?? !isDoor,
+      enabled: op.slopes.bottom?.enabled ?? !isDoorway,
       depth: op.slopes.bottom?.depth ?? baseDepth,
       materialId: op.slopes.bottom?.materialId ?? null,
     },
@@ -150,10 +159,11 @@ export function createDefaultOpening(type: OpeningType, wallWidth: number, _wall
   const id = `op-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   switch (type) {
     case 'DOOR':
+    case 'PORTAL':
       return {
         id,
-        name: 'Дверь',
-        type: 'DOOR',
+        name: type === 'PORTAL' ? 'Портал' : 'Дверь',
+        type,
         x: Math.max(100, Math.round(wallWidth / 2 - 450)),
         y: 0,
         width: 900,

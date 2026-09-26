@@ -3,7 +3,7 @@ import { TextureMapping, slopeTexturePiece, textureMappingError } from '../../co
 import { create } from 'zustand';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
-import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming, getOpeningTypeLabel } from '../../core/models/Opening';
+import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming, getOpeningTypeLabel, isDoorOrPortal, isPortalOpening } from '../../core/models/Opening';
 import { ProfileType, findProfileByArticle, DEFAULT_PROFILES, DEFAULT_JOINT_GAP_MM } from '../../core/models/Profile';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
@@ -5557,8 +5557,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                     if (updated.name === undefined && op.name === getOpeningTypeLabel(op)) {
                       next.name = getOpeningTypeLabel(next);
                     }
-                    if (next.isPortal) next.isCutout = true;
                   }
+                  if (isPortalOpening(next)) next.isCutout = true;
                   return next;
                 }),
               }
@@ -5742,12 +5742,12 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         edgeConf = { width: 10, isLED: true, profileArticle, profileColor };
       }
 
-      const isDoor = opening.type === 'DOOR';
+      const isDoorway = isDoorOrPortal(opening);
       const updatedFraming: OpeningFramingConfig = {
         left: { ...edgeConf },
         right: { ...edgeConf },
         top: { ...edgeConf },
-        bottom: isDoor ? { width: 0, isLED: false } : { ...edgeConf },
+        bottom: isDoorway ? { width: 0, isLED: false } : { ...edgeConf },
       };
 
       const updatedOpenings = wall.openings.map((op) =>
