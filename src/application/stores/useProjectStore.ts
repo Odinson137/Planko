@@ -1,6 +1,7 @@
 import { ensureOpeningSlopes } from '../../core/models/Opening';
 import { TextureMapping, slopeTexturePiece, textureMappingError } from '../../core/textures/TextureMapping';
 import { create } from 'zustand';
+import { nextWallViewName, normalizeWallCamera, savedWallViews, type WallCamera } from '../../core/models/WallView';
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming, getOpeningTypeLabel, isDoorOrPortal, isPortalOpening } from '../../core/models/Opening';
@@ -107,6 +108,9 @@ interface ProjectState {
   updateWallName: (wallId: string, name: string) => void;
   updateWallRoom: (wallId: string, roomName: string) => void;
   updateWall: (wallId: string, updates: Partial<Wall>) => void;
+  saveWallView: (wallId: string, camera: WallCamera) => string | null;
+  renameWallView: (wallId: string, viewId: string, name: string) => void;
+  removeWallView: (wallId: string, viewId: string) => void;
   updateWallDimensions: (wallId: string, width: number, height: number) => void;
   setWallMaterial: (
     wallId: string,
@@ -2184,6 +2188,33 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       },
     })),
 
+  saveWallView: (wallId, camera) => {
+    const wall = get().project.walls.find(w => w.id === wallId);
+    const normalized = normalizeWallCamera(camera);
+    if (!wall || !normalized) return null;
+    const views = savedWallViews(wall);
+    const id = crypto.randomUUID();
+    get().updateWall(wallId, { savedViews: [...views, { id, name: nextWallViewName(views), ...normalized }] });
+    return id;
+  },
+
+  renameWallView: (wallId, viewId, name) => {
+    const wall = get().project.walls.find(w => w.id === wallId);
+    const trimmed = name.trim().slice(0, 80);
+    if (!wall || !trimmed) return;
+    const views = savedWallViews(wall);
+    if (!views.some(view => view.id === viewId && view.name !== trimmed)) return;
+    get().updateWall(wallId, { savedViews: views.map(view => view.id === viewId ? { ...view, name: trimmed } : view) });
+  },
+
+  removeWallView: (wallId, viewId) => {
+    const wall = get().project.walls.find(w => w.id === wallId);
+    if (!wall) return;
+    const views = savedWallViews(wall);
+    if (!views.some(view => view.id === viewId)) return;
+    get().updateWall(wallId, { savedViews: views.filter(view => view.id !== viewId) });
+  },
+
   updateWallDimensions: (wallId: string, width: number, height: number) =>
     set((state) => ({
       isDirty: true,
@@ -3430,68 +3461,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     }),
 
   clearCellMaterial: (wallId: string, columnIndex: number, segmentIndex: number) =>
-    set((state) => ({
-      project: {
-        ...state.project,
-        walls: state.project.walls.map((w) => {
-          if (w.id !== wallId) return w;
-          const currentCustom = w.customPanels[columnIndex] || { columnIndex, segments: [] };
-
-          if (state.selectedSubPieceId) {
-            const subId = state.selectedSubPieceId;
-            const updateSubs = (subs?: PolygonSubPiece[]) =>
-              subs?.map((s) =>
-                s.id === subId ? { ...s, materialId: MATERIAL_NONE_ID, isVoid: true } : s
-              );
-
-            const nextCustom = { ...currentCustom };
-            if (currentCustom.segments && currentCustom.segments[segmentIndex]) {
-              const nextSegs = [...currentCustom.segments];
-              nextSegs[segmentIndex] = {
-                ...nextSegs[segmentIndex],
-                subPieces: updateSubs(nextSegs[segmentIndex].subPieces),
-              };
-              nextCustom.segments = nextSegs;
-            } else {
-              nextCustom.subPieces = updateSubs(currentCustom.subPieces);
-            }
-
-            return {
-              ...w,
-              customPanels: {
-                ...w.customPanels,
-                [columnIndex]: nextCustom,
-              },
-            };
-          }
-
-          const segments = [...(currentCustom.segments || [])];
-
-          while (segments.length <= segmentIndex) {
-            segments.push({
-              id: `seg-${Date.now()}-${segments.length}`,
-              height: undefined,
-            });
-          }
-
-          segments[segmentIndex] = {
-            ...segments[segmentIndex],
-            customMaterialId: MATERIAL_NONE_ID,
-          };
-
-          return {
-            ...w,
-            customPanels: {
-              ...w.customPanels,
-              [columnIndex]: {
-                ...currentCustom,
-                segments,
-              },
-            },
-          };
-        }),
-      },
-    })),
+    get().setCellProperties(wallId, columnIndex, segmentIndex, { materialId: MATERIAL_NONE_ID }),
 
   updatePanelConfig: (wallId: string, columnIndex: number, config: Partial<CustomPanelConfig>) =>
     set((state) => {

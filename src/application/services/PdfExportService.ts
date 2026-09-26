@@ -1,10 +1,9 @@
-import { buildWallPath, resolvePathBends } from '../../core/geometry/WallPath';
-import { drawOpeningSlopes } from './SlopeDrawing';
 import { slopeJointHasProfile } from '../../core/geometry/SlopeJointGeometry';
-import { getPieceTexture } from '../../core/textures/PieceTextures';
-import { drawTextureFace } from '../../core/textures/PhotoTextures';
 import { slopeTexturePiece } from '../../core/textures/TextureMapping';
 import { jsPDF } from 'jspdf';
+import { preloadPhotoTextures } from '../../core/textures/PhotoTextures';
+import { DEFAULT_WALL_CAMERA, planWallViewPages, type WallView } from '../../core/models/WallView';
+import { prepareWall3DScene, renderWall3DScene, type Wall3DScene } from './Wall3DScene';
 import { Project } from '../../core/models/Project';
 import { getOpeningTypeLabel, isDoorOrPortal, isPortalOpening } from '../../core/models/Opening';
 import { Wall } from '../../core/models/Wall';
@@ -156,31 +155,41 @@ export class PdfExportService {
    * 2. Экспорт 3D аксонометрического альбома каждой стены (Чистая белая тема)
    */
   public static async exportAxonometric3DPdf(project: Project): Promise<void> {
+    const pdf = await this.createAxonometric3DPdf(project);
+    pdf.save(`${project.name || 'Проект'}_3D_Аксонометрия.pdf`);
+  }
+
+  public static async createAxonometric3DPdf(project: Project): Promise<jsPDF> {
+    const pages = planWallViewPages(project.walls);
+    if (!pages.length) throw new Error('Добавьте стену для экспорта 3D.');
+    await preloadPhotoTextures();
     const pdf = new jsPDF({
       orientation: 'landscape',
       unit: 'mm',
       format: 'a4',
     });
 
-    for (let wIdx = 0; wIdx < project.walls.length; wIdx++) {
-      const wall = project.walls[wIdx];
-      if (wIdx > 0) {
+    let scene: Wall3DScene | undefined;
+    for (let index = 0; index < pages.length; index++) {
+      const { wall, wallNumber, view } = pages[index];
+      if (index > 0) {
         pdf.addPage('a4', 'landscape');
       }
+      if (scene?.wall !== wall) scene = prepareWall3DScene(wall, project.materials, wallNumber);
 
       const canvas = document.createElement('canvas');
       canvas.width = 2970;
       canvas.height = 2100;
       const ctx = canvas.getContext('2d')!;
 
-      this.renderAxonometric3DPage(ctx, canvas.width, canvas.height, project, wall, wIdx + 1, project.walls.length);
+      this.renderAxonometric3DPage(ctx, canvas.width, canvas.height, project, wall, index + 1, pages.length, view, scene);
 
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
       pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210);
+      // Let the interface repaint between pages in a large collection.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
-
-    const filename = `${project.name || 'Проект'}_3D_Аксонометрия.pdf`;
-    pdf.save(filename);
+    return pdf;
   }
 
   /**
@@ -1516,7 +1525,9 @@ export class PdfExportService {
     project: Project,
     wall: Wall,
     pageNumber: number,
-    totalPages: number
+    totalPages: number,
+    view: WallView = { id: 'default', name: 'Стандартный ракурс', ...DEFAULT_WALL_CAMERA },
+    preparedScene?: Wall3DScene
   ): void {
     const marginX = 90;
 
@@ -1530,18 +1541,19 @@ export class PdfExportService {
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 44px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(`3D Аксонометрия • ${wall.name}`, marginX, 95);
+    ctx.fillText(`3D Аксонометрия • ${wall.name}`, marginX, 85, w - 2 * marginX);
 
     ctx.font = '24px "Segoe UI", Arial, sans-serif';
     ctx.fillStyle = '#475569';
-    ctx.fillText(`Проект: ${project.name || 'Без названия'}   •   Размеры стены: ${wall.width} × ${wall.height} мм`, marginX, 140);
+    ctx.fillText(`Проект: ${project.name || 'Без названия'}   •   Размеры стены: ${wall.width} × ${wall.height} мм`, marginX, 127, w - 2 * marginX);
+    ctx.fillText(`${view.name}   •   Поворот: ${view.angleDeg}°   •   Наклон: ${view.elevationDeg}°`, marginX, 165, w - 2 * marginX);
     ctx.restore();
 
     // 2. Зона 3D сцены (Светлый чистый фон с тонкой рамкой)
     const sceneX = marginX;
-    const sceneY = 175;
+    const sceneY = 195;
     const sceneW = w - marginX * 2;
-    const sceneH = 1680;
+    const sceneH = 1660;
 
     ctx.save();
     ctx.fillStyle = '#f8fafc';
@@ -1558,14 +1570,13 @@ export class PdfExportService {
     ctx.beginPath();
     ctx.roundRect(sceneX, sceneY, sceneW, sceneH, 20);
     ctx.clip();
-    this.drawWall3DScene(ctx, wall, project, sceneX, sceneY, sceneW, sceneH);
+    const wallNumber = project.walls.findIndex(w => w.id === wall.id) + 1;
+    const scene = preparedScene ?? prepareWall3DScene(wall, project.materials, wallNumber);
+    renderWall3DScene(ctx, scene, view, { viewport: { x: sceneX, y: sceneY, width: sceneW, height: sceneH }, padding: 100 });
     ctx.restore();
 
     // 3. Нижний информационный блок
-    const wallIndex = project.walls.findIndex((w) => w.id === wall.id);
-    const wallNumber = wallIndex >= 0 ? wallIndex + 1 : 1;
-    const defMat = project.materials.find((m) => m.id === wall.zone.materialId) || project.materials[0];
-    const layout = LayoutEngine.calculateWallLayout(wall, defMat, project.materials, wallNumber);
+    const { layout } = scene;
 
     ctx.save();
     ctx.textAlign = 'left';
@@ -1581,770 +1592,6 @@ export class PdfExportService {
     ctx.fillText(`Лист ${pageNumber} из ${totalPages}`, w - marginX, 2040);
     ctx.fillText(`AllWall CAD 3D Visualization • ${new Date().toLocaleDateString('ru-RU')}`, w - marginX, 2005);
     ctx.restore();
-  }
-
-  private static adjustBrightness(hex: string, percent: number): string {
-    if (!hex || !hex.startsWith('#')) return hex || '#888';
-    let num = parseInt(hex.slice(1), 16);
-    let r = Math.min(255, Math.max(0, Math.round(((num >> 16) & 255) * percent)));
-    let g = Math.min(255, Math.max(0, Math.round(((num >> 8) & 255) * percent)));
-    let b = Math.min(255, Math.max(0, Math.round((num & 255) * percent)));
-    return `rgb(${r}, ${g}, ${b})`;
-  }
-
-  private static clipPolygonByXRange(points: Point2D[], xMin: number, xMax: number): Point2D[] {
-    if (!points || points.length < 3) return [];
-    let outputList = points;
-
-    const clipLeft = (pts: Point2D[]) => {
-      const res: Point2D[] = [];
-      for (let i = 0; i < pts.length; i++) {
-        const p1 = pts[i];
-        const p2 = pts[(i + 1) % pts.length];
-        const p1In = p1.x >= xMin - 0.001;
-        const p2In = p2.x >= xMin - 0.001;
-
-        if (p1In && p2In) {
-          res.push(p2);
-        } else if (p1In && !p2In) {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMin - p1.x) / (p2.x - p1.x) : 0;
-          res.push({ x: xMin, y: p1.y + t * (p2.y - p1.y) });
-        } else if (!p1In && p2In) {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMin - p1.x) / (p2.x - p1.x) : 0;
-          res.push({ x: xMin, y: p1.y + t * (p2.y - p1.y) });
-          res.push(p2);
-        }
-      }
-      return res;
-    };
-
-    const clipRight = (pts: Point2D[]) => {
-      const res: Point2D[] = [];
-      for (let i = 0; i < pts.length; i++) {
-        const p1 = pts[i];
-        const p2 = pts[(i + 1) % pts.length];
-        const p1In = p1.x <= xMax + 0.001;
-        const p2In = p2.x <= xMax + 0.001;
-
-        if (p1In && p2In) {
-          res.push(p2);
-        } else if (p1In && !p2In) {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMax - p1.x) / (p2.x - p1.x) : 0;
-          res.push({ x: xMax, y: p1.y + t * (p2.y - p1.y) });
-        } else if (!p1In && p2In) {
-          const t = Math.abs(p2.x - p1.x) > 0.0001 ? (xMax - p1.x) / (p2.x - p1.x) : 0;
-          res.push({ x: xMax, y: p1.y + t * (p2.y - p1.y) });
-          res.push(p2);
-        }
-      }
-      return res;
-    };
-
-    outputList = clipLeft(outputList);
-    outputList = clipRight(outputList);
-    return outputList;
-  }
-
-  /**
-   * Отрисовка фотореалистичной 3D-сцены стены (Светлая презентационная тема с полной поддержкой сгибов и углов)
-   */
-  private static drawWall3DScene(
-    ctx: CanvasRenderingContext2D,
-    wall: Wall,
-    project: Project,
-    boxX: number,
-    boxY: number,
-    boxW: number,
-    boxH: number
-  ): void {
-    const angleDeg = 34;
-    const elevationDeg = 26;
-    const radA = (angleDeg * Math.PI) / 180;
-    const radE = (elevationDeg * Math.PI) / 180;
-
-    interface Point3D {
-      x: number;
-      y: number;
-      z: number;
-    }
-
-    interface Interval1D {
-      start: number;
-      end: number;
-    }
-
-    const subtractInterval = (intervals: Interval1D[], cutStart: number, cutEnd: number): Interval1D[] => {
-      const result: Interval1D[] = [];
-      intervals.forEach((inv) => {
-        if (cutEnd <= inv.start || cutStart >= inv.end) {
-          result.push(inv);
-        } else {
-          if (cutStart > inv.start) result.push({ start: inv.start, end: cutStart });
-          if (cutEnd < inv.end) result.push({ start: cutEnd, end: inv.end });
-        }
-      });
-      return result;
-    };
-
-    const wallIndex = project.walls.findIndex((w) => w.id === wall.id);
-    const wallNumber = wallIndex >= 0 ? wallIndex + 1 : 1;
-    const defMat = project.materials.find((m) => m.id === wall.zone.materialId) || project.materials[0];
-    const layout = LayoutEngine.calculateWallLayout(wall, defMat, project.materials, wallNumber);
-
-    const wallW = wall.width;
-    const wallH = wall.height;
-    const wallThick = 150;
-    const panelThick = 8;
-
-    // 1. Построение 3D траектории стены (с поворотами на WallBend)
-    const computeMiterVector = (psi1: number, psi2: number, d: number): { x: number; z: number } => {
-      const n1x = -Math.sin(psi1);
-      const n1z = -Math.cos(psi1);
-      const n2x = -Math.sin(psi2);
-      const n2z = -Math.cos(psi2);
-
-      const sumX = n1x + n2x;
-      const sumZ = n1z + n2z;
-      const len = Math.sqrt(sumX * sumX + sumZ * sumZ);
-
-      if (len < 0.001) {
-        return { x: n1x * d, z: n1z * d };
-      }
-
-      const mX = sumX / len;
-      const mZ = sumZ / len;
-      const dot = n1x * mX + n1z * mZ;
-      const scale = Math.abs(dot) > 0.05 ? d / dot : d;
-
-      return { x: mX * scale, z: mZ * scale };
-    };
-
-    const activeBends = resolvePathBends(wall, layout.panels);
-    const { pathSections, allPathPoints, getPointAtS } = buildWallPath(wall, activeBends);
-
-    // Динамический расчет масштаба и центрирования
-    const minX = Math.min(...allPathPoints.map((p) => p.x), 0) - 600;
-    const maxX = Math.max(...allPathPoints.map((p) => p.x), 0) + 600;
-    const minZ = Math.min(...allPathPoints.map((p) => p.z), 0) - wallThick - 600;
-    const maxZ = Math.max(...allPathPoints.map((p) => p.z), 0) + 1600;
-
-    const projectUnscaled = (p: Point3D) => {
-      const xRot = p.x * Math.cos(radA) - p.z * Math.sin(radA);
-      const zRot = p.x * Math.sin(radA) + p.z * Math.cos(radA);
-      return { x: xRot, y: zRot * Math.sin(radE) - p.y * Math.cos(radE) };
-    };
-
-    // Fit the projected scene, including the floor, instead of estimating its
-    // screen size from world dimensions and anchoring it near the bottom.
-    const boundsPoints = [
-      { x: minX, y: 0, z: minZ }, { x: maxX, y: 0, z: minZ },
-      { x: maxX, y: 0, z: maxZ }, { x: minX, y: 0, z: maxZ },
-    ];
-    const frontDepth = -Math.max(panelThick + 3, ...layout.panels.map((p) => p.thickness || panelThick));
-    pathSections.forEach((section) => {
-      const steps = section.isBend ? 32 : 1;
-      for (let step = 0; step <= steps; step++) {
-        const s = section.sStart + (section.sEnd - section.sStart) * step / steps;
-        for (const y of [0, wallH]) {
-          for (const depth of [frontDepth, wallThick]) {
-            boundsPoints.push(section.getPoint(s, y, depth));
-          }
-        }
-      }
-    });
-    const projectedBounds = boundsPoints.map(projectUnscaled);
-    const left = Math.min(...projectedBounds.map((p) => p.x));
-    const right = Math.max(...projectedBounds.map((p) => p.x));
-    const top = Math.min(...projectedBounds.map((p) => p.y));
-    const bottom = Math.max(...projectedBounds.map((p) => p.y));
-    const padding = 80;
-    const scale = Math.min((boxW - padding * 2) / Math.max(1, right - left),
-      (boxH - padding * 2) / Math.max(1, bottom - top), 0.52);
-    const cx = boxX + boxW / 2 - (left + right) / 2 * scale;
-    const cy = boxY + boxH / 2 - (top + bottom) / 2 * scale;
-
-    const project3D = (p: Point3D) => {
-      const point = projectUnscaled(p);
-      return { x: cx + point.x * scale, y: cy + point.y * scale };
-    };
-
-    // 2. Светлый плиточный пол
-    const floorPoints = [
-      project3D({ x: minX, y: 0, z: minZ }),
-      project3D({ x: maxX, y: 0, z: minZ }),
-      project3D({ x: maxX, y: 0, z: maxZ }),
-      project3D({ x: minX, y: 0, z: maxZ }),
-    ];
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(floorPoints[0].x, floorPoints[0].y);
-    floorPoints.forEach((p) => ctx.lineTo(p.x, p.y));
-    ctx.closePath();
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fill();
-
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1.8;
-    for (let x = Math.ceil(minX / 500) * 500; x <= maxX; x += 500) {
-      const pA = project3D({ x, y: 0, z: minZ });
-      const pB = project3D({ x, y: 0, z: maxZ });
-      ctx.beginPath();
-      ctx.moveTo(pA.x, pA.y);
-      ctx.lineTo(pB.x, pB.y);
-      ctx.stroke();
-    }
-    for (let z = Math.ceil(minZ / 500) * 500; z <= maxZ; z += 500) {
-      const pA = project3D({ x: minX, y: 0, z });
-      const pB = project3D({ x: maxX, y: 0, z });
-      ctx.beginPath();
-      ctx.moveTo(pA.x, pA.y);
-      ctx.lineTo(pB.x, pB.y);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // 3. Несущая стена (Задняя грань, Верхний срез с Miter Joint и торцы)
-    pathSections.forEach((sec) => {
-      const steps = sec.isBend ? 14 : 1;
-      const len = sec.sEnd - sec.sStart;
-      for (let i = 0; i < steps; i++) {
-        const s0 = sec.sStart + (i / steps) * len;
-        const s1 = sec.sStart + ((i + 1) / steps) * len;
-
-        let intervals: Interval1D[] = [{ start: 0, end: wallH }];
-        wall.openings.forEach((op) => {
-          if (op.isCutout !== false && (op.type === 'WINDOW' || isDoorOrPortal(op)) && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
-            intervals = subtractInterval(intervals, op.y, op.y + op.height);
-          }
-        });
-
-        for (const inv of intervals) {
-          if (inv.end - inv.start <= 1) continue;
-          const b0_bot = project3D(sec.getPoint(s0, inv.start, wallThick));
-          const b1_bot = project3D(sec.getPoint(s1, inv.start, wallThick));
-          const b1_top = project3D(sec.getPoint(s1, inv.end, wallThick));
-          const b0_top = project3D(sec.getPoint(s0, inv.end, wallThick));
-
-          ctx.fillStyle = '#cbd5e1';
-          ctx.strokeStyle = '#94a3b8';
-          ctx.lineWidth = 1.2;
-          ctx.beginPath();
-          ctx.moveTo(b0_bot.x, b0_bot.y);
-          ctx.lineTo(b1_bot.x, b1_bot.y);
-          ctx.lineTo(b1_top.x, b1_top.y);
-          ctx.lineTo(b0_top.x, b0_top.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-        }
-      }
-    });
-
-    pathSections.forEach((sec, idx) => {
-      if (sec.isBend) {
-        const steps = 14;
-        const len = sec.sEnd - sec.sStart;
-        for (let i = 0; i < steps; i++) {
-          const s0 = sec.sStart + (i / steps) * len;
-          const s1 = sec.sStart + ((i + 1) / steps) * len;
-
-          const topF0 = project3D(sec.getPoint(s0, wallH, 0));
-          const topF1 = project3D(sec.getPoint(s1, wallH, 0));
-          const topB1 = project3D(sec.getPoint(s1, wallH, wallThick));
-          const topB0 = project3D(sec.getPoint(s0, wallH, wallThick));
-
-          ctx.fillStyle = '#94a3b8';
-          ctx.strokeStyle = '#64748b';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(topF0.x, topF0.y);
-          ctx.lineTo(topF1.x, topF1.y);
-          ctx.lineTo(topB1.x, topB1.y);
-          ctx.lineTo(topB0.x, topB0.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-        }
-      } else {
-        const psiBefore = idx > 0 ? pathSections[idx - 1].endHeading : sec.startHeading;
-        const psiAfter = idx < pathSections.length - 1 ? pathSections[idx + 1].startHeading : sec.endHeading;
-        const vMiterStart = computeMiterVector(psiBefore, sec.startHeading, wallThick);
-        const vMiterEnd = computeMiterVector(sec.endHeading, psiAfter, wallThick);
-
-        const topF0 = project3D({ x: sec.startPoint.x, y: wallH, z: sec.startPoint.z });
-        const topF1 = project3D({ x: sec.endPoint.x, y: wallH, z: sec.endPoint.z });
-        const topB1 = project3D({ x: sec.endPoint.x + vMiterEnd.x, y: wallH, z: sec.endPoint.z + vMiterEnd.z });
-        const topB0 = project3D({ x: sec.startPoint.x + vMiterStart.x, y: wallH, z: sec.startPoint.z + vMiterStart.z });
-
-        ctx.fillStyle = '#94a3b8';
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(topF0.x, topF0.y);
-        ctx.lineTo(topF1.x, topF1.y);
-        ctx.lineTo(topB1.x, topB1.y);
-        ctx.lineTo(topB0.x, topB0.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-    });
-
-    // Левый торец стены
-    const tL0 = project3D(getPointAtS(0, 0, 0));
-    const tL1 = project3D(getPointAtS(0, wallH, 0));
-    const tL2 = project3D(getPointAtS(0, wallH, wallThick));
-    const tL3 = project3D(getPointAtS(0, 0, wallThick));
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.beginPath();
-    ctx.moveTo(tL0.x, tL0.y);
-    ctx.lineTo(tL1.x, tL1.y);
-    ctx.lineTo(tL2.x, tL2.y);
-    ctx.lineTo(tL3.x, tL3.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Правый торец стены
-    const tR0 = project3D(getPointAtS(wallW, 0, 0));
-    const tR1 = project3D(getPointAtS(wallW, wallH, 0));
-    const tR2 = project3D(getPointAtS(wallW, wallH, wallThick));
-    const tR3 = project3D(getPointAtS(wallW, 0, wallThick));
-
-    ctx.fillStyle = '#cbd5e1';
-    ctx.beginPath();
-    ctx.moveTo(tR0.x, tR0.y);
-    ctx.lineTo(tR1.x, tR1.y);
-    ctx.lineTo(tR2.x, tR2.y);
-    ctx.lineTo(tR3.x, tR3.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // 4. Отрисовка декоративных панелей
-    layout.panels.forEach((p) => {
-      const isVoid = p.isVoid || p.materialId === MATERIAL_NONE_ID;
-      const baseColor = isVoid ? '#f8fafc' : (p.materialColor || '#d6cbbe');
-      const thick = isVoid ? 0 : (p.thickness || 8);
-      const pStartS = p.x;
-      const pEndS = p.x + p.width;
-      const yBot = p.y;
-      const yTop = p.y + p.height;
-
-      if (p.polygonPoints && p.polygonPoints.length >= 3) {
-        const polySliceBoundaries: number[] = [pStartS];
-        pathSections.forEach((sec) => {
-          if (sec.sEnd > pStartS && sec.sStart < pEndS) {
-            const overlapStart = Math.max(pStartS, sec.sStart);
-            const overlapEnd = Math.min(pEndS, sec.sEnd);
-            if (sec.isBend) {
-              const bendSlices = 14;
-              for (let k = 1; k <= bendSlices; k++) {
-                polySliceBoundaries.push(overlapStart + (k / bendSlices) * (overlapEnd - overlapStart));
-              }
-            } else {
-              polySliceBoundaries.push(overlapEnd);
-            }
-          }
-        });
-        activeBends.forEach((b) => {
-          if (b.sStart > pStartS && b.sStart < pEndS) polySliceBoundaries.push(b.sStart);
-          if (b.sEnd > pStartS && b.sEnd < pEndS) polySliceBoundaries.push(b.sEnd);
-        });
-        polySliceBoundaries.push(pEndS);
-        const sortedPolySlices = Array.from(new Set(polySliceBoundaries.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
-
-        for (let i = 0; i < sortedPolySlices.length - 1; i++) {
-          const s0 = sortedPolySlices[i];
-          const s1 = sortedPolySlices[i + 1];
-          if (s1 - s0 <= 0.5) continue;
-
-          const clippedPoly = PdfExportService.clipPolygonByXRange(p.polygonPoints, s0, s1);
-          if (clippedPoly.length < 3) continue;
-
-          const poly3D = clippedPoly.map((pt) => project3D(getPointAtS(pt.x, pt.y, -thick)));
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(poly3D[0].x, poly3D[0].y);
-          for (let pi = 1; pi < poly3D.length; pi++) ctx.lineTo(poly3D[pi].x, poly3D[pi].y);
-          ctx.closePath();
-          ctx.fillStyle = baseColor;
-          ctx.fill();
-          ctx.strokeStyle = isVoid ? '#e2e8f0' : '#475569';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-          const texture = !isVoid && getPieceTexture(p);
-          if (texture) {
-            ctx.clip();
-            drawTextureFace(ctx, texture,
-              project3D(getPointAtS(s0, yBot, -thick)), project3D(getPointAtS(s1, yBot, -thick)),
-              project3D(getPointAtS(s1, yTop, -thick)), project3D(getPointAtS(s0, yTop, -thick)),
-              { x: (s0-p.x)/p.width, y: 0, width: (s1-s0)/p.width, height: 1 });
-          }
-          ctx.restore();
-        }
-        return;
-      }
-
-      const slicePoints: number[] = [pStartS];
-      pathSections.forEach((sec) => {
-        if (sec.sEnd > pStartS && sec.sStart < pEndS) {
-          const overlapStart = Math.max(pStartS, sec.sStart);
-          const overlapEnd = Math.min(pEndS, sec.sEnd);
-          if (sec.isBend) {
-            const bendSlices = 14;
-            for (let k = 1; k <= bendSlices; k++) {
-              slicePoints.push(overlapStart + (k / bendSlices) * (overlapEnd - overlapStart));
-            }
-          } else {
-            slicePoints.push(overlapEnd);
-          }
-        }
-      });
-      activeBends.forEach((b) => {
-        if (b.sStart > pStartS && b.sStart < pEndS) slicePoints.push(b.sStart);
-        if (b.sEnd > pStartS && b.sEnd < pEndS) slicePoints.push(b.sEnd);
-      });
-      wall.openings.forEach((op) => {
-        if (op.isCutout !== false) {
-          if (op.x > pStartS && op.x < pEndS) slicePoints.push(op.x);
-          if (op.x + op.width > pStartS && op.x + op.width < pEndS) slicePoints.push(op.x + op.width);
-        }
-      });
-      slicePoints.push(pEndS);
-      const sortedSlices = Array.from(new Set(slicePoints.map((s) => Math.round(s * 10) / 10))).sort((a, b) => a - b);
-
-      for (let i = 0; i < sortedSlices.length - 1; i++) {
-        const s0 = sortedSlices[i];
-        const s1 = sortedSlices[i + 1];
-        if (s1 - s0 <= 0.5) continue;
-
-        let intervals: Interval1D[] = [{ start: yBot, end: yTop }];
-        wall.openings.forEach((op) => {
-          if (op.isCutout !== false && s1 > op.x + 0.1 && s0 < op.x + op.width - 0.1) {
-            intervals = subtractInterval(intervals, op.y, op.y + op.height);
-          }
-        });
-
-        for (const inv of intervals) {
-          if (inv.end - inv.start <= 1) continue;
-          const segYBot = inv.start;
-          const segYTop = inv.end;
-
-          const p0 = project3D(getPointAtS(s0, segYBot, -thick));
-          const p1 = project3D(getPointAtS(s1, segYBot, -thick));
-          const p2 = project3D(getPointAtS(s1, segYTop, -thick));
-          const p3 = project3D(getPointAtS(s0, segYTop, -thick));
-
-          const inBend = pathSections.find((sec) => sec.isBend && s0 >= sec.sStart - 1 && s1 <= sec.sEnd + 1);
-          let lightFactor = 0.96;
-          if (inBend) {
-            const u = (s0 - inBend.sStart) / (inBend.sEnd - inBend.sStart);
-            lightFactor = inBend.bend?.type === 'INNER_CORNER' ? 0.75 + 0.25 * Math.abs(u - 0.5) * 2 : 0.85 + 0.15 * Math.sin(u * Math.PI);
-          } else {
-            const sec = pathSections.find((s) => s0 >= s.sStart - 0.1 && s1 <= s.sEnd + 0.1);
-            if (sec) {
-              const sunAngle = -Math.PI / 4;
-              const angleDiff = sec.startHeading - sunAngle;
-              lightFactor = 0.90 + 0.10 * Math.cos(angleDiff);
-            }
-          }
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.lineTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.lineTo(p3.x, p3.y);
-          ctx.closePath();
-
-          ctx.fillStyle = isVoid ? '#f8fafc' : PdfExportService.adjustBrightness(baseColor, lightFactor);
-          ctx.fill();
-          ctx.strokeStyle = isVoid ? '#e2e8f0' : '#475569';
-          ctx.lineWidth = inBend ? 0.5 : 1.5;
-          ctx.stroke();
-
-          // Текстурные волокна для дерева
-          const photo = !isVoid && getPieceTexture(p);
-          if (photo) {
-            drawTextureFace(ctx, photo, p0, p1, p2, p3, { x: (s0-p.x)/p.width, y: (p.y+p.height-inv.end)/p.height, width: (s1-s0)/p.width, height: (inv.end-inv.start)/p.height });
-          }
-          if (!photo && !isVoid && p.textureCategory === 'WOOD') {
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-            ctx.lineWidth = 1.5;
-            for (let f = 1; f < 5; f++) {
-              const u = f / 5;
-              const bX = p0.x + (p1.x - p0.x) * u;
-              const bY = p0.y + (p1.y - p0.y) * u;
-              const tX = p3.x + (p2.x - p3.x) * u;
-              const tY = p3.y + (p2.y - p3.y) * u;
-              ctx.beginPath();
-              ctx.moveTo(bX, bY);
-              ctx.lineTo(tX, tY);
-              ctx.stroke();
-            }
-          }
-
-          // Верхний торец панели
-          const pt0 = p3;
-          const pt1 = p2;
-          const pt2 = project3D(getPointAtS(s1, segYTop, 0));
-          const pt3 = project3D(getPointAtS(s0, segYTop, 0));
-
-          ctx.fillStyle = PdfExportService.adjustBrightness(baseColor, 1.08);
-          ctx.beginPath();
-          ctx.moveTo(pt0.x, pt0.y);
-          ctx.lineTo(pt1.x, pt1.y);
-          ctx.lineTo(pt2.x, pt2.y);
-          ctx.lineTo(pt3.x, pt3.y);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-          ctx.restore();
-        }
-      }
-    });
-
-    // 5. Светодиодные линии LED
-    layout.joints.forEach((j) => {
-      if (j.isLED) {
-        const p1 = project3D(getPointAtS(j.p1 ? j.p1.x : j.x, j.p1 ? j.p1.y : j.y, -panelThick - 3));
-        const p2 = project3D(
-          getPointAtS(
-            j.p2 ? j.p2.x : (j.orientation === 'VERTICAL' ? j.x : j.x + j.length),
-            j.p2 ? j.p2.y : (j.orientation === 'VERTICAL' ? j.y + j.length : j.y),
-            -panelThick - 3
-          )
-        );
-
-        ctx.save();
-        ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
-        ctx.lineWidth = 14;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-        ctx.restore();
-      }
-    });
-
-    // 6. Проемы (Двери, Окна, ТВ, Ниши)
-    wall.openings.forEach((op) => {
-      // Облицовка портала рисуется общим drawOpeningSlopes ниже, заполнение не требуется.
-      if (isPortalOpening(op)) return;
-      const opDepth = op.depth || 150;
-
-      if (op.type === 'DOOR') {
-        const jL0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2));
-        const jL1 = project3D(getPointAtS(op.x, op.y, opDepth));
-        const jL2 = project3D(getPointAtS(op.x, op.y + op.height, opDepth));
-        const jL3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2));
-
-        ctx.save();
-        ctx.fillStyle = '#cbd5e1';
-        ctx.strokeStyle = '#94a3b8';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(jL0.x, jL0.y);
-        ctx.lineTo(jL1.x, jL1.y);
-        ctx.lineTo(jL2.x, jL2.y);
-        ctx.lineTo(jL3.x, jL3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const jT2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, opDepth));
-        const jT3 = project3D(getPointAtS(op.x + op.width, op.y + op.height, -panelThick - 2));
-
-        ctx.fillStyle = '#94a3b8';
-        ctx.strokeStyle = '#64748b';
-        ctx.beginPath();
-        ctx.moveTo(jL3.x, jL3.y);
-        ctx.lineTo(jL2.x, jL2.y);
-        ctx.lineTo(jT2.x, jT2.y);
-        ctx.lineTo(jT3.x, jT3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const jR2 = project3D(getPointAtS(op.x + op.width, op.y, opDepth));
-        const jR3 = project3D(getPointAtS(op.x + op.width, op.y, -panelThick - 2));
-
-        ctx.fillStyle = '#cbd5e1';
-        ctx.strokeStyle = '#94a3b8';
-        ctx.beginPath();
-        ctx.moveTo(jT3.x, jT3.y);
-        ctx.lineTo(jT2.x, jT2.y);
-        ctx.lineTo(jR2.x, jR2.y);
-        ctx.lineTo(jR3.x, jR3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const doorZ = 60;
-        const d0 = project3D(getPointAtS(op.x + 20, op.y, doorZ));
-        const d1 = project3D(getPointAtS(op.x + op.width - 20, op.y, doorZ));
-        const d2 = project3D(getPointAtS(op.x + op.width - 20, op.y + op.height - 20, doorZ));
-        const d3 = project3D(getPointAtS(op.x + 20, op.y + op.height - 20, doorZ));
-
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(d0.x, d0.y);
-        ctx.lineTo(d1.x, d1.y);
-        ctx.lineTo(d2.x, d2.y);
-        ctx.lineTo(d3.x, d3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const hStart = project3D(getPointAtS(op.x + op.width - 90, op.y + 1000, doorZ - 10));
-        const hEnd = project3D(getPointAtS(op.x + op.width - 45, op.y + 1000, doorZ - 10));
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(hStart.x, hStart.y);
-        ctx.lineTo(hEnd.x, hEnd.y);
-        ctx.stroke();
-
-        ctx.restore();
-      } else if (op.type === 'WINDOW') {
-        ctx.save();
-        const winDepth = 200;
-        const wL0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2));
-        const wL1 = project3D(getPointAtS(op.x, op.y, winDepth));
-        const wL2 = project3D(getPointAtS(op.x, op.y + op.height, winDepth));
-        const wL3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2));
-
-        ctx.fillStyle = '#cbd5e1';
-        ctx.strokeStyle = '#94a3b8';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(wL0.x, wL0.y);
-        ctx.lineTo(wL1.x, wL1.y);
-        ctx.lineTo(wL2.x, wL2.y);
-        ctx.lineTo(wL3.x, wL3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const wT1 = project3D(getPointAtS(op.x + op.width, op.y + op.height, winDepth));
-        const wT2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, -panelThick - 2));
-        ctx.fillStyle = '#94a3b8';
-        ctx.beginPath();
-        ctx.moveTo(wL3.x, wL3.y);
-        ctx.lineTo(wL2.x, wL2.y);
-        ctx.lineTo(wT1.x, wT1.y);
-        ctx.lineTo(wT2.x, wT2.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const g0 = project3D(getPointAtS(op.x + 20, op.y + 15, 100));
-        const g1 = project3D(getPointAtS(op.x + op.width - 20, op.y + 15, 100));
-        const g2 = project3D(getPointAtS(op.x + op.width - 20, op.y + op.height - 20, 100));
-        const g3 = project3D(getPointAtS(op.x + 20, op.y + op.height - 20, 100));
-        ctx.fillStyle = 'rgba(224, 242, 254, 0.6)';
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(g0.x, g0.y);
-        ctx.lineTo(g1.x, g1.y);
-        ctx.lineTo(g2.x, g2.y);
-        ctx.lineTo(g3.x, g3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const imp0 = project3D(getPointAtS(op.x + op.width / 2, op.y + 15, 100));
-        const imp1 = project3D(getPointAtS(op.x + op.width / 2, op.y + op.height - 20, 100));
-        ctx.strokeStyle = '#0284c7';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(imp0.x, imp0.y);
-        ctx.lineTo(imp1.x, imp1.y);
-        ctx.stroke();
-
-        ctx.restore();
-      } else if (op.type === 'TV_ZONE') {
-        ctx.save();
-        const tvZ = -30;
-        const t0 = project3D(getPointAtS(op.x, op.y, tvZ));
-        const t1 = project3D(getPointAtS(op.x + op.width, op.y, tvZ));
-        const t2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, tvZ));
-        const t3 = project3D(getPointAtS(op.x, op.y + op.height, tvZ));
-
-        ctx.fillStyle = '#0f172a';
-        ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(t0.x, t0.y);
-        ctx.lineTo(t1.x, t1.y);
-        ctx.lineTo(t2.x, t2.y);
-        ctx.lineTo(t3.x, t3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-        ctx.beginPath();
-        ctx.moveTo(t0.x, t0.y);
-        ctx.lineTo(t1.x, t1.y);
-        ctx.lineTo(t3.x, t3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      } else {
-        ctx.save();
-        const nDepth = opDepth;
-        const nL0 = project3D(getPointAtS(op.x, op.y, -panelThick - 2));
-        const nL1 = project3D(getPointAtS(op.x, op.y, nDepth));
-        const nL2 = project3D(getPointAtS(op.x, op.y + op.height, nDepth));
-        const nL3 = project3D(getPointAtS(op.x, op.y + op.height, -panelThick - 2));
-
-        ctx.fillStyle = '#94a3b8';
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(nL0.x, nL0.y);
-        ctx.lineTo(nL1.x, nL1.y);
-        ctx.lineTo(nL2.x, nL2.y);
-        ctx.lineTo(nL3.x, nL3.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const nBack1 = project3D(getPointAtS(op.x + op.width, op.y, nDepth));
-        const nBack2 = project3D(getPointAtS(op.x + op.width, op.y + op.height, nDepth));
-
-        ctx.fillStyle = '#e2e8f0';
-        ctx.beginPath();
-        ctx.moveTo(nL1.x, nL1.y);
-        ctx.lineTo(nBack1.x, nBack1.y);
-        ctx.lineTo(nBack2.x, nBack2.y);
-        ctx.lineTo(nL2.x, nL2.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
-    });
-    for (const op of wall.openings) {
-      drawOpeningSlopes(ctx, op, layout.slopes ?? [], layout.slopeJoints ?? [],
-        p => project3D(getPointAtS(p.x, p.y, p.z)), { textures: true, profiles: true });
-    }
-
   }
 
   /**

@@ -153,6 +153,7 @@ export interface WallZone {
 }
 
 export interface Wall {
+  savedViews?: import('./WallView').WallView[];
   id: string;
   /** Origin and heading (radians) of the unfolded surface in the horizontal plan. */
   planPose?: { x: number; z: number; heading: number };

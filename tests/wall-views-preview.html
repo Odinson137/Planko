@@ -1,0 +1,71 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><base href="/"><title>Проверка сохранённых ракурсов</title>
+<style>body{margin:0;font:14px sans-serif}header{padding:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}#root{height:760px}#exports{padding:16px;background:#ddd}#exports canvas{display:block;width:100%;max-width:1080px;margin:16px auto;background:white}</style>
+<header><button id="first">Первая стена</button><button id="second">Вторая стена</button>
+<button id="roundtrip">Сохранить и загрузить тестовый проект</button><button id="export">Проверить PDF и ZIP</button>
+<output id="status">Готово</output></header><div id="root"></div><div id="exports"></div>
+<script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {MantineProvider} from '@mantine/core';
+import '@mantine/core/styles.css';
+import {Axonometric3DView} from '/src/presentation/components/canvas/Axonometric3DView.tsx';
+import {useProjectStore} from '/src/application/stores/useProjectStore.ts';
+import {useEditorStore} from '/src/application/stores/useEditorStore.ts';
+import {createDefaultWall} from '/src/core/models/Wall.ts';
+import {MATERIAL_NONE_ID,MATERIAL_NONE} from '/src/core/models/Material.ts';
+import {PdfExportService} from '/src/application/services/PdfExportService.ts';
+import {createWallViewsZip} from '/src/application/services/WallViewExport.ts';
+import {planWallViewPages,savedWallViews} from '/src/core/models/WallView.ts';
+import {LocalSQLiteRepository} from '/src/infrastructure/repositories/LocalSQLiteRepository.ts';
+import {unzipSync} from 'fflate';
+const wall=createDefaultWall('views-first','Стена с изгибами');wall.width=6570;
+wall.bends=[{id:'inner',x:2000,type:'INNER_CORNER',radius:500,angleDeg:90},{id:'outer',x:3785,type:'OUTER_CORNER',radius:500,angleDeg:90}];
+const cuts=[0,2000,2785,3785,4570,6570],colors=['#d6cbbe','#141517','#b18a55','#141517','#c0c0ba'];
+const materials=colors.map((color,i)=>({id:`views-mat-${i}`,name:`Материал ${i}`,type:'SHEET',width:2800,height:2800,thickness:5,color,isCustom:true}));
+wall.panels=colors.map((_,i)=>({id:`views-panel-${i}`,partLabel:`${i+1}`,isVoid:i===1||i===3,
+  materialId:i===1||i===3?MATERIAL_NONE_ID:materials[i].id,
+  points:[{x:cuts[i],y:0},{x:cuts[i+1],y:0},{x:cuts[i+1],y:2750},{x:cuts[i],y:2750}]}));
+wall.zone.materialId=materials[0].id;
+const other=createDefaultWall('views-second','Вторая стена');
+const initial=useProjectStore.getState().project;
+useProjectStore.setState({project:{...initial,id:'views-test-only',name:'Тест ракурсов',walls:[wall,other],selectedWallId:wall.id,materials:[MATERIAL_NONE,...materials]}});
+useEditorStore.setState({showTextures:false});
+createRoot(document.getElementById('root')).render(React.createElement(MantineProvider,{defaultColorScheme:'light'},React.createElement(Axonometric3DView)));
+document.getElementById('first').onclick=()=>useProjectStore.getState().selectWall(wall.id);
+document.getElementById('second').onclick=()=>useProjectStore.getState().selectWall(other.id);
+document.getElementById('roundtrip').onclick=async()=>{
+  const repo=new LocalSQLiteRepository(),state=useProjectStore.getState();
+  const expected=state.project.walls.map(savedWallViews);
+  await repo.saveProject(state.project);
+  const restored=await repo.getProject(state.project.id);
+  await repo.deleteProject(state.project.id);
+  state.setProject(restored);
+  const actual=useProjectStore.getState().project.walls.map(savedWallViews);
+  document.getElementById('status').textContent=JSON.stringify(expected)===JSON.stringify(actual)?'Сохранение и загрузка: OK':'ОШИБКА хранения';
+};
+document.getElementById('export').onclick=async()=>{
+  const button=document.getElementById('export'),status=document.getElementById('status');button.disabled=true;status.textContent='Экспорт…';
+  try{
+    const project=useProjectStore.getState().project,pages=planWallViewPages(project.walls);
+    const pdf=await PdfExportService.createAxonometric3DPdf(project);
+    if(pdf.getNumberOfPages()!==pages.length)throw new Error('Неверное число страниц PDF');
+    const zip=await createWallViewsZip(project.walls[0],project.materials,1),files=unzipSync(zip);
+    if(Object.keys(files).length!==savedWallViews(project.walls[0]).length)throw new Error('Неверное число PNG');
+    for(const bytes of Object.values(files)){
+      if(bytes[0]!==137||bytes[1]!==80||bytes[2]!==78||bytes[3]!==71)throw new Error('Повреждённый PNG');
+      const header=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+      if(header.getUint32(16)!==2400||header.getUint32(20)!==1800)throw new Error('Неверный размер PNG');
+    }
+    const exports=document.getElementById('exports');exports.replaceChildren();
+    for(const [blob,name] of [[pdf.output('blob'),'Ракурсы.pdf'],[new Blob([zip],{type:'application/zip'}),'Ракурсы.zip']]){
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.textContent=`Скачать ${name} `;exports.append(a);
+    }
+    for(let i=0;i<pages.length;i++){
+      const canvas=document.createElement('canvas');canvas.width=2970;canvas.height=2100;
+      PdfExportService.renderAxonometric3DPage(canvas.getContext('2d'),2970,2100,project,pages[i].wall,i+1,pages.length,pages[i].view);
+      exports.append(canvas);
+    }
+    status.textContent=`OK: PDF ${pages.length} стр.; ZIP ${Object.keys(files).length} PNG (2400×1800). ${pages.map(p=>`${p.wall.name}: ${p.view.name} ${p.view.angleDeg}°/${p.view.elevationDeg}°`).join('; ')}`;
+  }catch(error){status.textContent=`ОШИБКА: ${error.message}`;console.error(error);}finally{button.disabled=false;}
+};
+</script></html>

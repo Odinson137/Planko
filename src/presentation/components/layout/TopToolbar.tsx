@@ -254,7 +254,7 @@ export const TopToolbar: React.FC = () => {
               >
                 <div>
                   <Text size="xs" fw={700} c="green.6">2. 3D Аксонометрия (PDF)</Text>
-                  <Text size="10px" c="dimmed">3D альбом всех стен с текстурами и размерами</Text>
+                  <Text size="10px" c="dimmed">Все сохранённые ракурсы стен с текстурами и размерами</Text>
                 </div>
               </Menu.Item>
               <Menu.Item
