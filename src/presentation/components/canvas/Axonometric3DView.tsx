@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Box, Group, ActionIcon, Tooltip, Slider, Text, Button, Paper, Badge, NumberInput, SimpleGrid, Divider, Stack, TextInput, Modal, Alert } from '@mantine/core';
 import { Camera, ZoomIn, ZoomOut, RotateCw, Download, Compass, Save, Pencil, Trash2, Archive } from 'lucide-react';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
@@ -9,7 +10,7 @@ import { createWallViewsZip, downloadBlob, safeExportName } from '../../../appli
 import { DEFAULT_WALL_CAMERA, normalizeWallCamera, savedWallViews, type WallView } from '../../../core/models/WallView';
 import { useAppTheme } from '../../theme/useAppTheme';
 
-export const Axonometric3DView: React.FC = () => {
+export const Axonometric3DView: React.FC<{ controlsContainer: HTMLDivElement | null }> = ({ controlsContainer }) => {
   const t = useAppTheme();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -218,26 +219,11 @@ export const Axonometric3DView: React.FC = () => {
         </Group>
       </Paper>
 
-      {/* Панель ручного ввода углов и быстрого переключения пресетов */}
-      <Paper
+      {/* Настройки камеры отображаются в правой панели, сохраняя состояние и экспорт холста. */}
+      {controlsContainer && createPortal(<Box
         p="sm"
         onMouseDown={event => event.stopPropagation()}
         onWheel={event => event.stopPropagation()}
-        style={{
-          position: 'absolute',
-          bottom: 20,
-          right: 20,
-          backgroundColor: t.canvas3dPanelOverlay,
-          backdropFilter: 'blur(12px)',
-          border: `1px solid ${t.border}`,
-          borderRadius: 8,
-          zIndex: 10,
-          width: 360,
-          maxWidth: 'calc(100% - 40px)',
-          maxHeight: 'calc(100% - 90px)',
-          overflowY: 'auto',
-          boxShadow: t.isDark ? '0 8px 24px rgba(0, 0, 0, 0.5)' : '0 8px 24px rgba(0, 0, 0, 0.08)',
-        }}
       >
         <Stack gap="xs">
           <Group justify="space-between">
@@ -252,6 +238,7 @@ export const Axonometric3DView: React.FC = () => {
                 size="xs"
                 variant="subtle"
                 color="gray"
+                aria-label="Стандартный ракурс"
                 onClick={() => {
                   setAngleDeg(DEFAULT_WALL_CAMERA.angleDeg);
                   setElevationDeg(DEFAULT_WALL_CAMERA.elevationDeg);
@@ -407,10 +394,10 @@ export const Axonometric3DView: React.FC = () => {
           {/* Зум и Экспорт */}
           <Group justify="space-between">
             <Group gap={4}>
-              <ActionIcon size="sm" variant="default" onClick={() => setZoomScale((z) => Math.max(0.05, z - 0.05))}>
+              <ActionIcon size="sm" variant="default" aria-label="Уменьшить масштаб" onClick={() => setZoomScale((z) => Math.max(0.05, z - 0.05))}>
                 <ZoomOut size={14} />
               </ActionIcon>
-              <ActionIcon size="sm" variant="default" onClick={() => setZoomScale((z) => Math.min(2.5, z + 0.05))}>
+              <ActionIcon size="sm" variant="default" aria-label="Увеличить масштаб" onClick={() => setZoomScale((z) => Math.min(2.5, z + 0.05))}>
                 <ZoomIn size={14} />
               </ActionIcon>
             </Group>
@@ -444,7 +431,7 @@ export const Axonometric3DView: React.FC = () => {
             </form>
           </Modal>
         </Stack>
-      </Paper>
+      </Box>, controlsContainer)}
     </Box>
   );
 };

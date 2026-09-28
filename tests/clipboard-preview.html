@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="UTF-8"><title>Planko — проверка копирования</title></head>
+<body style="margin:0"><div id="root"></div>
+<script type="module">
+  import React from 'react';
+  import { createRoot } from 'react-dom/client';
+  import { App } from '../src/app/App';
+  import { useProjectStore } from '../src/application/stores/useProjectStore';
+  import { useEditorStore } from '../src/application/stores/useEditorStore';
+  import { createDefaultProject } from '../src/core/models/Project';
+  import { createDefaultOpening } from '../src/core/models/Opening';
+  const project = createDefaultProject('Проверка копирования (без сохранения)', 2400, 2000);
+  const wall = project.walls[0];
+  const material = { id: 'clipboard-test', name: 'Тестовая панель', type: 'SHEET', width: 1220, height: 2800, thickness: 5, color: '#d6bd92', isCustom: true };
+  project.materials = [...project.materials, material];
+  wall.zone.materialId = material.id;
+  wall.panels[0].materialId = material.id;
+  wall.panels[0].isVoid = false;
+  wall.panels[0].partLabel = '1.1';
+  wall.panels[0].color = material.color;
+  wall.openings = [{ ...createDefaultOpening('WINDOW', 2400, 2000), x: 300, y: 600, width: 400, height: 500, isApplied: false }];
+  useProjectStore.getState().setProject(project);
+  useProjectStore.getState().selectOpening(wall.openings[0].id);
+  useEditorStore.setState({ currentScreen: 'EDITOR', zoom: 0.16, panX: 40, panY: 180, showLeftSidebar: false });
+  createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>

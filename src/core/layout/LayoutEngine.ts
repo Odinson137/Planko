@@ -88,6 +88,8 @@ export interface CalculatedJointLine {
   segmentIndex?: number;
   groupId?: string;
   takeSide?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
+  gapOwnerSide?: 1 | -1;
+  gapConfigured?: boolean;
 }
 
 export interface LayoutCalculationResult {
@@ -405,6 +407,7 @@ export class LayoutEngine {
             name: `${edge.label} (${p.partLabel || defaultLabel})`,
             x: Math.min(edge.p1.x, edge.p2.x), y: Math.min(edge.p1.y, edge.p2.y),
             p1: edge.p1, p2: edge.p2, width: config.width, length: edge.length,
+            gapConfigured: config.gapConfigured,
             orientation, isLED: config.isLED ?? false, isOuterEdge: false,
             profileArticle: config.profileArticle, profileColor: config.profileColor,
             takeSide: edge.side === 'left' ? 'RIGHT' : edge.side === 'right' ? 'LEFT'
@@ -476,6 +479,8 @@ export class LayoutEngine {
             profileColor: effColor,
             groupId: effGroupId,
             takeSide: effTakeSide,
+            gapOwnerSide: customConfig?.gapOwnerSide ?? j.gapOwnerSide,
+            gapConfigured: customConfig?.gapConfigured ?? j.gapConfigured,
           });
         });
       }
@@ -835,6 +840,7 @@ export class LayoutEngine {
             x: jointX,
             y: inv.start,
             width: col.vertJointWidth,
+            gapConfigured: wall.customJoints[col.vertJointId]?.gapConfigured,
             length: len,
             orientation: 'VERTICAL',
             isLED: col.isVertLED,
@@ -878,6 +884,7 @@ export class LayoutEngine {
             x: inv.start,
             y: jointY,
             width: cand.horizJointWidth,
+            gapConfigured: wall.customJoints[cand.horizJointId]?.gapConfigured,
             length: len,
             orientation: 'HORIZONTAL',
             isLED: cand.isHorizLED,
@@ -904,6 +911,7 @@ export class LayoutEngine {
       isLED: leftEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
       profileArticle: leftEdgeConfig?.profileArticle,
+      gapConfigured: leftEdgeConfig?.gapConfigured,
       profileColor: leftEdgeConfig?.profileColor,
       takeSide: leftEdgeConfig?.takeSide ?? 'RIGHT',
     });
@@ -921,6 +929,7 @@ export class LayoutEngine {
       isLED: rightEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
       profileArticle: rightEdgeConfig?.profileArticle,
+      gapConfigured: rightEdgeConfig?.gapConfigured,
       profileColor: rightEdgeConfig?.profileColor,
       takeSide: rightEdgeConfig?.takeSide ?? 'LEFT',
     });
@@ -938,6 +947,7 @@ export class LayoutEngine {
       isLED: botEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
       profileArticle: botEdgeConfig?.profileArticle,
+      gapConfigured: botEdgeConfig?.gapConfigured,
       profileColor: botEdgeConfig?.profileColor,
       takeSide: botEdgeConfig?.takeSide ?? 'TOP',
     });
@@ -955,6 +965,7 @@ export class LayoutEngine {
       isLED: topEdgeConfig?.isLED ?? false,
       isOuterEdge: true,
       profileArticle: topEdgeConfig?.profileArticle,
+      gapConfigured: topEdgeConfig?.gapConfigured,
       profileColor: topEdgeConfig?.profileColor,
       takeSide: topEdgeConfig?.takeSide ?? 'BOTTOM',
     });
@@ -1008,6 +1019,7 @@ export class LayoutEngine {
               x: inv.start,
               y: first.y,
               width: first.width,
+              gapConfigured: first.gapConfigured,
               length: len,
               orientation: 'HORIZONTAL',
               isLED: first.isLED,
@@ -1038,6 +1050,7 @@ export class LayoutEngine {
               x: first.x,
               y: inv.start,
               width: first.width,
+              gapConfigured: first.gapConfigured,
               length: len,
               orientation: 'VERTICAL',
               isLED: first.isLED,
@@ -1364,6 +1377,8 @@ export class LayoutEngine {
       groupId: j.groupId,
       isOuterEdge: j.isOuterEdge,
       takeSide: j.takeSide,
+      gapOwnerSide: j.gapOwnerSide,
+      gapConfigured: j.gapConfigured,
       profileArticle: j.profileArticle ?? wall.customJoints[j.id.split('-part-')[0]]?.profileArticle,
       profileColor: j.profileColor ?? wall.customJoints[j.id.split('-part-')[0]]?.profileColor,
     }));

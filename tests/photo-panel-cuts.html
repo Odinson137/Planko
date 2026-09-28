@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><base href="/"><title>Проверка текстуры после разреза</title>
+<style>
+  body{font:16px system-ui;margin:24px;background:#edf0f3;color:#20262e}
+  h1{font-size:24px}section{background:white;padding:16px;margin:16px 0}
+  h2{font-size:18px}canvas{width:720px;max-width:100%;height:auto}
+</style>
+<h1>Декор 5189 · стена 3600 × 2750 мм</h1><p id="status">Загрузка…</p><main></main>
+<script type="module">
+import { createDefaultWall } from '/src/core/models/Wall.ts';
+import { cutPanelOnWall } from '/src/core/geometry/PanelCutEngine.ts';
+import { LayoutEngine } from '/src/core/layout/LayoutEngine.ts';
+import { preloadPhotoTextures, getPiecePhotoTexture } from '/src/core/textures/PhotoTextures.ts';
+
+try {
+  await preloadPhotoTextures();
+  const material = { id:'photo-cut-test', name:'5189', type:'SHEET', textureCategory:'WOOD',
+    decorCode:'5189', width:1220, height:2800, thickness:5, color:'#71523b' };
+  const wall = createDefaultWall('photo-cut-test');
+  wall.width=3600; wall.height=2750; wall.zone.materialId=material.id;
+  wall.panels=[{id:'surface',partLabel:'1.1',materialId:material.id,decorCode:'5189',textureCategory:'WOOD',
+    points:[{x:0,y:0},{x:3600,y:0},{x:3600,y:2750},{x:0,y:2750}]}];
+  const first = cutPanelOnWall(wall,[material],'surface',{x:1200,y:0},{x:1200,y:2750});
+  const remainder = first.panels.find(p=>Math.max(...p.points.map(p=>p.x))===3600);
+  const cut = cutPanelOnWall(first,[material],remainder.id,{x:2400,y:0},{x:2400,y:2750});
+  const legacy = structuredClone(cut);
+  legacy.panels.forEach(p=>p.textureMapping={offsetX:0,offsetY:0,angleDeg:0,
+    anchor:{x:0,y:0,width:3600,height:2750}});
+  const results=[];
+  for (const [label, current, expectPink] of [
+    ['До разреза: поверхность больше листа',wall,true],
+    ['После двух разрезов: три панели с рисунком',cut,false],
+    ['Старый проект: исправлена привязка к большой стене',legacy,false],
+  ]) {
+    const section=document.createElement('section'),title=document.createElement('h2');
+    title.textContent=label; section.append(title);
+    const canvas=document.createElement('canvas');canvas.width=720;canvas.height=550;
+    const ctx=canvas.getContext('2d');let pink=0;
+    for (const piece of LayoutEngine.calculateWallLayout(current,material,[material]).panels) {
+      const texture=getPiecePhotoTexture(piece);
+      if (!texture) throw new Error('Фотография не загрузилась');
+      const pixels=texture.getContext('2d').getImageData(0,0,texture.width,texture.height).data;
+      for(let i=0;i<pixels.length;i+=4) if(pixels[i]===255&&pixels[i+1]===216&&pixels[i+2]===223) pink++;
+      ctx.drawImage(texture,piece.x/5,(2750-piece.y-piece.height)/5,piece.width/5,piece.height/5);
+      ctx.strokeStyle='#45bc65';ctx.lineWidth=2;
+      ctx.strokeRect(piece.x/5+1,(2750-piece.y-piece.height)/5+1,piece.width/5-2,piece.height/5-2);
+    }
+    if ((pink>0)!==expectPink) throw new Error(`${label}: неожиданная розовая область (${pink} пикселей)`);
+    results.push(`${label}: ${pink} розовых пикселей`);
+    section.append(canvas);document.querySelector('main').append(section);
+  }
+  document.querySelector('#status').textContent='Проверка пройдена: после разреза и в старом проекте розовых пикселей нет.';
+  document.querySelector('#status').title=results.join('\n');
+} catch(error) {
+  document.querySelector('#status').textContent=`ОШИБКА: ${error.message}`;console.error(error);
+}
+</script></html>

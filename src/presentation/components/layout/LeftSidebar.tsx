@@ -126,7 +126,7 @@ export const LeftSidebar: React.FC = () => {
                     {wall.openings.map((op) => (
                       <NavLink
                         key={op.id}
-                        active={op.id === selectedOpeningId}
+                        active={useProjectStore.getState().selectedOpeningIds.includes(op.id)}
                         label={op.name}
                         description={`${getOpeningTypeLabel(op)} · ${op.width}×${op.height} мм`}
                         leftSection={getOpeningIcon(op)}
@@ -154,9 +154,9 @@ export const LeftSidebar: React.FC = () => {
                             </Tooltip>
                           </Group>
                         }
-                        onClick={() => {
-                          selectWall(wall.id);
-                          selectOpening(op.id);
+                        onClick={(event) => {
+                          if (project.selectedWallId !== wall.id) selectWall(wall.id);
+                          selectOpening(op.id, event.shiftKey);
                         }}
                         style={{
                           borderRadius: 4,

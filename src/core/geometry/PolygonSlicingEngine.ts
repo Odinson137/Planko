@@ -1,10 +1,10 @@
-import { insetPanelEdges } from './PanelEdges';
+import { getPanelEdges, insetPanelEdges } from './PanelEdges';
 import type { TextureMapping } from '../textures/TextureMapping';
 import type { WallPanelPiece, WallJointLine, Wall, PanelEdgesConfig } from '../models/Wall';
 import type { SlatProfileShape } from '../models/AllWallCatalog';
 import type { Opening } from '../models/Opening';
 import { isDoorOrPortal } from '../models/Opening';
-import { DEFAULT_JOINT_GAP_MM } from '../models/Profile';
+import { DEFAULT_JOINT_GAP_MM, DEFAULT_SHEET_CUT_GAP_MM } from '../models/Profile';
 import { resizeJointGap } from './JointGapGeometry';
 import { MATERIAL_NONE_ID, Material } from '../models/Material';
 
@@ -1308,7 +1308,7 @@ export class PolygonSlicingEngine {
     });
 
     let joint: WallJointLine | undefined = undefined;
-    if (seamGap > 0) {
+    if (seamGap >= 0) {
       const orientation = isVert ? 'VERTICAL' : (isHoriz ? 'HORIZONTAL' : 'DIAGONAL');
       const cutSegments = splitResult.cutSegments || [];
       const jointP1 = cutSegments[0]?.p1 || p1;
@@ -1439,7 +1439,7 @@ export class PolygonSlicingEngine {
     wallHeight: number,
     openings: Opening[] = []
   ): { panels: WallPanelPiece[]; joints: WallJointLine[] } {
-    if (oldTakeSide === newTakeSide || jointWidth <= 0) return { panels, joints };
+    if (targetJoint.gapOwnerSide || oldTakeSide === newTakeSide || jointWidth <= 0) return { panels, joints };
 
     const p1 = targetJoint.p1 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
     const p2 = targetJoint.p2 || { x: (targetJoint as any).x || 0, y: (targetJoint as any).y || 0 };
@@ -2115,6 +2115,8 @@ export class PolygonSlicingEngine {
             isLED: false,
             orientation: 'VERTICAL',
             takeSide: 'RIGHT',
+            gapOwnerSide: seg.p2.y >= seg.p1.y ? -1 : 1,
+            gapConfigured: true,
           });
         });
       } else {
@@ -2126,6 +2128,8 @@ export class PolygonSlicingEngine {
           isLED: false,
           orientation: 'VERTICAL',
           takeSide: 'RIGHT',
+          gapOwnerSide: -1,
+          gapConfigured: true,
         });
       }
       curStart += stripWidth + effSeamGap;
@@ -2545,10 +2549,13 @@ export class PolygonSlicingEngine {
     panel: WallPanelPiece,
     maxW: number,
     maxH: number,
-    seamGap: number = DEFAULT_JOINT_GAP_MM
+    seamGap: number = DEFAULT_SHEET_CUT_GAP_MM
   ): { newPanels: WallPanelPiece[]; joints: WallJointLine[] } {
     if (!panel || !panel.points || panel.points.length < 3) {
       return { newPanels: [panel], joints: [] };
+    }
+    if (!Number.isFinite(seamGap) || seamGap < 0) {
+      throw new Error('Зазор должен быть конечным неотрицательным числом.');
     }
 
     const xs = panel.points.map((p) => p.x);
@@ -2564,8 +2571,9 @@ export class PolygonSlicingEngine {
     const effMaxW = maxW > 50 ? maxW : 1220;
     const effMaxH = maxH > 50 ? maxH : 2800;
 
-    const needsCutW = totalW > effMaxW + 2;
-    const needsCutH = totalH > effMaxH + 2;
+    const epsilon = 1e-5;
+    const needsCutW = totalW > effMaxW + epsilon;
+    const needsCutH = totalH > effMaxH + epsilon;
 
     if (!needsCutW && !needsCutH) {
       return { newPanels: [panel], joints: [] };
@@ -2573,98 +2581,59 @@ export class PolygonSlicingEngine {
 
     let currentPolys: Point2D[][] = [panel.points];
     const createdJoints: WallJointLine[] = [];
+    const cutId = crypto.randomUUID();
 
-    // 1. Нарезка по вертикали (по ширине листа)
-    if (needsCutW) {
-      let curX = minX;
-      while (curX + effMaxW < maxX - 2) {
-        const cutLineX = curX + effMaxW;
+    // Each full sheet keeps its exact size. The gap begins after it, so the
+    // accumulated allowance comes entirely out of the last piece on the axis.
+    const sliceAxis = (axis: 'x' | 'y', start: number, end: number, size: number) => {
+      const vertical = axis === 'x';
+      const line = (coordinate: number): [Point2D, Point2D] => vertical
+        ? [{ x: coordinate, y: minY - 100 }, { x: coordinate, y: maxY + 100 }]
+        : [{ x: minX - 100, y: coordinate }, { x: maxX + 100, y: coordinate }];
+      const trim = (poly: Point2D[], boundary: number, keepGreater: boolean): Point2D[][] => {
+        const inside = (point: Point2D) => keepGreater ? point[axis] >= boundary - epsilon : point[axis] <= boundary + epsilon;
+        if (poly.every(inside)) return [poly];
+        if (!poly.some(inside)) return [];
+        const [p1, p2] = line(boundary);
+        // Zero-width cuts keep sloped edges on their original contour and
+        // return separate polygons when a concave shape has multiple branches.
+        const split = this.splitPolygonByLine(poly, p1, p2, 0);
+        if (split?.allPieces) return split.allPieces.filter(piece => piece.every(inside));
+        const clipped = this.clipPolygonByHalfPlane(poly, p1, p2, vertical ? keepGreater : !keepGreater);
+        return clipped.length >= 3 && this.calculatePolygonArea(clipped) > epsilon ? [clipped] : [];
+      };
+      for (let cursor = start; cursor + size < end - epsilon; cursor += size + seamGap) {
+        const sheetEnd = cursor + size;
+        const nextStart = sheetEnd + seamGap;
+        if (nextStart >= end - epsilon) {
+          throw new Error(`Зазор ${seamGap} мм слишком велик: ${vertical ? 'справа' : 'сверху'} не остаётся места для последней панели. Уменьшите зазор.`);
+        }
+        const [p1, p2] = line(sheetEnd + seamGap / 2);
         const nextPolys: Point2D[][] = [];
-
         for (const poly of currentPolys) {
-          const pXs = poly.map((p) => p.x);
-          const pMinX = Math.min(...pXs);
-          const pMaxX = Math.max(...pXs);
-
-          if (cutLineX > pMinX + 2 && cutLineX < pMaxX - 2) {
-            const split = this.splitPolygonByLine(
-              poly,
-              { x: cutLineX, y: -10000 },
-              { x: cutLineX, y: 10000 },
-              seamGap
-            );
-            if (split && split.allPieces && split.allPieces.length >= 2) {
-              nextPolys.push(...split.allPieces);
-              if (split.cutSegments) {
-                split.cutSegments.forEach((seg) => {
-                  createdJoints.push({
-                    id: `joint-cut-${Date.now()}-${createdJoints.length + 1}`,
-                    p1: seg.p1,
-                    p2: seg.p2,
-                    width: seamGap,
-                    isLED: false,
-                    orientation: 'VERTICAL',
-                  });
-                });
-              }
-            } else {
-              nextPolys.push(poly);
-            }
-          } else {
+          const min = Math.min(...poly.map(p => p[axis]));
+          const max = Math.max(...poly.map(p => p[axis]));
+          if (max <= sheetEnd + epsilon || min >= nextStart - epsilon) {
             nextPolys.push(poly);
+            continue;
+          }
+          const split = this.splitPolygonByLine(poly, p1, p2, 0);
+          nextPolys.push(...trim(poly, sheetEnd, false), ...trim(poly, nextStart, true));
+          for (const segment of split?.cutSegments ?? []) {
+            createdJoints.push({ id: `joint-cut-${cutId}-${createdJoints.length + 1}`,
+              ...segment, width: seamGap, isLED: false,
+              gapConfigured: true,
+              orientation: vertical ? 'VERTICAL' : 'HORIZONTAL', takeSide: vertical ? 'RIGHT' : 'TOP',
+              gapOwnerSide: vertical ? (segment.p2.y >= segment.p1.y ? -1 : 1)
+                : (segment.p2.x >= segment.p1.x ? 1 : -1),
+            });
           }
         }
-
         currentPolys = nextPolys;
-        curX += effMaxW + seamGap;
       }
-    }
-
-    // 2. Нарезка по горизонтали (по высоте листа)
-    if (needsCutH) {
-      let curY = minY;
-      while (curY + effMaxH < maxY - 2) {
-        const cutLineY = curY + effMaxH;
-        const nextPolys: Point2D[][] = [];
-
-        for (const poly of currentPolys) {
-          const pYs = poly.map((p) => p.y);
-          const pMinY = Math.min(...pYs);
-          const pMaxY = Math.max(...pYs);
-
-          if (cutLineY > pMinY + 2 && cutLineY < pMaxY - 2) {
-            const split = this.splitPolygonByLine(
-              poly,
-              { x: -10000, y: cutLineY },
-              { x: 10000, y: cutLineY },
-              seamGap
-            );
-            if (split && split.allPieces && split.allPieces.length >= 2) {
-              nextPolys.push(...split.allPieces);
-              if (split.cutSegments) {
-                split.cutSegments.forEach((seg) => {
-                  createdJoints.push({
-                    id: `joint-cut-${Date.now()}-${createdJoints.length + 1}`,
-                    p1: seg.p1,
-                    p2: seg.p2,
-                    width: seamGap,
-                    isLED: false,
-                    orientation: 'HORIZONTAL',
-                  });
-                });
-              }
-            } else {
-              nextPolys.push(poly);
-            }
-          } else {
-            nextPolys.push(poly);
-          }
-        }
-
-        currentPolys = nextPolys;
-        curY += effMaxH + seamGap;
-      }
-    }
+    };
+    if (needsCutW) sliceAxis('x', minX, maxX, effMaxW);
+    if (needsCutH) sliceAxis('y', minY, maxY, effMaxH);
 
     // Сортируем полученные детали слева направо, сверху вниз
     const sortedPolys = [...currentPolys].sort((a, b) => {
@@ -2676,11 +2645,27 @@ export class PolygonSlicingEngine {
       return bCentroid.y - aCentroid.y;
     });
 
+    // Exterior treatments belong only to child edges on the original contour.
+    const sourceEdges = getPanelEdges(panel.points, panel.edges).filter(edge => edge.config);
+    const childEdges = (poly: Point2D[]): PanelEdgesConfig => {
+      const edges: PanelEdgesConfig = {};
+      getPanelEdges(poly).forEach(edge => {
+        const source = sourceEdges.find(original => [edge.p1, edge.p2].every(point => {
+          const dx = original.p2.x - original.p1.x, dy = original.p2.y - original.p1.y;
+          const distance = Math.abs((point.x - original.p1.x) * dy - (point.y - original.p1.y) * dx) / original.length;
+          const projection = ((point.x - original.p1.x) * dx + (point.y - original.p1.y) * dy) / original.length ** 2;
+          return distance < epsilon && projection >= -epsilon && projection <= 1 + epsilon;
+        }));
+        if (source) edges[edge.key] = { ...source.config! };
+      });
+      return edges;
+    };
     const newPanels: WallPanelPiece[] = sortedPolys.map((poly, idx) => ({
       ...panel,
-      id: `panel-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
+      id: `panel-${cutId}-${idx + 1}`,
       points: poly,
       partLabel: `${panel.partLabel || '1.1'}.${idx + 1}`,
+      edges: childEdges(poly),
     }));
 
     return { newPanels, joints: createdJoints };

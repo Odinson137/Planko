@@ -4,6 +4,7 @@ import { PanelLeftOpen } from 'lucide-react';
 import { TopToolbar } from './TopToolbar';
 import { LeftSidebar } from './LeftSidebar';
 import { RightSidebar } from './RightSidebar';
+import { ThreeDViewSidebar } from './ThreeDViewSidebar';
 import { CadCanvas } from '../canvas/CadCanvas';
 import { Axonometric3DView } from '../canvas/Axonometric3DView';
 import { PanelCutSidebar } from './PanelCutSidebar';
@@ -12,10 +13,13 @@ import { WallPlanCanvas } from '../canvas/WallPlanCanvas';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { useProjectHistory } from '../../useProjectHistory';
+import { useWallClipboard } from '../../useWallClipboard';
 
 export const MainLayout: React.FC = () => {
   useProjectHistory();
+  useWallClipboard();
   const { viewMode, editMode, showLeftSidebar, toggleLeftSidebar, activeTool } = useEditorStore();
+  const [cameraControlsContainer, setCameraControlsContainer] = React.useState<HTMLDivElement | null>(null);
   const editingWalls = viewMode === '2D' && editMode === 'WALLS';
   const t = useAppTheme();
 
@@ -53,11 +57,11 @@ export const MainLayout: React.FC = () => {
             </Tooltip>
           )}
 
-          {editingWalls ? <WallPlanCanvas /> : viewMode === '3D' ? <Axonometric3DView /> : <CadCanvas />}
+          {editingWalls ? <WallPlanCanvas /> : viewMode === '3D' ? <Axonometric3DView controlsContainer={cameraControlsContainer} /> : <CadCanvas />}
         </Box>
 
         {/* Правая панель инспектора */}
-        {editingWalls ? <WallInspector /> : activeTool === 'CUT_PANEL' && viewMode === '2D' ? <PanelCutSidebar /> : <RightSidebar />}
+        {viewMode === '3D' ? <ThreeDViewSidebar controlsRef={setCameraControlsContainer} /> : editingWalls ? <WallInspector /> : activeTool === 'CUT_PANEL' ? <PanelCutSidebar /> : <RightSidebar />}
       </Flex>
 
     </Flex>

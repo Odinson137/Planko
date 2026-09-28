@@ -22,6 +22,8 @@ import {
   Save,
   Undo2,
   Redo2,
+  Copy,
+  ClipboardPaste,
   FolderKanban,
   Check,
   Download,
@@ -30,10 +32,10 @@ import {
   Wrench,
   Ruler,
   Loader2,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from 'lucide-react';
 import { useEditorStore } from '../../../application/stores/useEditorStore';
+import { useClipboardStore } from '../../../application/stores/useClipboardStore';
+import { canCopyWallObjects } from '../../../application/services/WallClipboard';
 import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { useWallEditorStore } from '../../../application/stores/useWallEditorStore';
 import { AllWallCatalogModal } from '../catalog/AllWallCatalogModal';
@@ -43,6 +45,7 @@ import type { OpeningType } from '../../../core/models/Opening';
 
 export const TopToolbar: React.FC = () => {
   const t = useAppTheme();
+  const clipboard = useClipboardStore();
   const {
     viewMode,
     setViewMode,
@@ -51,8 +54,6 @@ export const TopToolbar: React.FC = () => {
     resetView,
     showTextures,
     toggleTextures,
-    showLeftSidebar,
-    toggleLeftSidebar,
     setCurrentScreen,
   } = useEditorStore();
 
@@ -72,6 +73,7 @@ export const TopToolbar: React.FC = () => {
     selectPanel,
     selectOpening,
     selectWallBend,
+    selectedPieceIds,
   } = useProjectStore();
 
   const [catalogOpened, setCatalogOpened] = useState(false);
@@ -80,6 +82,9 @@ export const TopToolbar: React.FC = () => {
   const [exportingType, setExportingType] = useState<string | null>(null);
 
   const selectedWallId = project.selectedWallId;
+  const selectedWall = project.walls.find(wall => wall.id === selectedWallId);
+  const canCopy = editMode !== 'WALLS' && !!selectedWall && canCopyWallObjects(selectedWall, project.materials,
+    project.selectedOpeningId ? [project.selectedOpeningId] : [], selectedPieceIds);
   const showSavedConfirmation = isSavedRecently && !isDirty;
 
   const handleSave = async () => {
@@ -162,24 +167,6 @@ export const TopToolbar: React.FC = () => {
       >
         {/* Меню проектов, Сохранение и Экспорт */}
         <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
-          {/* Кнопка скрытия / показа списка стен */}
-          <Tooltip label={showLeftSidebar ? "Скрыть меню стен" : "Показать меню стен"} position="bottom">
-            <ActionIcon
-              size="sm"
-              variant={showLeftSidebar ? "light" : "default"}
-              color={showLeftSidebar ? "blue" : "gray"}
-              onClick={toggleLeftSidebar}
-              styles={{
-                root: {
-                  border: `1px solid ${t.border}`,
-                  backgroundColor: t.isDark ? (showLeftSidebar ? undefined : '#26282D') : (showLeftSidebar ? undefined : '#F1F5F9'),
-                },
-              }}
-            >
-              {showLeftSidebar ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
-            </ActionIcon>
-          </Tooltip>
-
           {/* Кнопка возврата в меню проектов */}
           <Tooltip label="Меню проектов" position="bottom">
             <Button
@@ -211,6 +198,12 @@ export const TopToolbar: React.FC = () => {
             <Tooltip label="Вперёд — повторить (Ctrl+Shift+Z / Ctrl+Y)" position="bottom">
               <ActionIcon size="lg" variant="subtle" color="gray" aria-label="Вперёд — повторить"
                 disabled={!canRedo} onClick={redo}><Redo2 size={18} /></ActionIcon>
+            </Tooltip>
+            <Tooltip label="Копировать объекты или панели (Ctrl+C)" position="bottom">
+              <ActionIcon size="lg" variant="subtle" color="gray" aria-label="Копировать" disabled={!canCopy} onClick={clipboard.copy}><Copy size={18} /></ActionIcon>
+            </Tooltip>
+            <Tooltip label="Вставить на активную стену (Ctrl+V)" position="bottom">
+              <ActionIcon size="lg" variant="subtle" color="gray" aria-label="Вставить" disabled={!clipboard.content} onClick={clipboard.beginPaste}><ClipboardPaste size={18} /></ActionIcon>
             </Tooltip>
           </Group>
 

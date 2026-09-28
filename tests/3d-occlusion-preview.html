@@ -7,9 +7,10 @@
 <script type="module">
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { MantineProvider } from '@mantine/core';
+import { MantineProvider, Box, Flex } from '@mantine/core';
 import '@mantine/core/styles.css';
 import { Axonometric3DView } from '/src/presentation/components/canvas/Axonometric3DView.tsx';
+import { ThreeDViewSidebar } from '/src/presentation/components/layout/ThreeDViewSidebar.tsx';
 import { useProjectStore } from '/src/application/stores/useProjectStore.ts';
 import { useEditorStore } from '/src/application/stores/useEditorStore.ts';
 import { createDefaultWall } from '/src/core/models/Wall.ts';
@@ -43,8 +44,14 @@ const initial = useProjectStore.getState().project;
 useProjectStore.setState({ project:{...initial,id:'occlusion-preview',walls:[wall],selectedWallId:wall.id,
   materials:[MATERIAL_NONE,...materials]} });
 useEditorStore.setState({showTextures:false});
+function Preview() {
+  const [controlsContainer, setControlsContainer] = React.useState(null);
+  return React.createElement(Flex, {h:'100%'},
+    React.createElement(Box, {style:{flex:1,minWidth:0}}, React.createElement(Axonometric3DView, {controlsContainer})),
+    React.createElement(ThreeDViewSidebar, {controlsRef:setControlsContainer}));
+}
 createRoot(document.getElementById('root')).render(React.createElement(MantineProvider,{defaultColorScheme:'light'},
-  React.createElement(Axonometric3DView)));
+  React.createElement(Preview)));
 
 // Pixel regression: two overlapping wall masks must remain opaque even where they overlap.
 const canvas = document.createElement('canvas'); canvas.width=100;canvas.height=100;

@@ -24,6 +24,37 @@ export interface Material {
 
 export const MATERIAL_NONE_ID = 'mat-none';
 
+/** Material appearance selected for a panel, independently of its joint profile. */
+export interface PanelMaterialSelection {
+  materialId: string;
+  thickness: number;
+  color: string;
+  decorCode: string;
+  decorName?: string;
+  textureCategory?: string;
+  reliefType?: SlatProfileShape;
+}
+
+export function panelMaterialDefaults(material: Material): PanelMaterialSelection {
+  const decor = material.availableDecors?.[0];
+  return {
+    materialId: material.id,
+    thickness: material.thickness || material.thicknessOptions?.[0] || 5,
+    color: decor?.color || material.color || '#d6cbbe',
+    decorCode: decor?.code || material.decorCode || '',
+    decorName: decor?.name || material.decorName || '',
+    textureCategory: decor?.category || material.textureCategory || 'WOOD',
+    reliefType: material.reliefType || 'FLAT',
+  };
+}
+
+export function materialSheetFormat(material?: Material) {
+  return {
+    width: material && material.width > 50 ? material.width : 1220,
+    height: material && material.height > 50 ? material.height : 2800,
+  };
+}
+
 export const MATERIAL_NONE: Material = {
   id: MATERIAL_NONE_ID,
   name: '⭕ Без материала (Пустота / Зеркало / Покраска)',

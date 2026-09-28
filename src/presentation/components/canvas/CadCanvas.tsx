@@ -2,7 +2,8 @@ import { SlopeUnfoldLayer } from './SlopeUnfoldLayer';
 import { SlopeJointMarks } from './SlopeJointMarks';
 import { slopeJointHasProfile } from '../../../core/geometry/SlopeJointGeometry';
 import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
-import { getResolvedPanelEdges } from '../../../core/geometry/PanelJointBinding';
+import { getResolvedPanelEdges, getPanelJointSide } from '../../../core/geometry/PanelJointBinding';
+import { isGapConfigured } from '../../../core/models/Wall';
 import { getPieceTexture } from '../../../core/textures/PieceTextures';
 
 import React, { useEffect, useCallback, useMemo } from 'react';
@@ -17,6 +18,8 @@ import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngin
 import { MATERIAL_NONE_ID } from '../../../core/models/Material';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { PanelCutLayer } from './PanelCutLayer';
+import { ClipboardLayer } from './ClipboardLayer';
+import { useClipboardStore } from '../../../application/stores/useClipboardStore';
 
 const INNER_CORNER_GRADIENT_STOPS = [0, 'rgba(255, 255, 255, 0.18)', 0.5, 'rgba(0, 0, 0, 0.52)', 1, 'rgba(255, 255, 255, 0.18)'];
 const OUTER_CORNER_GRADIENT_STOPS = [0, 'rgba(0, 0, 0, 0.48)', 0.4, 'rgba(255, 255, 255, 0.28)', 0.6, 'rgba(255, 255, 255, 0.28)', 1, 'rgba(0, 0, 0, 0.48)'];
@@ -39,6 +42,7 @@ export const CadCanvas: React.FC = () => {
     toggleCellSelection,
     selectJoint,
     updateOpening,
+    selectedOpeningIds,
   } = useProjectStore();
   const {
     zoom,
@@ -55,6 +59,7 @@ export const CadCanvas: React.FC = () => {
   } = useEditorStore();
 
   const selectedWall = project.walls.find((w) => w.id === project.selectedWallId);
+  const clipboard = useClipboardStore();
   const selectedMaterial = project.materials.find(
     (m) => m.id === (selectedWall?.zone.materialId || MATERIAL_NONE_ID)
   ) || project.materials.find((m) => m.id === MATERIAL_NONE_ID) || project.materials[0];
@@ -150,7 +155,7 @@ export const CadCanvas: React.FC = () => {
         backgroundColor: t.canvasBg,
         position: 'relative',
         overflow: 'hidden',
-        cursor: activeTool === 'CUT_PANEL' ? 'crosshair' : activeTool === 'SELECT' ? 'default' : 'grab',
+        cursor: clipboard.preview ? (clipboard.error ? 'not-allowed' : 'copy') : activeTool === 'CUT_PANEL' ? 'crosshair' : activeTool === 'SELECT' ? 'default' : 'grab',
       }}
     >
       {containerWidth > 0 && containerHeight > 0 && (
@@ -162,7 +167,7 @@ export const CadCanvas: React.FC = () => {
           scaleX={zoom}
           scaleY={zoom}
           onWheel={handleWheel}
-          draggable={activeTool !== 'CUT_PANEL'}
+          draggable={activeTool !== 'CUT_PANEL' && !clipboard.preview}
           onDragStart={(e) => {
             if (e.target !== e.currentTarget) {
               e.cancelBubble = true;
@@ -638,10 +643,10 @@ export const CadCanvas: React.FC = () => {
             {selectedWall.openings.map((op) => {
               const isApplied = op.isApplied ?? false;
               const isPanelsMode = (editMode === 'PANELS' || editMode === 'TEXTURES');
-              const canDrag = isPanelsMode && !isApplied;
+              const canDrag = isPanelsMode && !isApplied && !clipboard.preview;
               const opX = op.x;
               const opY = wallH - (op.y + op.height);
-              const isSelected = op.id === project.selectedOpeningId;
+              const isSelected = selectedOpeningIds.includes(op.id);
               const isPortal = isPortalOpening(op);
               const openingStroke = isSelected ? '#339AF0' : (!isApplied ? '#FF922B' : getOpeningColor(op.type));
               const openingStrokeWidth = isSelected ? 4 / zoom : (!isApplied ? 2.5 / zoom : (op.isCutout !== false ? 2 / zoom : 3 / zoom));
@@ -662,7 +667,7 @@ export const CadCanvas: React.FC = () => {
                   }}
                   onClick={(e) => {
                     e.cancelBubble = true;
-                    selectOpening(op.id);
+                    selectOpening(op.id, e.evt.shiftKey);
                   }}
                   onDragEnd={(e) => {
                     if (!canDrag) return;
@@ -1090,8 +1095,8 @@ export const CadCanvas: React.FC = () => {
                     const edgeConf = framing[side];
                     const w = edgeConf?.width ?? 0;
                     const isLED = edgeConf?.isLED ?? false;
-                    const hasJoint = w > 0 || isLED || Boolean(edgeConf?.profileArticle);
-
+                    const gapConfigured = isGapConfigured(edgeConf);
+                    const hasJoint = gapConfigured || isLED || Boolean(edgeConf?.profileArticle);
                     const isLeft = side === 'left';
                     const isRight = side === 'right';
                     const isTop = side === 'top';
@@ -1268,7 +1273,8 @@ export const CadCanvas: React.FC = () => {
 
               const wallPanel = findPanelForEdge(selectedWall.panels, panel.id);
               const points = wallPanel?.points ?? panel.polygonPoints ?? [];
-              const contour = wallPanel ? getResolvedPanelEdges(selectedWall, wallPanel) : getPanelEdges(points);
+              const contour = wallPanel ? getResolvedPanelEdges(selectedWall, wallPanel)
+                : getPanelEdges(points).map(edge => ({ ...edge, joint: undefined }));
               const currentSide = contour.find(e => e.key === selectedPanelEdge?.edge)?.key ?? contour[0]?.key;
 
               return (
@@ -1278,10 +1284,15 @@ export const CadCanvas: React.FC = () => {
                     const edgeConf = edge.config;
                     const w = edgeConf?.width ?? 0;
                     const isLED = edgeConf?.isLED ?? false;
-                    const hasJoint = w > 0 || isLED || Boolean(edgeConf?.profileArticle);
+                    const gapConfigured = isGapConfigured(edgeConf);
+                    const hasJoint = gapConfigured || isLED || Boolean(edgeConf?.profileArticle);
                     const isEdgeSelected = currentSide === side;
+                    const joint = edge.joint;
+                    const isMaster = joint?.gapOwnerSide && wallPanel
+                      ? getPanelJointSide(wallPanel, joint) === joint.gapOwnerSide : false;
+                    const ownership = joint?.gapOwnerSide ? isMaster ? 'Главная · ' : 'Связь · ' : '';
                     const edgeLinePoints = [edge.p1.x, wallH - edge.p1.y, edge.p2.x, wallH - edge.p2.y];
-                    const badgeW = hasJoint ? 90 / zoom : 74 / zoom;
+                    const badgeW = (ownership ? 156 : hasJoint ? 90 : 74) / zoom;
                     const badgeH = 22 / zoom;
                     const bX = (edge.p1.x + edge.p2.x) / 2 - badgeW / 2;
                     const bY = wallH - (edge.p1.y + edge.p2.y) / 2 - badgeH / 2;
@@ -1300,7 +1311,7 @@ export const CadCanvas: React.FC = () => {
                         {/* Кликабельная грань детали */}
                         <Line
                           points={edgeLinePoints}
-                          stroke={isEdgeSelected ? '#339AF0' : hasJoint ? '#FFD43B' : 'rgba(51, 154, 240, 0.45)'}
+                          stroke={isMaster ? '#F08C00' : isEdgeSelected ? '#339AF0' : hasJoint ? '#FFD43B' : 'rgba(51, 154, 240, 0.45)'}
                           strokeWidth={isEdgeSelected ? 3.5 / zoom : 2 / zoom}
                           hitStrokeWidth={Math.max(26 / zoom, 20)}
                           onClick={onClickSide}
@@ -1332,7 +1343,7 @@ export const CadCanvas: React.FC = () => {
                           <Rect
                             width={badgeW}
                             height={badgeH}
-                            fill={isEdgeSelected ? '#1971C2' : hasJoint ? '#212529' : 'rgba(33, 37, 41, 0.88)'}
+                            fill={isMaster ? '#A84600' : isEdgeSelected ? '#1971C2' : hasJoint ? '#212529' : 'rgba(33, 37, 41, 0.88)'}
                             stroke={isEdgeSelected ? '#FFFFFF' : hasJoint ? '#FAB005' : '#495057'}
                             strokeWidth={isEdgeSelected ? 1.5 : 1}
                             cornerRadius={3}
@@ -1341,8 +1352,8 @@ export const CadCanvas: React.FC = () => {
                             x={3 / zoom}
                             y={5 / zoom}
                             text={
-                              hasJoint
-                                ? `${edge.shortLabel} ${isLED ? '⚡' : ''}${w}мм`
+                              hasJoint || ownership
+                                ? `${ownership}${edge.shortLabel}${isLED ? ' ⚡' : ''}${gapConfigured ? ` ${w}мм` : ''}`
                                 : edge.shortLabel
                             }
                             fontSize={10 / zoom}
@@ -1361,9 +1372,13 @@ export const CadCanvas: React.FC = () => {
               );
             })()}
           </Layer>
+          <ClipboardLayer width={containerWidth} height={containerHeight} wallHeight={wallH} zoom={zoom} panX={panX} panY={panY} />
           {activeTool === 'CUT_PANEL' && <PanelCutLayer width={containerWidth} height={containerHeight} zoom={zoom} panX={panX} panY={panY} />}
         </Stage>
       )}
+      {(clipboard.preview || clipboard.message) && <div role="status" style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', maxWidth: '90%', padding: '10px 16px', borderRadius: 8, background: t.bgSidebar, color: clipboard.error ? '#fa5252' : t.textPrimary, boxShadow: '0 2px 12px #0003', fontSize: 13, pointerEvents: 'none' }}>
+        {clipboard.preview ? (clipboard.error ?? 'Клик — разместить · Esc — отменить · Alt — без привязки') : clipboard.message}
+      </div>}
     </div>
   );
 };

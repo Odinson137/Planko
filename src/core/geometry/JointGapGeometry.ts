@@ -3,6 +3,7 @@ import type { WallJointLine, WallPanelPiece } from '../models/Wall';
 import type { Opening } from '../models/Opening';
 import { getPanelEdges } from './PanelEdges';
 import { edgeBelongsToJoint } from './PanelJointBinding';
+import { resizeOwnedJointGap } from './PanelEdgeGapGeometry';
 
 const EPS = 1e-5;
 const cross = (a: Point2D, b: Point2D) => a.x * b.y - a.y * b.x;
@@ -54,6 +55,11 @@ function resizeFullSpanGap(panels: WallPanelPiece[], joints: WallJointLine[], ta
 export function resizeJointGap(panels: WallPanelPiece[], joints: WallJointLine[], target: WallJointLine,
   oldWidth: number, newWidth: number, wallWidth: number, wallHeight: number, openings: Opening[] = []) {
   if (Math.abs(newWidth - oldWidth) < EPS) return { panels, joints };
+  if (target.gapOwnerSide) {
+    const resized = resizeOwnedJointGap({ panels, joints, width: wallWidth, height: wallHeight }, { ...target, width: oldWidth }, newWidth);
+    return { panels: resized.panels, joints: resized.joints!.map(j => j.id === target.id
+      ? { ...joints.find(source => source.id === target.id)!, width: newWidth, p1: j.p1, p2: j.p2 } : j) };
+  }
   const chain = resizeFullSpanGap(panels, joints, target, oldWidth, newWidth, wallWidth, wallHeight, openings);
   if (chain) return chain;
   const vector = subtract(target.p2, target.p1), length = Math.hypot(vector.x, vector.y);

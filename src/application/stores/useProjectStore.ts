@@ -5,14 +5,15 @@ import { nextWallViewName, normalizeWallCamera, savedWallViews, type WallCamera 
 import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming, getOpeningTypeLabel, isDoorOrPortal, isPortalOpening } from '../../core/models/Opening';
-import { ProfileType, findProfileByArticle, DEFAULT_PROFILES, DEFAULT_JOINT_GAP_MM } from '../../core/models/Profile';
-import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS } from '../../core/models/Material';
+import { ProfileType, findProfileByArticle, DEFAULT_PROFILES, DEFAULT_JOINT_GAP_MM, DEFAULT_SHEET_CUT_GAP_MM } from '../../core/models/Profile';
+import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS, materialSheetFormat, type PanelMaterialSelection } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
 import { PolygonSlicingEngine, PolygonSubPiece, Point2D } from '../../core/geometry/PolygonSlicingEngine';
-import { getPanelEdges } from '../../core/geometry/PanelEdges';
-import { getPanelEdgeJoint, getResolvedPanelEdges } from '../../core/geometry/PanelJointBinding';
-import { resizePanelEdgeGap } from '../../core/geometry/PanelEdgeGapGeometry';
+import { getPanelEdges, findPanelForEdge } from '../../core/geometry/PanelEdges';
+import { getPanelEdgeJoint, getResolvedPanelEdges, getPanelJointSide, getJointGapOwners, effectiveWallJoint } from '../../core/geometry/PanelJointBinding';
+import { isGapConfigured } from '../../core/models/Wall';
+import { resizeOwnedJointGap, materializeSharedJoint } from '../../core/geometry/PanelEdgeGapGeometry';
 import { renumberProjectWalls } from '../../core/layout/WallNumberingEngine';
 import { localProjectRepository } from '../../infrastructure/repositories/LocalSQLiteRepository';
 import { localCatalogRepository } from '../../infrastructure/repositories/LocalCatalogRepository';
@@ -20,6 +21,13 @@ import { equalData, historyState, projectContent, recordChange, sameProjectConte
 
 export type GridPresetType = 'STANDARD_1220' | 'SLATS_145' | 'TIERS_900_1800' | 'CENTER_TV_NICHE';
 export type JointPreset = 'NONE' | '0.8' | '3' | '7' | '5' | '8' | '10' | 'LED_10';
+
+export interface SheetFormatCutOptions {
+  gap: number;
+  material?: PanelMaterialSelection;
+  profileArticle?: string;
+  profileColor?: string;
+}
 
 export interface SelectedCellCoord {
   columnIndex: number;
@@ -47,6 +55,7 @@ export interface JointValidationResult {
 
 interface ProjectState {
   project: Project;
+  selectedOpeningIds: string[];
   history: ProjectHistory;
   canUndo: boolean;
   canRedo: boolean;
@@ -77,7 +86,7 @@ interface ProjectState {
 
   // Выбор
   selectWall: (wallId: string) => void;
-  selectOpening: (openingId: string | null) => void;
+  selectOpening: (openingId: string | null, additive?: boolean) => void;
   selectPanel: (
     panelId: string | null,
     columnIndex: number | null,
@@ -142,6 +151,7 @@ interface ProjectState {
   // Управление кликабельными стыками и краями
   setJointWidth: (wallId: string, jointId: string, width: number) => void;
   setJointTakeSide: (wallId: string, jointId: string, takeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') => void;
+  switchJointGapOwner: (wallId: string, jointId: string) => void;
   setJointLED: (wallId: string, jointId: string, isLED: boolean) => void;
   setJointPreset: (wallId: string, jointId: string, preset: JointPreset) => void;
   setJointProfile: (wallId: string, jointId: string, article: string, colorHex?: string) => void;
@@ -242,7 +252,8 @@ interface ProjectState {
     wallId: string,
     panelId?: string,
     columnIndex?: number,
-    segmentIndex?: number
+    segmentIndex?: number,
+    options?: SheetFormatCutOptions
   ) => void;
 }
 
@@ -606,6 +617,8 @@ function jointParameters(wall: Wall, id: string): JointEdgeConfig {
     orientation: source?.orientation ?? (id.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL'),
     isLED: source?.isLED ?? false, profileArticle: source?.profileArticle,
     profileColor: source?.profileColor, groupId: source?.groupId, takeSide: source?.takeSide,
+    gapOwnerSide: source?.gapOwnerSide,
+    gapConfigured: source?.gapConfigured,
     ...custom,
   };
 }
@@ -650,6 +663,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         const savedProject = !state.isDirty && !state.history.past.length ? state.project : state.savedProject;
         return {
           ...nextState,
+          selectedOpeningIds: nextState.selectedOpeningIds ?? (project.selectedOpeningId !== state.project.selectedOpeningId
+            ? (project.selectedOpeningId ? [project.selectedOpeningId] : []) : state.selectedOpeningIds),
           project,
           savedProject,
           isDirty: changed ? projectContentChanged(savedProject, project) : state.isDirty,
@@ -668,7 +683,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     const project = renumberProjectWalls(next.project);
     setRaw(state => ({ ...next, project, savedProject: project, ...historyState(),
       historyRevision: state.historyRevision + 1, projectSession: state.projectSession + 1,
-      historyError: null, isDirty: false, selectedPanelEdge: null, isSlicingModalOpen: false, slicingTarget: null }));
+      historyError: null, isDirty: false, selectedOpeningIds: [], selectedPanelEdge: null, isSlicingModalOpen: false, slicingTarget: null }));
   }
 
   function saveCatalogPanel(panel: Material) {
@@ -706,6 +721,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
         future: redo ? state.history.future.slice(0, -1) : [...state.history.future, entry],
       }),
       historyRevision: state.historyRevision + 1, historyError: null,
+      selectedOpeningIds: [],
       selectedColumnIndex: null, selectedSegmentIndex: null, selectedCellKeys: [], selectedPieceIds: [],
       selectedJointId: null, selectedJointIds: [], selectedWallBendId: null, selectedSubPieceId: null,
       selectedPanelEdge: null, isSlicingModalOpen: false, slicingTarget: null,
@@ -719,6 +735,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   return {
     project: initialProject,
+    selectedOpeningIds: [],
     savedProject: initialProject,
     ...historyState(),
     historyRevision: 0,
@@ -772,8 +789,13 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       },
     })),
 
-  selectOpening: (openingId: string | null) =>
-    set((state) => ({
+  selectOpening: (openingId: string | null, additive = false) =>
+    set((state) => {
+      const ids = !openingId ? [] : !additive ? [openingId]
+        : state.selectedOpeningIds.includes(openingId) ? state.selectedOpeningIds.filter(id => id !== openingId)
+        : [...state.selectedOpeningIds, openingId];
+      return {
+      selectedOpeningIds: ids,
       selectedPanelEdge: null,
       selectedColumnIndex: null,
       selectedSegmentIndex: null,
@@ -785,9 +807,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       selectedSubPieceId: null,
       project: {
         ...state.project,
-        selectedOpeningId: openingId,
+        selectedOpeningId: ids[ids.length - 1] ?? null,
       },
-    })),
+    }; }),
 
   selectWallBend: (bendId: string | null) =>
     set((state) => ({
@@ -1184,21 +1206,16 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (!wall || state.selectedJointIds.length === 0) return state;
 
       const baseId = targetJointId || state.selectedJointIds[0];
-      const baseConfig = wall.customJoints[baseId] || {
-        id: baseId,
-        orientation: baseId.includes('-v-') ? 'VERTICAL' : 'HORIZONTAL',
-        width: 3,
-        isLED: false,
-        takeSide: 'BOTH',
-      };
+      const baseConfig = jointParameters(wall, baseId);
 
       const nextCustomJoints = { ...wall.customJoints };
       state.selectedJointIds.forEach((id) => {
         nextCustomJoints[id] = {
           ...(nextCustomJoints[id] || { id, orientation: baseConfig.orientation }),
           width: baseConfig.width,
+          gapConfigured: isGapConfigured(baseConfig),
           isLED: baseConfig.isLED,
-          takeSide: baseConfig.takeSide,
+          takeSide: jointParameters(wall, id).gapOwnerSide ? jointParameters(wall, id).takeSide : baseConfig.takeSide,
         };
       });
 
@@ -1208,18 +1225,33 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           if (state.selectedJointIds.includes(j.id)) {
             return {
               ...j,
-              takeSide: baseConfig.takeSide,
+              width: baseConfig.width,
+              gapConfigured: isGapConfigured(baseConfig),
+              takeSide: j.gapOwnerSide ? j.takeSide : baseConfig.takeSide,
             };
           }
           return j;
         });
       }
 
+      let nextPanels = wall.panels;
+      if (nextPanels?.length) {
+        for (const id of state.selectedJointIds) {
+          const target = findOrSynthesizeJoint({ ...wall, joints: nextWallJoints }, id);
+          if (!target) continue;
+          const resized = PolygonSlicingEngine.cascadeChainJointWidthChange(
+            nextPanels, nextWallJoints ?? [], target, jointParameters(wall, id).width,
+            baseConfig.width, wall.width, wall.height, wall.openings);
+          nextPanels = resized.panels;
+          nextWallJoints = resized.joints;
+        }
+      }
+
       return {
         project: {
           ...state.project,
           walls: state.project.walls.map((w) =>
-            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints } : w
+            w.id === wallId ? { ...w, customJoints: nextCustomJoints, joints: nextWallJoints, panels: nextPanels } : w
           ),
         },
       };
@@ -1281,6 +1313,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           width,
           isLED,
           profileArticle: defaultProfileArticle,
+          gapConfigured: true,
         };
       });
 
@@ -1293,6 +1326,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               width,
               isLED,
               profileArticle: defaultProfileArticle,
+              gapConfigured: true,
             };
           }
           return j;
@@ -1390,14 +1424,14 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       const nextCustomJoints = { ...wall.customJoints };
 
       state.selectedJointIds.forEach((id) => {
-        nextCustomJoints[id] = { ...jointParameters(wall, id), width: clampedW };
+        nextCustomJoints[id] = { ...jointParameters(wall, id), width: clampedW, gapConfigured: true };
       });
 
       let nextWallJoints = wall.joints;
       if (nextWallJoints && nextWallJoints.length > 0) {
         nextWallJoints = nextWallJoints.map((j) => {
           if (state.selectedJointIds.includes(j.id)) {
-            return { ...j, width: clampedW };
+            return { ...j, width: clampedW, gapConfigured: true };
           }
           return j;
         });
@@ -1447,6 +1481,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     set((state) => {
       const wall = state.project.walls.find((w) => w.id === wallId);
       if (!wall || state.selectedJointIds.length === 0) return state;
+      if (state.selectedJointIds.some(id => jointParameters(wall, id).gapOwnerSide)) return state;
 
       const nextCustomJoints = { ...wall.customJoints };
       state.selectedJointIds.forEach((id) => {
@@ -2523,19 +2558,55 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     })),
 
 
+  switchJointGapOwner: (wallId: string, jointId: string) =>
+    set((state) => {
+      let wall = state.project.walls.find(w => w.id === wallId);
+      const source = wall?.joints?.find(j => j.id === jointId) ?? wall?.panels
+        ?.flatMap(p => getResolvedPanelEdges(wall!, p)).find(e => e.joint?.id === jointId)?.joint;
+      if (!wall || !source) return state;
+      const materialized = materializeSharedJoint(wall, effectiveWallJoint(wall, source));
+      wall = materialized.wall;
+      const joint = materialized.joint;
+      if (!joint.gapOwnerSide) return state;
+      const gapOwnerSide = joint.gapOwnerSide === 1 ? -1 : 1;
+      if (!getJointGapOwners(wall.panels ?? [], { ...joint, gapOwnerSide }).length) return state;
+      // Transfer the entire current allowance, atomically: restore the old owner,
+      // then take the same width from the opposite side and move the profile with it.
+      const closed = resizeOwnedJointGap(wall, joint, 0);
+      const transferred = resizeOwnedJointGap({ ...wall, panels: closed.panels, joints: closed.joints },
+        { ...closed.joint, gapOwnerSide }, joint.width);
+      let selectedPanelEdge = state.selectedPanelEdge;
+      if (selectedPanelEdge?.wallId === wallId) {
+        const selectedPanel = wall.panels?.find(p => p.id === selectedPanelEdge!.panelId);
+        const selectedEdge = selectedPanel && getResolvedPanelEdges(wall, selectedPanel)
+          .find(e => e.key === selectedPanelEdge!.edge);
+        if (selectedEdge?.joint?.id === jointId) {
+          const moved = [...transferred.edges, ...closed.edges].find(e => e.panelId === selectedPanelEdge!.panelId);
+          if (moved) selectedPanelEdge = { ...selectedPanelEdge, edge: moved.edgeKey };
+        }
+      }
+      return { selectedPanelEdge, project: { ...state.project, walls: state.project.walls.map(w => w.id !== wallId ? w : {
+        ...w,
+        panels: transferred.panels,
+        joints: transferred.joints,
+        customJoints: { ...w.customJoints, [jointId]: { ...jointParameters(wall!, jointId), gapOwnerSide } },
+      }) } };
+    }),
+
   setJointTakeSide: (wallId: string, jointId: string, takeSide: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM') =>
     set((state) => ({
       project: {
         ...state.project,
         walls: state.project.walls.map((w) => {
           if (w.id !== wallId) return w;
+          if (jointParameters(w, jointId).gapOwnerSide) return w;
           const baseId = jointId.split('-part-')[0].split('-merged-')[0];
           const targetGroupId = w.customJoints[jointId]?.groupId || w.customJoints[baseId]?.groupId;
           const nextJoints = { ...w.customJoints };
 
           if (targetGroupId) {
             Object.keys(nextJoints).forEach((k) => {
-              if (nextJoints[k]?.groupId === targetGroupId) {
+              if (nextJoints[k]?.groupId === targetGroupId && !jointParameters(w, k).gapOwnerSide) {
                 nextJoints[k] = {
                   ...nextJoints[k],
                   takeSide,
@@ -2558,7 +2629,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           let nextWallJoints = w.joints;
           if (nextWallJoints && nextWallJoints.length > 0) {
             nextWallJoints = nextWallJoints.map((j) => {
-              if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
+              if (!jointParameters(w, j.id).gapOwnerSide && (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId)))) {
                 return {
                   ...j,
                   takeSide,
@@ -2617,7 +2688,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const nextJoints = { ...w.customJoints };
           const clamped = Math.max(0, width);
 
-          const updateJointItem = (id: string) => ({ ...jointParameters(w, id), width: clamped });
+          const updateJointItem = (id: string) => ({ ...jointParameters(w, id), width: clamped, gapConfigured: true });
 
           if (targetGroupId) {
             Object.keys(nextJoints).forEach((k) => {
@@ -2633,7 +2704,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           if (nextWallJoints && nextWallJoints.length > 0) {
             nextWallJoints = nextWallJoints.map((j) => {
               if (j.id === jointId || (targetGroupId && (w.customJoints[j.id]?.groupId === targetGroupId || j.groupId === targetGroupId))) {
-                return { ...j, width: clamped };
+                return { ...j, width: clamped, gapConfigured: true };
               }
               return j;
             });
@@ -2788,6 +2859,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                   width,
                   isLED,
                   profileArticle: defaultProfileArticle,
+                  gapConfigured: true,
                 };
               }
             });
@@ -2798,6 +2870,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               width,
               isLED,
               profileArticle: defaultProfileArticle,
+              gapConfigured: true,
             };
           }
 
@@ -2810,6 +2883,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                   width,
                   isLED,
                   profileArticle: defaultProfileArticle,
+                  gapConfigured: true,
                 };
               }
               return j;
@@ -2929,33 +3003,51 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       let selectedPanelEdge = state.selectedPanelEdge;
       const walls = state.project.walls.map((w) => {
           if (w.id !== wallId) return w;
-          const panel = w.panels?.find(p => p.id === panelId);
-          const edgeInfo = panel && getPanelEdges(panel.points, panel.edges)
+          let panel = w.panels?.find(p => p.id === panelId);
+          let edgeInfo = panel && getPanelEdges(panel.points, panel.edges)
             .find(e => e.key === edge || e.index === edge || e.side === edge);
-          const joint = edgeInfo && getPanelEdgeJoint(w, edgeInfo);
+          let resolvedJoint = edgeInfo && getPanelEdgeJoint(w, edgeInfo, panel);
+          if (resolvedJoint && !w.joints?.some(j => j.id === resolvedJoint!.id)) {
+            const materialized = materializeSharedJoint(w, resolvedJoint);
+            w = materialized.wall;
+            resolvedJoint = materialized.joint;
+            panel = w.panels?.find(p => p.id === panelId);
+            const resolvedEdge = panel && getResolvedPanelEdges(w, panel).find(e => e.joint?.id === resolvedJoint!.id);
+            edgeInfo = panel && getPanelEdges(panel.points, panel.edges).find(e => e.key === resolvedEdge?.key);
+            if (edgeInfo && selectedPanelEdge?.wallId === wallId && selectedPanelEdge.panelId === panelId &&
+              selectedPanelEdge.edge === edge) selectedPanelEdge = { ...selectedPanelEdge, edge: edgeInfo.key };
+          }
+          const joint = resolvedJoint;
           if (joint && edgeInfo && panel && (config.width !== undefined || !(edgeInfo.config?.width))) {
-            // One shared gap, edited by moving only the selected panel boundary.
+            // The first explicit gap edit fixes its owner; the opposite side only edits the shared value.
             let updated = { ...joint, ...edgeInfo.config, ...config,
               width: config.width !== undefined ? Math.max(0, config.width) : joint.width,
+              gapConfigured: config.width !== undefined || joint.gapConfigured || edgeInfo.config?.gapConfigured,
               isLED: config.isLED ?? edgeInfo.config?.isLED ?? joint.isLED };
-            let nextPanel = panel;
+            let nextPanels = w.panels;
+            let nextJoints = w.joints;
             if (config.width !== undefined) {
-              const resized = resizePanelEdgeGap(w, panel, edgeInfo.index, joint, updated.width);
-              nextPanel = resized.panel;
-              updated = { ...updated, p1: resized.joint.p1, p2: resized.joint.p2 };
+              const gapOwnerSide = joint.gapOwnerSide ?? getPanelJointSide(panel, joint);
+              const resized = resizeOwnedJointGap(w, { ...joint, gapOwnerSide }, updated.width);
+              nextPanels = resized.panels;
+              nextJoints = resized.joints;
+              updated = { ...updated, gapOwnerSide, p1: resized.joint.p1, p2: resized.joint.p2 };
+              const movedEdge = resized.edges.find(e => e.panelId === panelId);
               if (selectedPanelEdge?.wallId === wallId && selectedPanelEdge.panelId === panelId &&
-                (selectedPanelEdge.edge === edgeInfo.key || selectedPanelEdge.edge === edgeInfo.index)) {
-                selectedPanelEdge = { ...selectedPanelEdge, edge: resized.edgeKey };
+                movedEdge && (selectedPanelEdge.edge === edgeInfo.key || selectedPanelEdge.edge === edgeInfo.index)) {
+                selectedPanelEdge = { ...selectedPanelEdge, edge: movedEdge.edgeKey };
               }
             } else if (panel.edges) {
               const edges = { ...panel.edges };
               delete edges[edgeInfo.index];
               if (edgeInfo.side) delete edges[edgeInfo.side];
-              nextPanel = { ...panel, edges };
+              nextPanels = w.panels?.map(p => p.id === panelId ? { ...panel, edges } : p);
             }
-            return { ...w, panels: w.panels?.map(p => p.id === panelId ? nextPanel : p),
-              joints: w.joints?.map(j => j.id === joint.id ? updated : j), customJoints: { ...w.customJoints,
+            return { ...w, panels: nextPanels,
+              joints: nextJoints?.map(j => j.id === joint.id ? updated : j), customJoints: { ...w.customJoints,
               [joint.id]: { ...jointParameters(w, joint.id), width: updated.width, isLED: updated.isLED,
+                gapOwnerSide: updated.gapOwnerSide,
+                gapConfigured: updated.gapConfigured,
                 profileArticle: updated.profileArticle, profileColor: updated.profileColor,
                 orientation: updated.orientation ?? (Math.abs(updated.p1.x - updated.p2.x) < 1e-5 ? 'VERTICAL'
                   : Math.abs(updated.p1.y - updated.p2.y) < 1e-5 ? 'HORIZONTAL' : 'DIAGONAL') } } };
@@ -2969,6 +3061,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             const nextEdgeConfig: PanelEdgeJointConfig = {
               ...currentEdgeConfig,
               ...config,
+              gapConfigured: config.width !== undefined || currentEdgeConfig.gapConfigured,
             };
             const nextEdges: NonNullable<WallPanelPiece['edges']> = { ...currentEdges, [target.key]: nextEdgeConfig };
             // A named rectangle edge and its numeric index refer to the same contour line.
@@ -3747,7 +3840,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const splitRes = PolygonSlicingEngine.splitWallPanel(targetPanel, p1, p2, 0);
           if (splitRes) {
             nextPanels.splice(pIdx, 1, ...splitRes.newPanels);
-            if (splitRes.joint && splitRes.joint.width > 0) nextJoints.push(splitRes.joint);
+            if (splitRes.joint) nextJoints.push(splitRes.joint);
 
             return {
               selectedPieceIds: [splitRes.newPanels[0].id],
@@ -3976,7 +4069,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           const splitRes = PolygonSlicingEngine.splitWallPanel(targetPanel, p1, p2, 0);
           if (splitRes) {
             nextPanels.splice(pIdx, 1, ...splitRes.newPanels);
-            if (splitRes.joint && splitRes.joint.width > 0) nextJoints.push(splitRes.joint);
+            if (splitRes.joint) nextJoints.push(splitRes.joint);
 
             return {
               selectedPieceIds: [splitRes.newPanels[0].id],
@@ -5641,10 +5734,10 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
       if (!wall) return state;
 
       const opening = wall.openings.find((op) => op.id === openingId);
-      if (!opening || opening.isApplied) return state;
+      if (!opening) return state;
 
       let nextPanels = wall.panels;
-      let nextJoints = (wall.joints || []).filter((j) => !j.id.startsWith('joint-op-'));
+      let nextJoints = wall.joints || [];
 
       // Если в стене еще нет wall.panels, инициализируем их из текущего layout'а
       if ((!nextPanels || nextPanels.length === 0) && opening.isCutout !== false) {
@@ -5693,6 +5786,12 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       else if (nextPanels && nextPanels.length > 0 && opening.isCutout !== false) {
         const cutResult = PolygonSlicingEngine.cutOpeningFromWallPanels(nextPanels, opening, DEFAULT_JOINT_GAP_MM);
+        if (opening.isApplied) {
+          const area = (panels: WallPanelPiece[]) => panels.reduce((sum, panel) =>
+            sum + PolygonSlicingEngine.calculatePolygonArea(panel.points), 0);
+          // The button remains available, but an existing cut must not be applied twice.
+          if (area(cutResult.newPanels) >= area(nextPanels) - 0.01) return state;
+        }
         nextPanels = cutResult.newPanels;
         nextJoints = [...nextJoints, ...(cutResult.joints || [])];
       }
@@ -6033,7 +6132,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     wallId: string,
     panelId?: string,
     columnIndex?: number,
-    _segmentIndex?: number
+    segmentIndex?: number,
+    options?: SheetFormatCutOptions
   ) =>
     set((state) => {
       const wall = state.project.walls.find((w) => w.id === wallId);
@@ -6041,6 +6141,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
       let nextPanels = wall.panels;
       let nextJoints = wall.joints ? [...wall.joints] : [];
+      let targetId = panelId;
 
       // Если в стене еще нет wall.panels, инициализируем их из текущего layout'а
       if (!nextPanels || nextPanels.length === 0) {
@@ -6052,6 +6153,9 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           defaultMat,
           state.project.materials
         );
+        targetId = (panelId ? layout.panels.find(p => p.id === panelId || p.subPieceId === panelId)?.id : undefined)
+          ?? layout.panels.find(p => p.originalColumnIndex === columnIndex
+            && p.originalSegmentIndex === (segmentIndex ?? 0))?.id;
         nextPanels = layout.panels.map((p) => ({
           id: p.id,
           points: p.polygonPoints || [
@@ -6065,6 +6169,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           decorCode: p.decorCode,
           decorName: p.decorName,
           partLabel: p.partLabel,
+          note: p.note,
           isVoid: p.isVoid,
           thickness: p.thickness,
           reliefType: p.reliefType as any,
@@ -6084,39 +6189,54 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
           width: j.width,
           orientation: j.orientation,
           isLED: j.isLED,
+          profileArticle: j.profileArticle,
+          profileColor: j.profileColor,
+          takeSide: j.takeSide,
+          gapOwnerSide: j.gapOwnerSide,
+          gapConfigured: j.gapConfigured,
+          groupId: j.groupId,
+          isOuterEdge: j.isOuterEdge,
         }));
       }
 
       if (!nextPanels || nextPanels.length === 0) return state;
 
       // Находим целевую деталь
-      const targetPanel =
-        (panelId && nextPanels.find((p) => p.id === panelId || (p as any).subPieceId === panelId)) ||
-        (columnIndex !== null && columnIndex !== undefined
-          ? nextPanels.find((p) => (p as any).originalColumnIndex === columnIndex)
-          : null) ||
-        nextPanels[0];
+      const targetPanel = targetId ? findPanelForEdge(nextPanels, targetId)
+        : columnIndex !== undefined ? nextPanels[columnIndex] : nextPanels[0];
 
       if (!targetPanel) return state;
 
-      const mat =
+      const selection = options?.material;
+      const selectedMaterial = selection && state.project.materials.find(m => m.id === selection.materialId);
+      if (selection && (!selectedMaterial || selectedMaterial.isVoid || selectedMaterial.type === 'NONE')) {
+        throw new Error('Выберите материал панели из каталога.');
+      }
+      const mat = selectedMaterial ||
         state.project.materials.find((m) => m.id === targetPanel.materialId) ||
         state.project.materials.find((m) => m.id === wall.zone.materialId) ||
         state.project.materials[0];
-
-      const maxW = mat?.width && mat.width > 50 ? mat.width : 1220;
-      const maxH = mat?.height && mat.height > 50 ? mat.height : 2800;
-
-      const sliced = PolygonSlicingEngine.slicePanelByMaxSheetDimensions(targetPanel, maxW, maxH, DEFAULT_PROFILES[wall.zone.jointProfileType]?.width ?? DEFAULT_JOINT_GAP_MM);
-      if (!sliced.newPanels || sliced.newPanels.length <= 1) {
+      const format = materialSheetFormat(mat);
+      const appearanceChanged = selection && (selection.materialId !== targetPanel.materialId
+        || selection.decorCode !== (targetPanel.decorCode ?? '') || selection.textureCategory !== targetPanel.textureCategory);
+      const sourcePanel: WallPanelPiece = selection ? {
+        ...targetPanel, ...selection, isVoid: false,
+        partLabel: targetPanel.isVoid || targetPanel.partLabel.startsWith('ПУСТО') ? '1.1' : targetPanel.partLabel,
+        ...(appearanceChanged ? { textureMapping: undefined, textureStockWidth: undefined, textureStockHeight: undefined } : {}),
+      } : targetPanel;
+      const gap = options?.gap ?? DEFAULT_SHEET_CUT_GAP_MM;
+      const sliced = PolygonSlicingEngine.slicePanelByMaxSheetDimensions(sourcePanel, format.width, format.height, gap);
+      if (sliced.newPanels.length <= 1 && !selection) {
         return state;
       }
 
-      const remainingPanels = nextPanels.filter((p) => p.id !== targetPanel.id);
-      const updatedPanels = [...remainingPanels, ...sliced.newPanels];
-      const cutProfile = wall.zone.jointProfileType === 'JOINT_7' ? 'MC-06-7'
+      const updatedPanels = nextPanels.flatMap(p => p.id === targetPanel.id ? sliced.newPanels : [p]);
+      const cutProfile = options ? options.profileArticle || undefined : wall.zone.jointProfileType === 'JOINT_7' ? 'MC-06-7'
         : wall.zone.jointProfileType === 'JOINT_3' || wall.zone.jointProfileType === 'H_JOINT' ? 'MC-06' : undefined;
-      const updatedJoints = [...nextJoints, ...sliced.joints.map((joint) => ({ ...joint, profileArticle: cutProfile }))];
+      const updatedJoints = [...nextJoints, ...sliced.joints.map((joint) => ({ ...joint,
+        profileArticle: cutProfile, profileColor: options?.profileColor,
+        isLED: findProfileByArticle(cutProfile ?? '')?.isLEDCompatible ?? false,
+      }))];
 
       return {
         selectedPieceIds: [sliced.newPanels[0].id],

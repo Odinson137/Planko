@@ -1,4 +1,7 @@
 import { PanelGapInput } from './PanelGapInput';
+import { JointGapOwnership } from './JointGapOwnership';
+import { SheetFormatCutButton } from './SheetFormatCutButton';
+import { PanelMaterialSettings } from './PanelMaterialSettings';
 import { ProfileCatalogSettings, PROFILE_TYPE_OPTIONS, getProfilesByType } from './ProfileCatalogSettings';
 import { SlopeJointInspector } from './SlopeJointInspector';
 import { TextureEditor } from './TextureEditor';
@@ -8,7 +11,6 @@ import {
   Title,
   NumberInput,
   TextInput,
-  ColorInput,
   Select,
   SegmentedControl,
   Divider,
@@ -35,9 +37,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Link,
-  Search,
   Scissors,
-  Grid,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -49,15 +49,14 @@ import { useEditorStore } from '../../../application/stores/useEditorStore';
 import { usePanelCutStore } from '../../../application/stores/usePanelCutStore';
 import { useAppTheme } from '../../theme/useAppTheme';
 import { LayoutEngine } from '../../../core/layout/LayoutEngine';
-import { MATERIAL_NONE_ID } from '../../../core/models/Material';
-import { findDecorByCode } from '../../../core/models/AllWallCatalog';
+import { MATERIAL_NONE_ID, type PanelMaterialSelection } from '../../../core/models/Material';
 import {
-  DEFAULT_PROFILES,
   findProfileByArticle,
 } from '../../../core/models/Profile';
 import { PolygonSlicingEngine } from '../../../core/geometry/PolygonSlicingEngine';
-import { getPanelEdges, findPanelForEdge } from '../../../core/geometry/PanelEdges';
+import { findPanelForEdge } from '../../../core/geometry/PanelEdges';
 import { getResolvedPanelEdges } from '../../../core/geometry/PanelJointBinding';
+import { isGapConfigured } from '../../../core/models/Wall';
 import {
   ensureOpeningSlopes,
   ensureOpeningFraming,
@@ -112,6 +111,7 @@ export const RightSidebar: React.FC = () => {
     setJointColorForSelected,
     setJointWidth,
     setJointTakeSide,
+    switchJointGapOwner,
     setJointProfile,
     setJointColor,
     updatePanelSegment,
@@ -360,11 +360,13 @@ export const RightSidebar: React.FC = () => {
   if (editMode === 'JOINTS' && activePanelId && currentWall) {
     const wallPanel = findPanelForEdge(currentWall.panels, activePanelId);
     const targetPanelId = wallPanel?.id || activePanelId;
-    const panelEdges = wallPanel ? getResolvedPanelEdges(currentWall, wallPanel) : getPanelEdges([]);
+    const panelEdges = wallPanel ? getResolvedPanelEdges(currentWall, wallPanel) : [];
     const selectedEdge = panelEdges.find(e => e.key === selectedPanelEdge?.edge) ?? panelEdges[0];
+    const sharedJoint = selectedEdge?.joint;
     const side = selectedEdge?.key ?? 'right';
     const edgeConfig = selectedEdge?.config || { width: 0, isLED: false };
     const currentWidth = edgeConfig.width ?? 0;
+    const gapConfigured = isGapConfigured(edgeConfig);
     const isLED = edgeConfig.isLED ?? false;
     const profileArticle = edgeConfig.profileArticle;
     const profileColor = edgeConfig.profileColor || '#212529';
@@ -397,7 +399,7 @@ export const RightSidebar: React.FC = () => {
               </div>
               <Group gap={6}>
                 <Badge size="xs" color={isLED ? 'yellow' : currentWidth > 0 ? 'blue' : 'gray'}>
-                  {isLED ? '⚡ LED' : currentWidth > 0 ? `${currentWidth} мм` : 'Встык (0 мм)'}
+                  {!gapConfigured ? 'Зазор не задан' : isLED ? '⚡ LED' : currentWidth > 0 ? `${currentWidth} мм` : 'Встык (0 мм)'}
                 </Badge>
                 <Tooltip label="Снять выделение">
                   <ActionIcon
@@ -424,7 +426,7 @@ export const RightSidebar: React.FC = () => {
                 {panelEdges.map((item) => {
                   const s = item.key;
                   const sConf = item.config;
-                  const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED || sConf?.profileArticle;
+                  const hasS = isGapConfigured(sConf) || sConf?.isLED || sConf?.profileArticle;
                   const isCur = side === s;
                   return (
                     <Button
@@ -452,7 +454,9 @@ export const RightSidebar: React.FC = () => {
             <Divider color={t.border} />
 
             {/* Выбор ширины зазора / профиля */}
-            <PanelGapInput key={`${targetPanelId}-${side}`} value={currentWidth}
+            {sharedJoint && <JointGapOwnership wall={currentWall} joint={sharedJoint} panelId={targetPanelId}
+              onSwitch={() => switchJointGapOwner(currentWall.id, sharedJoint.id)} />}
+            <PanelGapInput key={`${targetPanelId}-${side}`} value={gapConfigured ? currentWidth : null}
               onChange={width => {
                 try {
                   setPanelEdgeWidth(currentWall.id, targetPanelId, side, width);
@@ -553,6 +557,16 @@ export const RightSidebar: React.FC = () => {
   // =========================================================================
   if (editMode === 'JOINTS' && selectedJointIds.length > 1) {
     const validation = validateSelectedJoints(currentWall.id);
+    const hasOwnedJoint = selectedJointIds.some(id => currentWall.customJoints[id]?.gapOwnerSide ||
+      currentWall.joints?.find(j => j.id === id)?.gapOwnerSide);
+    const configuredGaps = selectedJointIds.map(id => {
+      const baseId = id.split('-part-')[0].split('-merged-')[0].split('-seg-')[0];
+      const joint = currentWall.joints?.find(j => j.id === id || j.id === baseId) ?? layoutResult?.joints.find(j => j.id === id);
+      const custom = currentWall.customJoints[id] ?? currentWall.customJoints[baseId];
+      return isGapConfigured(joint ? { ...joint, ...custom } : custom);
+    });
+    const allGapsConfigured = configuredGaps.every(Boolean);
+    const mixedGaps = !validation.sameWidth || (configuredGaps.some(Boolean) && !allGapsConfigured);
 
     return (
       <Stack
@@ -652,10 +666,12 @@ export const RightSidebar: React.FC = () => {
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва (для всех) */}
             <PanelGapInput key={selectedJointIds.join(',')} label="Зазор между панелями (мм, для всех)"
-              value={validation.sameWidth ? validation.widths[0] : null}
+              value={validation.sameWidth && allGapsConfigured ? validation.widths[0] : null}
+              placeholder={mixedGaps ? 'Разные значения' : 'Введите зазор'}
               onChange={width => setJointWidthForSelected(currentWall.id, width)} />
 
             {/* Направление взятия зазора (для группы) */}
+            {hasOwnedJoint ? <Text size="xs" c="dimmed">У настроенных стыков зазор берётся из закреплённых главных панелей.</Text> :
             <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
               <Stack gap={6}>
                 <Text size="xs" fw={600}>
@@ -723,6 +739,7 @@ export const RightSidebar: React.FC = () => {
               </Stack>
             </Paper>
 
+            }
             {/* Профиль выбирается независимо от зазора */}
             <>
                 {/* Фильтр по типу профиля */}
@@ -798,8 +815,11 @@ export const RightSidebar: React.FC = () => {
     const selectedJoint = layoutResult?.joints.find((j) => j.id === selectedJointId);
     const baseId = selectedJointId.split('-part-')[0].split('-merged-')[0].split('-seg-')[0];
     const customConfig = currentWall.customJoints[selectedJointId] || currentWall.customJoints[baseId];
+    const rawJoint = currentWall.joints?.find(j => j.id === selectedJointId || j.id === baseId);
+    const ownedJoint = rawJoint && { ...rawJoint, ...customConfig };
 
     const currentWidth = customConfig !== undefined ? customConfig.width : (selectedJoint?.width ?? 3);
+    const gapConfigured = isGapConfigured(ownedJoint ?? (selectedJoint ? { ...selectedJoint, ...customConfig } : customConfig));
     const isLED = customConfig !== undefined ? customConfig.isLED : (selectedJoint?.isLED ?? false);
     const profileArticle = customConfig?.profileArticle || selectedJoint?.profileArticle;
     const profileColor = customConfig?.profileColor || selectedJoint?.profileColor || '#212529';
@@ -849,7 +869,7 @@ export const RightSidebar: React.FC = () => {
               </div>
               <Group gap={6}>
                 <Badge size="xs" color={isLED ? 'yellow' : 'blue'}>
-                  {isLED ? `⚡ LED · зазор ${currentWidth} мм` : `Зазор ${currentWidth} мм`}
+                  {!gapConfigured ? 'Зазор не задан' : isLED ? `⚡ LED · зазор ${currentWidth} мм` : `Зазор ${currentWidth} мм`}
                 </Badge>
                 <Tooltip label="Снять выделение">
                   <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => selectJoint(null)}>
@@ -862,10 +882,12 @@ export const RightSidebar: React.FC = () => {
             <Divider color={t.border} />
 
             {/* ФИЛЬТР 1: Селектор всех размеров шва */}
-            <PanelGapInput key={`gap-${selectedJointId}`} value={currentWidth}
+            <PanelGapInput key={`gap-${selectedJointId}`} value={gapConfigured ? currentWidth : null}
               onChange={width => setJointWidth(currentWall.id, selectedJointId, width)} />
 
             {/* Направление взятия зазора (Стрелки) */}
+            {ownedJoint?.gapOwnerSide ? <JointGapOwnership wall={currentWall} joint={ownedJoint}
+              onSwitch={() => switchJointGapOwner(currentWall.id, ownedJoint.id)} /> :
             <Paper p="xs" radius="sm" style={{ backgroundColor: t.bgCardSubtle, border: `1px solid ${t.border}` }}>
               <Stack gap={6}>
                 <Group justify="space-between" align="center">
@@ -970,6 +992,7 @@ export const RightSidebar: React.FC = () => {
               </Stack>
             </Paper>
 
+            }
             <ProfileCatalogSettings key={`profile-${selectedJointId}`} article={profileArticle} color={profileColor}
               onProfile={article => setJointProfile(currentWall.id, selectedJointId, article, profileColor)}
               onColor={color => setJointColor(currentWall.id, selectedJointId, color)}
@@ -1046,6 +1069,17 @@ export const RightSidebar: React.FC = () => {
               </Text>
             )}
 
+            <Button
+              size="xs"
+              color="orange"
+              variant="filled"
+              leftSection={<Scissors size={14} />}
+              fullWidth
+              onClick={() => applyOpening(currentWall.id, currentOpening.id)}
+            >
+              Встроить проем в стену (Применить)
+            </Button>
+
             {!currentOpening.isApplied ? (
               <Paper
                 p="xs"
@@ -1062,18 +1096,8 @@ export const RightSidebar: React.FC = () => {
                     </Badge>
                   </Group>
                   <Text size="xs" c="dimmed">
-                    Переместите проем по стене или задайте точные размеры и координаты, затем нажмите кнопку:
+                    Переместите проем по стене или задайте точные размеры и координаты, затем нажмите «Применить».
                   </Text>
-                  <Button
-                    size="xs"
-                    color="orange"
-                    variant="filled"
-                    leftSection={<Scissors size={14} />}
-                    fullWidth
-                    onClick={() => applyOpening(currentWall.id, currentOpening.id)}
-                  >
-                    Встроить проем в стену (Применить)
-                  </Button>
                 </Stack>
               </Paper>
             ) : (
@@ -1793,7 +1817,6 @@ export const RightSidebar: React.FC = () => {
     const targetMat = project.materials.find((m) => m.id === effectiveMaterialId);
 
     const sheetMaxW = targetMat?.width && targetMat.width > 50 ? targetMat.width : (currentMaterial?.width && currentMaterial.width > 50 ? currentMaterial.width : 1220);
-    const sheetMaxH = targetMat?.height && targetMat.height > 50 ? targetMat.height : (currentMaterial?.height && currentMaterial.height > 50 ? currentMaterial.height : 2800);
 
     const selectedPanelWidth =
       actualPanelPiece !== undefined
@@ -1815,13 +1838,19 @@ export const RightSidebar: React.FC = () => {
       ? (activeSub.decorCode !== undefined ? activeSub.decorCode : (targetMat?.decorCode || ''))
       : (actualPanelPiece?.decorCode !== undefined ? actualPanelPiece.decorCode : (selectedSegment?.customDecorCode !== undefined ? selectedSegment.customDecorCode : (selectedCustomPanel?.customDecorCode !== undefined ? selectedCustomPanel.customDecorCode : (targetMat?.decorCode || currentMaterial?.decorCode || ''))));
 
-    const thicknessOpts = targetMat?.thicknessOptions && targetMat.thicknessOptions.length > 0
-      ? targetMat.thicknessOptions
-      : [targetMat?.thickness || 5];
-
     const currentThick = activeSub?.thickness || actualPanelPiece?.thickness || selectedSegment?.customThickness || selectedCustomPanel?.customThickness || targetMat?.thickness || 5;
-
-    const decorsList = targetMat?.availableDecors || [];
+    const panelMaterial: PanelMaterialSelection = {
+      materialId: effectiveMaterialId,
+      thickness: currentThick,
+      color: effectiveColor,
+      decorCode: effectiveDecorCode,
+      decorName: targetMat?.availableDecors?.find(decor => decor.code === effectiveDecorCode)?.name
+        ?? activeSub?.decorName ?? actualPanelPiece?.decorName ?? targetMat?.decorName,
+      textureCategory: activeSub?.textureCategory ?? actualPanelPiece?.textureCategory
+        ?? selectedSegment?.customTextureCategory ?? selectedCustomPanel?.customTextureCategory ?? targetMat?.textureCategory,
+      reliefType: (activeSub?.reliefType ?? actualPanelPiece?.reliefType ?? selectedSegment?.customReliefType
+        ?? selectedCustomPanel?.customReliefType ?? targetMat?.reliefType) as PanelMaterialSelection['reliefType'],
+    };
 
     const baseNum = (selectedCustomPanel?.segments && selectedCustomPanel.segments.length > 1)
       ? `${currentWallNumber}.${activeColumnIndex + 1}.${activeSegmentIndex + 1}`
@@ -1996,188 +2025,25 @@ export const RightSidebar: React.FC = () => {
 
             <Divider color={t.border} />
 
-            <Stack gap="xs">
-              {/* Выбор модели панели AllWall */}
-              <Group justify="space-between" align="center">
-                <Text size="xs" fw={600} c="dimmed">
-                  Модель панели AllWall:
-                </Text>
-                {effectiveIsVoid && <Badge size="xs" color="gray">Пустота</Badge>}
-              </Group>
-
-              <Select
-                size="xs"
-                value={effectiveMaterialId}
-                onChange={(val) => {
-                  if (!val) return;
-                  if (val === MATERIAL_NONE_ID) {
-                    clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex);
-                    return;
-                  }
-                  const chosenModel = project.materials.find((m) => m.id === val);
-                  const firstDecor = chosenModel?.availableDecors?.[0];
-                  setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                    materialId: val,
-                    customThickness: chosenModel?.thickness || chosenModel?.thicknessOptions?.[0] || 5,
-                    customColor: firstDecor?.color || chosenModel?.color || '#d6cbbe',
-                    customDecorCode: firstDecor?.code || chosenModel?.decorCode || '',
-                    customTextureCategory: chosenModel?.textureCategory || 'WOOD',
-                    customReliefType: chosenModel?.reliefType || 'FLAT',
-                  });
-                }}
-                data={[
-                  {
-                    group: 'Сплошные панели AllWall',
-                    items: project.materials
-                      .filter((m) => m.type === 'SHEET' && !m.isVoid)
-                      .map((m) => ({ value: m.id, label: `📄 ${m.name}` })),
-                  },
-                  {
-                    group: 'Реечные панели GW10–GW99',
-                    items: project.materials
-                      .filter((m) => m.type === 'SLAT' && !m.isVoid)
-                      .map((m) => ({ value: m.id, label: `🪵 ${m.name}` })),
-                  },
-                  {
-                    group: 'HQ-панели (Глянец & Золото)',
-                    items: project.materials
-                      .filter((m) => m.type === 'HQ' && !m.isVoid)
-                      .map((m) => ({ value: m.id, label: `✨ ${m.name}` })),
-                  },
-                  {
-                    group: 'Специальные зоны',
-                    items: [{ value: MATERIAL_NONE_ID, label: '⭕ Без материала (Пустота / Зеркало)' }],
-                  },
-                ]}
-                styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, color: t.textPrimary } }}
-              />
-
-              {!effectiveIsVoid && (
-                <>
-                  {/* Толщина */}
-                  <Group justify="space-between" align="center" mt={4}>
-                    <Text size="xs" fw={600} c="dimmed">
-                      Толщина панели:
-                    </Text>
-                    <Badge size="xs" color="blue" variant="light">
-                      {currentThick} мм
-                    </Badge>
-                  </Group>
-
-                  {thicknessOpts.length > 1 ? (
-                    <SegmentedControl
-                      size="xs"
-                      value={String(currentThick)}
-                      onChange={(val) =>
-                        setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                          customThickness: Number(val),
-                        })
-                      }
-                      data={thicknessOpts.map((t) => ({ label: `${t} мм`, value: String(t) }))}
-                    />
-                  ) : (
-                    <Paper p={6} radius="sm" style={{ backgroundColor: t.bgCard, border: `1px solid ${t.border}` }}>
-                      <Text size="xs" c="dimmed">
-                        Фиксированная глубина профиля: <strong style={{ color: '#74C0FC' }}>{thicknessOpts[0]} мм</strong>
-                      </Text>
-                    </Paper>
-                  )}
-
-                  {/* Декор и цвет AllWall */}
-                  <Group justify="space-between" align="center" mt={4}>
-                    <Text size="xs" fw={600} c="dimmed">
-                      Декор и цвет AllWall:
-                    </Text>
-                    {effectiveDecorCode && (
-                      <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                        {effectiveDecorCode}
-                      </Badge>
-                    )}
-                  </Group>
-
-                  <Group grow gap="xs">
-                    <TextInput
-                      size="xs"
-                      placeholder="Код декора (7029, 5134...)"
-                      value={effectiveDecorCode}
-                      onChange={(e) => {
-                        const val = e.currentTarget.value.trim();
-                        const found = findDecorByCode(val);
-                        setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                          customDecorCode: val,
-                          ...(found ? { customColor: found.color, customTextureCategory: found.category } : {}),
-                        });
-                      }}
-                      leftSection={<Search size={14} />}
-                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
-                    />
-                    <ColorInput
-                      size="xs"
-                      placeholder="Цвет (#HEX)"
-                      value={effectiveColor}
-                      onChange={(colorVal) => {
-                        setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                          customColor: colorVal,
-                        });
-                      }}
-                      styles={{ input: { backgroundColor: t.bgInput, borderColor: t.borderInput, fontFamily: 'JetBrains Mono', color: t.textPrimary } }}
-                    />
-                  </Group>
-
-                  {/* Свотчи декоров AllWall */}
-                  {decorsList.length > 0 && (
-                    <div>
-                      <Text size="xs" c="dimmed" mb={4}>
-                        Фирменная палитра модели ({decorsList.length}):
-                      </Text>
-                      <Group gap={6} style={{ flexWrap: 'wrap' }}>
-                        {decorsList.map((decor) => {
-                          const isSelected =
-                            (effectiveDecorCode && decor.code && effectiveDecorCode.trim() === decor.code.trim()) ||
-                            (effectiveColor && decor.color && effectiveColor.toLowerCase().trim() === decor.color.toLowerCase().trim());
-                          return (
-                            <Tooltip
-                              key={decor.code}
-                              label={
-                                <div style={{ textAlign: 'center' }}>
-                                  <Badge size="xs" color="dark" style={{ backgroundColor: '#000', color: '#fff' }}>
-                                    {decor.code}
-                                  </Badge>
-                                  <div style={{ fontSize: 11, marginTop: 2 }}>{decor.name}</div>
-                                </div>
-                              }
-                              withArrow
-                            >
-                              <div
-                                onClick={() =>
-                                  setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
-                                    materialId: effectiveMaterialId,
-                                    customColor: decor.color,
-                                    customDecorCode: decor.code,
-                                    customTextureCategory: decor.category,
-                                  })
-                                }
-                                style={{
-                                  cursor: 'pointer',
-                                  padding: 2,
-                                  borderRadius: '50%',
-                                  border: isSelected ? '2px solid #339af0' : '2px solid transparent',
-                                  transform: isSelected ? 'scale(1.2)' : 'scale(1)',
-                                  transition: 'all 0.15s ease',
-                                }}
-                              >
-                                <ColorSwatch color={decor.color} size={18} />
-                              </div>
-                            </Tooltip>
-                          );
-                        })}
-                      </Group>
-                    </div>
-                  )}
-                </>
-              )}
-            </Stack>
-
+            <PanelMaterialSettings
+              key={`${currentWall.id}:${selectedPieceId || selectedSubPieceId || `${activeColumnIndex}:${activeSegmentIndex}`}`}
+              materials={project.materials}
+              value={panelMaterial}
+              onChange={patch => {
+                if (patch.materialId === MATERIAL_NONE_ID) {
+                  clearCellMaterial(currentWall.id, activeColumnIndex, activeSegmentIndex);
+                  return;
+                }
+                setCellProperties(currentWall.id, activeColumnIndex, activeSegmentIndex, {
+                  ...(patch.materialId !== undefined ? { materialId: patch.materialId } : {}),
+                  ...(patch.thickness !== undefined ? { customThickness: patch.thickness } : {}),
+                  ...(patch.color !== undefined ? { customColor: patch.color } : {}),
+                  ...(patch.decorCode !== undefined ? { customDecorCode: patch.decorCode } : {}),
+                  ...(patch.textureCategory !== undefined ? { customTextureCategory: patch.textureCategory } : {}),
+                  ...(patch.reliefType !== undefined ? { customReliefType: patch.reliefType } : {}),
+                });
+              }}
+            />
             {/* ИНСТРУМЕНТЫ РАСКРОЯ И ДЕЛЕНИЯ ПАНЕЛИ */}
             <Stack gap="xs">
               <Text size="xs" fw={700} c="dimmed">
@@ -2185,28 +2051,21 @@ export const RightSidebar: React.FC = () => {
               </Text>
 
               {/* Кнопка нарезки по формату листа */}
-              <Tooltip
-                label={`Нарезать деталь на листы макс. формата (${sheetMaxW} × ${sheetMaxH} мм) с зазорами ${DEFAULT_PROFILES[currentWall.zone.jointProfileType]?.width ?? 3} мм`}
-                withArrow
-              >
-                <Button
-                  size="xs"
-                  variant="light"
-                  color="teal"
-                  leftSection={<Grid size={14} />}
-                  onClick={() =>
-                    slicePanelToSheetFormat(
-                      currentWall.id,
-                      (selectedPieceId || selectedSubPieceId) || undefined,
-                      activeColumnIndex,
-                      activeSegmentIndex
-                    )
-                  }
-                  style={{ fontWeight: 600 }}
-                >
-                  📐 Раскроить по формату листа
-                </Button>
-              </Tooltip>
+              <SheetFormatCutButton
+                key={`${currentWall.id}:${selectedPieceId || selectedSubPieceId || `${activeColumnIndex}:${activeSegmentIndex}`}`}
+                materials={project.materials}
+                material={panelMaterial}
+                panelWidth={selectedPanelWidth}
+                panelHeight={selectedPanelHeight}
+                profileType={currentWall.zone.jointProfileType}
+                onApply={options => slicePanelToSheetFormat(
+                  currentWall.id,
+                  (selectedPieceId || selectedSubPieceId) || undefined,
+                  activeColumnIndex,
+                  activeSegmentIndex,
+                  options
+                )}
+              />
 
               {/* Акцентная кнопка Редактора раскроя */}
               <Button

@@ -36,5 +36,7 @@ export function materializeWall(project: Project, wall: Wall): Wall {
     p2: j.p2 ?? (j.orientation === 'HORIZONTAL' ? { x: j.x+j.length, y: j.y } : { x: j.x, y: j.y+j.length }),
     width: j.width, isLED: j.isLED, orientation: j.orientation, profileArticle: j.profileArticle,
     profileColor: j.profileColor, groupId: j.groupId, isOuterEdge: j.isOuterEdge, takeSide: j.takeSide,
+    gapOwnerSide: j.gapOwnerSide,
+    gapConfigured: j.gapConfigured,
   })) };
 }

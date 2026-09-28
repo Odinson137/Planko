@@ -2,6 +2,7 @@ import type { Wall, WallJointLine, WallPanelPiece, PanelEdgesConfig } from '../m
 import { getPanelEdges } from './PanelEdges';
 import { PolygonSlicingEngine as Geometry, type Point2D } from './PolygonSlicingEngine';
 import { polygonsSeparated } from './PolygonCollision';
+import { getJointGapOwners } from './PanelJointBinding';
 
 const EPS = 1e-5;
 const cross = (a: Point2D, b: Point2D) => a.x * b.y - a.y * b.x;
@@ -9,7 +10,7 @@ const vector = (a: Point2D, b: Point2D) => ({ x: b.x - a.x, y: b.y - a.y });
 const area = (points: Point2D[]) => points.reduce((sum, p, i) => sum + cross(p, points[(i + 1) % points.length]), 0);
 
 /** Change one panel boundary. Neighboring panels and the other gaps stay fixed. */
-export function resizePanelEdgeGap(wall: Wall, panel: WallPanelPiece, edgeIndex: number, joint: WallJointLine, width: number) {
+export function resizePanelEdgeGap(wall: Pick<Wall, 'panels' | 'width' | 'height'>, panel: WallPanelPiece, edgeIndex: number, joint: WallJointLine, width: number) {
   const edges = getPanelEdges(panel.points, panel.edges);
   const selected = edges.find(e => e.index === edgeIndex)!;
   const direction = area(panel.points) >= 0 ? 1 : -1;
@@ -26,7 +27,7 @@ export function resizePanelEdgeGap(wall: Wall, panel: WallPanelPiece, edgeIndex:
     return { x: prev.p.x + t * prev.v.x, y: prev.p.y + t * prev.v.y };
   });
   if (points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)) || area(points) * direction <= EPS) {
-    throw new Error('Зазор слишком велик для выбранной панели.');
+    throw new Error('Зазор слишком велик для главной панели.');
   }
   // An expanding diagonal may reach a wall corner; clip it without moving the neighbor.
   const bounds = [{ x: 0, y: 0 }, { x: wall.width, y: 0 }, { x: wall.width, y: wall.height }, { x: 0, y: wall.height }];
@@ -35,7 +36,7 @@ export function resizePanelEdgeGap(wall: Wall, panel: WallPanelPiece, edgeIndex:
   }
   if (points.length < 3 || area(points) * direction <= EPS || (wall.panels ?? []).some(other =>
     other.id !== panel.id && !polygonsSeparated(points, other.points, 0))) {
-    throw new Error('Зазор слишком велик или выбранная панель пересекает соседнюю.');
+    throw new Error('Зазор слишком велик или главная панель пересекает соседнюю.');
   }
   const onLine = (p: Point2D, line: typeof lines[number]) => Math.abs(cross(line.v, vector(line.p, p))) / line.edge.length < EPS;
   const nextEdges: PanelEdgesConfig = {};
@@ -59,4 +60,53 @@ export function resizePanelEdgeGap(wall: Wall, panel: WallPanelPiece, edgeIndex:
   const updated = { ...joint, width, p1: at(Math.min(0, along(moved.p1), along(moved.p2))),
     p2: at(Math.max(length, along(moved.p1), along(moved.p2))) };
   return { panel: nextPanel, joint: updated, edgeKey };
+}
+
+/** Every editor uses the same master side, even when invoked from the opposite panel. */
+export function resizeOwnedJointGap(wall: Pick<Wall, 'panels' | 'joints' | 'width' | 'height'>, joint: WallJointLine, width: number) {
+  const owners = getJointGapOwners(wall.panels ?? [], joint);
+  if (!owners.length) throw new Error('Главная сторона стыка не найдена.');
+  const fixed = wall.panels!.filter(panel => !owners.some(owner => owner.panel.id === panel.id));
+  const resized = owners.map(({ panel, edge }) => resizePanelEdgeGap({ ...wall, panels: fixed }, panel, edge.index, joint, width));
+  const panels = wall.panels!.map(panel => resized.find(r => r.panel.id === panel.id)?.panel ?? panel);
+  if (resized.some(r => panels.some(p => p.id !== r.panel.id && !polygonsSeparated(r.panel.points, p.points, 0)))) {
+    throw new Error('Зазор слишком велик для главной стороны стыка.');
+  }
+  // Cuts ending at the resized boundary must follow it, including when the master was split into pieces.
+  const moveEndpoint = (point: Point2D, other: WallJointLine) => {
+    for (let i = 0; i < owners.length; i++) {
+      const old = owners[i].edge, v = vector(old.p1, old.p2), relative = vector(old.p1, point);
+      const t = (relative.x * v.x + relative.y * v.y) / (old.length * old.length);
+      if (Math.abs(cross(v, relative)) / old.length > EPS || t < -EPS || t > 1 + EPS) continue;
+      const moved = getPanelEdges(resized[i].panel.points).find(edge => edge.key === resized[i].edgeKey)!;
+      const direction = vector(other.p1, other.p2), boundary = vector(moved.p1, moved.p2);
+      const determinant = cross(direction, boundary);
+      if (Math.abs(determinant) < EPS) continue;
+      const distance = cross(vector(point, moved.p1), boundary) / determinant;
+      return { x: point.x + direction.x * distance, y: point.y + direction.y * distance };
+    }
+    return point;
+  };
+  return {
+    panels,
+    joint: resized[0].joint,
+    joints: wall.joints?.map(other => other.id === joint.id ? resized[0].joint
+      : { ...other, p1: moveEndpoint(other.p1, other), p2: moveEndpoint(other.p2, other) }),
+    edges: resized.map(r => ({ panelId: r.panel.id, edgeKey: r.edgeKey })),
+  };
+}
+
+/** Persist a recovered contact and turn any old per-edge insets into its single physical gap. */
+export function materializeSharedJoint(wall: Wall, joint: WallJointLine): { wall: Wall; joint: WallJointLine } {
+  if (wall.joints?.some(j => j.id === joint.id)) return { wall, joint };
+  let current = { ...joint, width: 0 };
+  let result = { ...wall, joints: [...(wall.joints ?? []), current] };
+  const allowances = ([1, -1] as const).map(side => ({ side,
+    width: getJointGapOwners(wall.panels ?? [], { ...current, gapOwnerSide: side })[0]?.edge.config?.width ?? 0 }));
+  for (const { side, width } of allowances) {
+    const resized = resizeOwnedJointGap(result, { ...current, gapOwnerSide: side }, current.width + width);
+    current = { ...resized.joint, gapOwnerSide: joint.gapOwnerSide };
+    result = { ...result, panels: resized.panels, joints: resized.joints!.map(j => j.id === joint.id ? current : j) };
+  }
+  return { wall: result, joint: current };
 }

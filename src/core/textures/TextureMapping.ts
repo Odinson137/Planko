@@ -54,8 +54,21 @@ export function pointOnSheet(x: number, y: number, width: number, height: number
   }
 }
 
+/** Ignore legacy automatic anchors that could never describe a single source sheet. */
+export function sourceTextureMapping(piece: TexturedPiece): TextureMapping | undefined {
+  const mapping = piece.textureMapping;
+  if (mapping?.anchor && mapping.offsetX === 0 && mapping.offsetY === 0 &&
+    hasPhotoTexture(piece.textureCategory, piece.decorCode)) {
+    const size = textureFootprint(mapping.anchor.width, mapping.anchor.height, mapping.angleDeg);
+    if (size.width > (piece.textureStockWidth ?? 1220) + 0.01 ||
+      size.height > (piece.textureStockHeight ?? 2800) + 0.01) return undefined;
+  }
+  return mapping;
+}
+
 export function resolveTextureMapping(piece: TexturedPiece): TextureMapping {
-  const mapping = piece.textureMapping ?? { offsetX: 0, offsetY: 0, angleDeg: piece.patternAngleDeg ?? 0 };
+  const mapping = sourceTextureMapping(piece) ?? { offsetX: 0, offsetY: 0,
+    angleDeg: piece.textureMapping?.angleDeg ?? piece.patternAngleDeg ?? 0 };
   const a = mapping.anchor;
   if (!a || piece.x === undefined || piece.y === undefined) return { ...mapping, anchor: undefined };
   const dx = piece.x - a.x;

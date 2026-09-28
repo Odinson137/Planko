@@ -254,6 +254,9 @@
 
 Подробное описание архитектурных решений и схемы БД см. в [ARCHITECTURE.md](ARCHITECTURE.md).
 
+Копирование объектов и групп через Ctrl+C / Ctrl+V, дублирование через Ctrl+D
+и отмена размещения через Esc описаны в [docs/wall-clipboard.md](docs/wall-clipboard.md).
+
 ---
 
 ## 📂 Структура репозитория

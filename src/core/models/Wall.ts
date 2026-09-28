@@ -8,10 +8,16 @@ import { Point2D, PolygonSubPiece } from '../geometry/PolygonSlicingEngine';
 export type LayoutOrientation = 'VERTICAL' | 'HORIZONTAL';
 
 export interface PanelEdgeJointConfig {
-  width: number;            // 0 (по умолчанию встык), 5, 8, 10, 16 мм...
+  width: number;            // Геометрический зазор; сам по себе 0 не означает, что его задавали
+  gapConfigured?: boolean; // Пользователь явно задал зазор, в том числе 0 мм
   profileArticle?: string;  // Артикул AllWall профиля (например 'MC-05')
   profileColor?: string;    // HEX цвет профиля
   isLED?: boolean;          // LED-подсветка
+}
+
+/** Older projects have no flag: a positive gap or an assigned owner is already configured. */
+export function isGapConfigured(config?: { width: number; gapConfigured?: boolean; gapOwnerSide?: 1 | -1 }): boolean {
+  return config?.gapConfigured === true || (config?.width ?? 0) > 0 || config?.gapOwnerSide !== undefined;
 }
 
 export type PanelEdgeSide = 'left' | 'right' | 'top' | 'bottom';
@@ -51,12 +57,14 @@ export interface WallJointLine {
   p1: Point2D;                      // Начальная точка отрезка
   p2: Point2D;                      // Конечная точка отрезка
   width: number;                    // Монтажный зазор в мм; толщина металла хранится в каталоге профилей
+  gapConfigured?: boolean;
   isLED: boolean;                   // Включена ли LED-подсветка
   profileArticle?: string;          // Артикул AllWall (DL-13, MC-06 и т.д.)
   profileColor?: string;            // HEX цвет профиля
   orientation?: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
   groupId?: string;                 // Идентификатор группы объединенных швов
   isOuterEdge?: boolean;            // Внешний край стены
+  gapOwnerSide?: 1 | -1;            // Главная сторона относительно нормали (-dy, dx); задаётся первым изменением зазора с панели
   takeSide?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'; // Сторона, откуда забирается размер при расширении
 }
 
@@ -138,10 +146,12 @@ export interface JointEdgeConfig {
   id: string;
   orientation: 'VERTICAL' | 'HORIZONTAL' | 'DIAGONAL';
   width: number;                   // ширина шва в мм (0, 0.8, 5, 8, 10, или любое введенное число)
+  gapConfigured?: boolean;
   isLED: boolean;                  // true ТОЛЬКО если пользователь явно включил LED
   profileArticle?: string;         // Артикул AllWall (DL-13, MC-06 и т.д.)
   profileColor?: string;           // HEX цвет профиля
   groupId?: string;                // идентификатор группы объединенных швов
+  gapOwnerSide?: 1 | -1;
   takeSide?: 'BOTH' | 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM'; // сторона, откуда забирается зазор
 }
 

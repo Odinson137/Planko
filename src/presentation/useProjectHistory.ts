@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { historyShortcut } from '../application/commands/HistoryShortcut';
 import { useProjectStore } from '../application/stores/useProjectStore';
 
-function editingText(target: EventTarget | null): boolean {
+export function editingText(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target.closest('textarea, select')) return true;
   const input = target.closest('input');

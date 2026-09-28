@@ -2,7 +2,7 @@ import { Material } from '../models/Material';
 import { Wall, WallPanelPiece, PanelEdgesConfig } from '../models/Wall';
 import { LayoutEngine } from '../layout/LayoutEngine';
 import { Point2D, PolygonSlicingEngine as Geometry } from './PolygonSlicingEngine';
-import { hasPhotoTexture } from '../textures/TextureMapping';
+import { hasPhotoTexture, sourceTextureMapping, textureMappingError, type TextureMapping } from '../textures/TextureMapping';
 
 export function cuttableWall(wall: Wall, materials: Material[]): Wall {
   if (wall.panels?.length) return wall;
@@ -70,9 +70,18 @@ export function cutPanelOnWall(wall: Wall, materials: Material[], panelId: strin
   if (!preview) return null;
   const bounds = panelBounds(panel.points);
   const material = materials.find(m => m.id === panel.materialId);
-  // Preserve fixed sheet crops, but keep schematic materials available for free nesting.
-  const mapping = panel.textureMapping ?? (hasPhotoTexture(panel.textureCategory ?? material?.textureCategory, panel.decorCode)
-    ? { offsetX: 0, offsetY: 0, angleDeg: panel.patternAngleDeg ?? 0 } : undefined);
+  const piece = { ...panel, ...bounds,
+    textureCategory: panel.textureCategory ?? material?.textureCategory,
+    decorCode: panel.decorCode ?? material?.decorCode,
+    textureStockWidth: material?.width ?? panel.textureStockWidth,
+    textureStockHeight: material?.height ?? panel.textureStockHeight,
+    materialType: material?.type,
+  };
+  const defaultMapping: TextureMapping = { offsetX: 0, offsetY: 0, angleDeg: panel.textureMapping?.angleDeg ?? panel.patternAngleDeg ?? 0 };
+  // Only an actual source sheet can supply a continuous crop to its children.
+  // An oversized wall surface needs an independent sheet origin for each part.
+  const mapping = sourceTextureMapping(piece) ?? (hasPhotoTexture(piece.textureCategory, piece.decorCode) &&
+    !textureMappingError({ ...piece, textureMapping: defaultMapping }) ? defaultMapping : undefined);
   const id = crypto.randomUUID();
   const children = preview.polygons.map((points, index): WallPanelPiece => ({
     ...panel, id: `panel-cut-${id}-${index}`, points,

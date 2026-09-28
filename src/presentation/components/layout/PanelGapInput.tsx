@@ -4,10 +4,11 @@ import { Combobox, NumberInput, useCombobox } from '@mantine/core';
 const PRESETS = [0, 0.8, 1, 1.5, 2, 2.5, 3, 4, 5, 7, 8, 10, 12, 15, 20, 60];
 
 /** One editable distance, with optional quick values independent of profile face widths. */
-export function PanelGapInput({ value, onChange, label = 'Зазор между панелями (мм)' }: {
+export function PanelGapInput({ value, onChange, label = 'Зазор между панелями (мм)', placeholder = 'Введите зазор' }: {
   value: number | null;
   onChange: (value: number) => void;
   label?: string;
+  placeholder?: string;
 }) {
   const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
   const [draft, setDraft] = useState<number | string>(value ?? '');
@@ -17,7 +18,7 @@ export function PanelGapInput({ value, onChange, label = 'Зазор между 
     setDraft(next); onChange(next); combobox.closeDropdown();
   }}>
     <Combobox.Target>
-      <NumberInput size="xs" label={label} placeholder={value === null ? 'Разные значения' : 'Введите зазор'}
+      <NumberInput size="xs" label={label} placeholder={placeholder}
         value={draft} min={0} max={100} allowNegative={false} decimalScale={2}
         decimalSeparator="," allowedDecimalSeparators={['.', ',']} hideControls withKeyboardEvents={false}
         rightSection={<Combobox.Chevron />} rightSectionPointerEvents="none"

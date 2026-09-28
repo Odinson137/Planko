@@ -4,7 +4,7 @@ const EPS = 1e-7;
 const cross = (a: Point2D, b: Point2D, c: Point2D) =>
   (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 
-function triangulate(points: Point2D[]): Point2D[][] {
+export function triangulate(points: Point2D[]): Point2D[][] {
   const polygon = points.filter((p, i) => Math.hypot(p.x - points[(i + 1) % points.length].x,
     p.y - points[(i + 1) % points.length].y) > EPS);
   const area = polygon.reduce((sum, p, i) => {

@@ -3,6 +3,7 @@ export type ProfileType = 'JOINT_3' | 'JOINT_7' | 'JOINT_8' | 'H_JOINT' | 'LED_1
 // Mounting gap is a layout allowance, not the metal wall thickness.
 // Until a manufacturer's section specifies otherwise, preserve the visible-width allowance.
 export const DEFAULT_JOINT_GAP_MM = 3;
+export const DEFAULT_SHEET_CUT_GAP_MM = 0.8;
 export function getProfileMountingGap(profile: { visibleWidth: number; mountingGap?: number }): number {
   return profile.mountingGap ?? profile.visibleWidth;
 }
