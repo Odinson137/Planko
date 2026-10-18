@@ -26,6 +26,7 @@ export interface SnapResult {
   snapped: boolean;
   snapType?: 'CORNER' | 'MIDPOINT' | 'FRACTION' | 'EDGE' | 'INTERSECTION' | 'ANGLE_45' | 'ANGLE_90';
   label?: string;
+  jointGuide?: { p1: Point2D; p2: Point2D };
   edgeSegment?: {
     p1: Point2D;
     p2: Point2D;
@@ -799,12 +800,22 @@ export class PolygonSlicingEngine {
     if (polygons.length === 1) return polygons[0];
 
     let current = polygons[0];
-    for (let i = 1; i < polygons.length; i++) {
-      const nextPoly = polygons[i];
-      const united = this.unionTwoPolygons(current, nextPoly, seamTolerance);
-      if (united && united.length >= 3) {
-        current = united;
+    const pending = polygons.slice(1);
+    while (pending.length > 0) {
+      let joined = false;
+      for (let i = 0; i < pending.length; i++) {
+        // A connecting header may occur after the two separate sides of a portal.
+        if (!this.arePolygonsAdjacent(current, pending[i], seamTolerance)) continue;
+        const united = this.unionTwoPolygons(current, pending[i], seamTolerance);
+        if (united && united.length >= 3) {
+          current = united;
+          pending.splice(i, 1);
+          joined = true;
+          break;
+        }
       }
+      // Never return a partial merge: callers remove every selected source panel.
+      if (!joined) return [];
     }
     return current;
   }

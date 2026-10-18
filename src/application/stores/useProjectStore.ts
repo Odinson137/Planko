@@ -1,5 +1,6 @@
 import { ensureOpeningSlopes } from '../../core/models/Opening';
-import { TextureMapping, slopeTexturePiece, textureMappingError } from '../../core/textures/TextureMapping';
+import { TextureMapping, slopeTexturePiece, textureMappingError, mergeTextureMapping } from '../../core/textures/TextureMapping';
+import { panelBounds } from '../../core/geometry/PanelCutEngine';
 import { create } from 'zustand';
 import { nextWallViewName, normalizeWallCamera, savedWallViews, type WallCamera } from '../../core/models/WallView';
 import { Project, createDefaultProject } from '../../core/models/Project';
@@ -1624,16 +1625,24 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
             const mergedPoints = PolygonSlicingEngine.unionPolygons(
               mergingPanels.map((p) => p.points)
             );
+            if (mergedPoints.length < 3) return state;
 
             const baseMat = mergingPanels[0];
             const allSameMat = mergingPanels.every((p) => p.materialId === baseMat.materialId);
+            const materialId = allSameMat ? baseMat.materialId : (wall.zone.materialId || MATERIAL_NONE_ID);
+            const material = state.project.materials.find(m => m.id === materialId);
 
             const mergedPanel: WallPanelPiece = {
               ...baseMat,
               id: `panel-${Date.now()}-merged`,
               points: mergedPoints,
-              materialId: allSameMat ? baseMat.materialId : (wall.zone.materialId || MATERIAL_NONE_ID),
+              materialId,
               partLabel: allSameMat ? baseMat.partLabel : '1.1',
+              textureMapping: mergeTextureMapping(mergingPanels.map(p => ({ ...p, ...panelBounds(p.points),
+                textureCategory: p.textureCategory ?? material?.textureCategory, decorCode: p.decorCode ?? material?.decorCode })),
+              { ...baseMat, ...panelBounds(mergedPoints), textureCategory: baseMat.textureCategory ?? material?.textureCategory,
+                decorCode: baseMat.decorCode ?? material?.decorCode, textureStockWidth: material?.width,
+                textureStockHeight: material?.height }),
             };
 
             const nextPanels = [...remainingPanels, mergedPanel];
@@ -1783,6 +1792,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
               const mergedPoints = PolygonSlicingEngine.unionPolygons(
                 mergingSubs.map((s) => s.points)
               );
+              if (mergedPoints.length < 3) return;
               const mergedArea =
                 Math.round(
                   (PolygonSlicingEngine.calculatePolygonArea(mergedPoints) / 1_000_000) * 1000
@@ -1801,7 +1811,8 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
                 thickness: baseMat.thickness,
                 reliefType: baseMat.reliefType,
                 textureCategory: baseMat.textureCategory,
-                textureMapping: baseMat.textureMapping,
+                textureMapping: mergeTextureMapping(mergingSubs.map(p => ({ ...p, ...panelBounds(p.points) })),
+                  { ...baseMat, ...panelBounds(mergedPoints) }),
                 patternAngleDeg: baseMat.patternAngleDeg,
                 patternFlipX: baseMat.patternFlipX,
                 isVoid: allSameMat && baseMat.isVoid,

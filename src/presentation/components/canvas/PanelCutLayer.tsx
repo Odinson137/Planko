@@ -5,6 +5,7 @@ import { useProjectStore } from '../../../application/stores/useProjectStore';
 import { usePanelCutStore } from '../../../application/stores/usePanelCutStore';
 import { cuttableWall, findCutPanel, previewPanelCut } from '../../../core/geometry/PanelCutEngine';
 import { PolygonSlicingEngine as Geometry } from '../../../core/geometry/PolygonSlicingEngine';
+import { getPanelCutGuides, snapPanelCutPoint } from '../../../core/geometry/PanelCutSnapping';
 
 export const PanelCutLayer: React.FC<{ width: number; height: number; zoom: number; panX: number; panY: number }> = props => {
   const { width, height, zoom, panX, panY } = props;
@@ -13,6 +14,7 @@ export const PanelCutLayer: React.FC<{ width: number; height: number; zoom: numb
   const wall = project.walls.find(w => w.id === project.selectedWallId);
   const source = useMemo(() => wall && cuttableWall(wall, project.materials), [wall, project.materials]);
   const panel = source && findCutPanel(source, cut.panelId);
+  const guides = useMemo(() => source && panel ? getPanelCutGuides(source, panel) : [], [source, panel]);
   const preview = useMemo(() => panel && cut.p1 && cut.p2 ? previewPanelCut(panel, cut.p1, cut.p2) : null, [panel, cut.p1, cut.p2]);
 
   useEffect(() => {
@@ -48,11 +50,11 @@ export const PanelCutLayer: React.FC<{ width: number; height: number; zoom: numb
       raw.x = cut.p1.x + Math.cos(angle) * length;
       raw.y = cut.p1.y + Math.sin(angle) * length;
     }
-    return Geometry.snapPoint(raw, [panel.points], [], wall.width, wall.height,
-      cut.locked ? null : cut.p1, 9 / zoom);
+    return snapPanelCutPoint(raw, panel, guides, cut.locked ? null : cut.p1, 9 / zoom, event.evt.shiftKey);
   };
   const line = (a: { x: number; y: number }, b: { x: number; y: number }) => [a.x, wallH - a.y, b.x, wallH - b.y];
   const activePoint = cut.locked ? cut.p2 : cut.snap?.point;
+  const jointGuide = cut.snap?.jointGuide;
   return (
     <Layer>
       <Rect x={-panX / zoom} y={-panY / zoom} width={width / zoom} height={height / zoom} fill="rgba(0,0,0,0)"
@@ -74,6 +76,12 @@ export const PanelCutLayer: React.FC<{ width: number; height: number; zoom: numb
         stroke="#228be6" strokeWidth={2 / zoom} fill="rgba(34,139,230,0.06)" listening={false} />}
       {preview?.polygons.map((polygon, index) => <Line key={index} points={polygon.flatMap(p => [p.x, wallH - p.y])}
         closed fill={index % 2 ? 'rgba(32,201,151,0.16)' : 'rgba(34,139,230,0.12)'} listening={false} />)}
+      {jointGuide && activePoint && <>
+        <Line points={line(jointGuide.p1, jointGuide.p2)} stroke="#20c997" strokeWidth={2 / zoom} listening={false} />
+        <Line points={line(activePoint, Math.hypot(activePoint.x - jointGuide.p1.x, activePoint.y - jointGuide.p1.y) <
+          Math.hypot(activePoint.x - jointGuide.p2.x, activePoint.y - jointGuide.p2.y) ? jointGuide.p1 : jointGuide.p2)}
+          stroke="#20c997" strokeWidth={1.5 / zoom} dash={[6 / zoom, 4 / zoom]} listening={false} />
+      </>}
       {cut.p1 && cut.p2 && <Line points={line(cut.p1, cut.p2)} stroke={preview ? '#f59f00' : '#fa5252'}
         strokeWidth={2 / zoom} dash={[7 / zoom, 4 / zoom]} listening={false} />}
       {preview?.segments.map((segment, index) => <Line key={index} points={line(segment.p1, segment.p2)}

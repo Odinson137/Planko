@@ -56,7 +56,7 @@ export function pointOnSheet(x: number, y: number, width: number, height: number
   }
 }
 
-/** Ignore legacy automatic anchors that could never describe a single source sheet. */
+/** Ignore automatic anchors that no longer describe the part after merging or an old wall cut. */
 export function sourceTextureMapping(piece: TexturedPiece): TextureMapping | undefined {
   const mapping = piece.textureMapping;
   if (mapping?.anchor && mapping.offsetX === 0 && mapping.offsetY === 0 &&
@@ -64,6 +64,11 @@ export function sourceTextureMapping(piece: TexturedPiece): TextureMapping | und
     const size = textureFootprint(mapping.anchor.width, mapping.anchor.height, mapping.angleDeg);
     if (size.width > (piece.textureStockWidth ?? 1220) + 0.01 ||
       size.height > (piece.textureStockHeight ?? 2800) + 0.01) return undefined;
+    const a = mapping.anchor;
+    // Calculated display bounds are rounded to tenths of a millimetre.
+    if (mapping.enabled !== true && piece.x !== undefined && piece.y !== undefined &&
+      (piece.x < a.x - 0.1 || piece.y < a.y - 0.1 ||
+        piece.x + piece.width > a.x + a.width + 0.1 || piece.y + piece.height > a.y + a.height + 0.1)) return undefined;
   }
   return mapping;
 }
@@ -79,6 +84,26 @@ export function resolveTextureMapping(piece: TexturedPiece): TextureMapping {
     .map(([x, y]) => pointOnSheet(x, y, a.width, a.height, mapping.angleDeg));
   return { offsetX: mapping.offsetX + Math.min(...corners.map(p => p.x)),
     offsetY: mapping.offsetY + Math.min(...corners.map(p => p.y)), angleDeg: mapping.angleDeg, enabled: mapping.enabled };
+}
+
+/** A merge may retain a shared source crop, but must not enlarge one child's crop into its neighbors. */
+export function mergeTextureMapping(pieces: TexturedPiece[], merged: TexturedPiece): TextureMapping | undefined {
+  if (!pieces.some(p => p.textureMapping)) return undefined;
+  const candidates = pieces.map(piece => {
+    const mapping = resolveTextureMapping(piece);
+    return resolveTextureMapping({ ...merged, textureMapping: { ...mapping,
+      // This temporary anchor translates each source into the merged part's coordinate frame.
+      anchor: { x: piece.x ?? 0, y: piece.y ?? 0, width: piece.width, height: piece.height } },
+      // A translation may extend past the old bounds; validate the final crop below.
+      textureCategory: undefined, decorCode: undefined });
+  });
+  const first = candidates[0];
+  const sameSource = candidates.every(m => Math.abs(m.offsetX - first.offsetX) < 0.01 &&
+    Math.abs(m.offsetY - first.offsetY) < 0.01 && Math.abs(m.angleDeg - first.angleDeg) < 0.01);
+  const mapping: TextureMapping = sameSource && !textureMappingError({ ...merged, textureMapping: first })
+    ? { ...first, enabled: candidates.some(m => m.enabled === true) }
+    : { offsetX: 0, offsetY: 0, angleDeg: first.angleDeg, enabled: false };
+  return { ...mapping, anchor: { x: merged.x ?? 0, y: merged.y ?? 0, width: merged.width, height: merged.height } };
 }
 
 /** Actual part outline in local image coordinates: origin at top left, Y points down. */

@@ -21,6 +21,7 @@ export const PanelCutSidebar: React.FC = () => {
     <Stack p="md" gap="sm">
       <Group justify="space-between"><Text fw={700}>Разрез панели</Text><Button size="compact-xs" variant="subtle" onClick={cut.finish} leftSection={<X size={14} />}>Готово</Button></Group>
       <Text size="sm">Выберите панель, затем две точки на её краях. Проверьте разрез и нажмите «Разрезать».</Text>
+      <Text size="xs" c="dimmed">У начала соседнего шва точка прилипнет к его продолжению. Зелёная направляющая покажет совпадение.</Text>
       <Select label="Панель для разреза" placeholder="Выберите на стене или из списка" searchable
         value={panel?.id ?? null} onChange={id => { if (id) cut.choosePanel(id); }}
         data={(source?.panels ?? []).map(p => ({ value: p.id, label: `${p.partLabel} · ${panelBounds(p.points).width.toFixed(1)} × ${panelBounds(p.points).height.toFixed(1)} мм` }))} />
