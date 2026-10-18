@@ -2,16 +2,86 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/planko.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AllWall CAD — Визуализация и раскладка панелей</title>
+    <title>Planko — Проектирование и раскрой панелей</title>
+    <script>
+      try {
+        document.documentElement.dataset.startupTheme = localStorage.getItem('planko-color-scheme') === 'dark' ? 'dark' : 'light';
+      } catch {}
+    </script>
+    <link rel="stylesheet" href="/src/app/startup.css" />
     <!-- Google Fonts Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   </head>
   <body style="margin: 0; padding: 0; overflow: hidden;">
     <div id="root"></div>
+    <div id="startup-screen" class="startup-screen">
+      <div class="startup-grid" aria-hidden="true"></div>
+      <main class="startup-layout">
+        <div class="startup-illustration" aria-hidden="true">
+          <svg viewBox="0 0 400 380" fill="none">
+            <defs>
+              <linearGradient id="panel-front" x1="130" y1="100" x2="300" y2="300" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#7698FF" stop-opacity=".5" />
+                <stop offset="1" stop-color="#3863E8" stop-opacity=".08" />
+              </linearGradient>
+              <linearGradient id="panel-back" x1="100" y1="50" x2="240" y2="300" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#A9BBE5" stop-opacity=".22" />
+                <stop offset="1" stop-color="#A9BBE5" stop-opacity=".02" />
+              </linearGradient>
+            </defs>
+            <path class="startup-floor" d="m32 288 164 87 173-94-164-87-173 94Zm40-22 165 87m-124-109 165 87m-124-109 165 87M73 309l173-94M114 331l173-94M155 353l173-94" />
+            <g class="startup-panel startup-panel-back">
+              <path d="m89 80 116-63 10 6v226l-116 63-10-6V80Z" fill="url(#panel-back)" />
+              <path d="m89 80 116-63 10 6-116 63-10-6Zm10 6v226l116-63V23M89 80v226l10 6" />
+              <path d="m119 95 76-41v177l-76 41V95Z" stroke-dasharray="3 5" opacity=".55" />
+            </g>
+            <g class="startup-panel startup-panel-middle">
+              <path d="m143 110 116-63 10 6v226l-116 63-10-6V110Z" fill="url(#panel-back)" />
+              <path d="m143 110 116-63 10 6-116 63-10-6Zm10 6v226l116-63V53M143 110v226l10 6" />
+              <path d="m192 95 0 226m38-247v226" opacity=".55" />
+            </g>
+            <g class="startup-panel startup-panel-front">
+              <path d="m197 140 116-63 10 6v226l-116 63-10-6V140Z" fill="url(#panel-front)" />
+              <path d="m197 140 116-63 10 6-116 63-10-6Zm10 6v226l116-63V83M197 140v226l10 6" />
+              <path d="m246 125 0 226m38-247v226" opacity=".4" />
+              <path d="m207 253 116-63" stroke-dasharray="4 5" opacity=".65" />
+              <circle cx="207" cy="253" r="3" fill="currentColor" stroke="none" />
+              <circle cx="323" cy="190" r="3" fill="currentColor" stroke="none" />
+            </g>
+            <g class="startup-dimension">
+              <path d="M348 96v213m-5-213h10m-10 213h10M97 334l-35-19m26 35-35-19m9-16-9 16" />
+              <text x="362" y="221" transform="rotate(-90 362 221)">2800</text>
+              <text x="41" y="319" transform="rotate(29 41 319)">1220</text>
+            </g>
+          </svg>
+        </div>
+        <section class="startup-content" aria-label="Запуск Planko">
+          <div class="startup-wordmark">planko<span>.</span></div>
+          <p class="startup-tagline">Каждая панель на своём месте.</p>
+          <p class="startup-caption">Проектирование · Раскладка · Раскрой</p>
+          <div class="startup-loading" role="status" aria-live="polite" aria-atomic="true">
+            <div class="startup-status-row">
+              <span id="startup-status">Запускаем приложение…</span>
+              <span id="startup-percent">0%</span>
+            </div>
+            <div id="startup-progress" class="startup-progress" role="progressbar" aria-label="Загрузка приложения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="startup-progress-fill" class="startup-progress-fill"></div>
+            </div>
+            <div class="startup-detail-row">
+              <span id="startup-detail">Подготовка рабочего пространства</span>
+              <span class="startup-activity" aria-hidden="true"><i></i><i></i><i></i></span>
+            </div>
+          </div>
+          <button id="startup-retry" class="startup-retry" type="button" hidden>Попробовать снова</button>
+          <noscript>Для запуска приложения необходимо включить JavaScript.</noscript>
+        </section>
+      </main>
+      <footer class="startup-footer"><span>PLANKO CAD</span><span>От проекта до готовой стены</span></footer>
+    </div>
     <script type="module" src="/src/app/main.tsx"></script>
   </body>
 </html>

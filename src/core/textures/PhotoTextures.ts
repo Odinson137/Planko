@@ -7,46 +7,73 @@ const previewCache = new Map<string, string>();
 const photos = new Map<string, HTMLCanvasElement>();
 let loading: Promise<void> | undefined;
 
+export interface TextureLoadProgress {
+  completed: number;
+  total: number;
+  failed: number;
+}
+
+const progress: TextureLoadProgress = { completed: 0, total: Object.keys(articles).length * 2, failed: 0 };
+const progressListeners = new Set<(progress: TextureLoadProgress) => void>();
+
+async function loadPreparedTexture(url: string): Promise<HTMLCanvasElement> {
+  const img = new Image();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    img.src = url;
+    await Promise.race([
+      img.decode(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`Texture loading timed out: ${url}`)), 15000);
+      }),
+    ]);
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context is unavailable');
+    ctx.drawImage(img, 0, 0);
+    return canvas;
+  } finally {
+    clearTimeout(timeout);
+    img.src = '';
+  }
+}
+
 export function photoTextureUrl(category: string, code?: string): string | undefined {
   const article = articles[`${category}:${code}`];
-  return article ? `./textures/warehouse/${article}.jpg` : undefined;
+  return article ? `./textures/warehouse/ready/${article}.webp` : undefined;
 }
 
 export function getPhotoTexture(category: string, code?: string): HTMLCanvasElement | undefined {
   return photos.get(`${category}:${code}`);
 }
 
-export function preloadPhotoTextures(): Promise<void> {
-  return loading ??= (async () => {
-    // Decode sequentially to avoid keeping six full resolution photos in memory at once.
+export function preloadPhotoTextures(onProgress?: (progress: TextureLoadProgress) => void): Promise<void> {
+  if (onProgress) {
+    progressListeners.add(onProgress);
+    onProgress({ ...progress });
+  }
+  loading ??= (async () => {
+    // Two small, prepared images at a time. No full-resolution decoding or cropping at startup.
     for (const [key, article] of Object.entries(articles)) {
-      try {
-        const img = new Image();
-        img.src = `./textures/warehouse/${article}.jpg`;
-        await img.decode();
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(1, 2048 / Math.max(img.width, img.height));
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d');
-        if (!ctx) continue;
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        photos.set(key, canvas);
-        const sheet = new Image();
-        sheet.src = `./textures/warehouse/${article}-sheet.jpg`;
-        await sheet.decode();
-        // Explicit measured rectangle of the panel on the original photograph.
-        const crop = article === '8812-15' ? [1315, 827, 3587, 6045] : [1320, 839, 3594, 6041];
-        const cropped = document.createElement('canvas');
-        cropped.width = Math.round((crop[2] - crop[0]) / (crop[3] - crop[1]) * 2048);
-        cropped.height = 2048;
-        cropped.getContext('2d')?.drawImage(sheet, crop[0], crop[1], crop[2]-crop[0], crop[3]-crop[1], 0, 0, cropped.width, cropped.height);
-        sheets.set(key, cropped);
-      } catch (error) {
-        console.warn(`Не удалось загрузить фото текстуры ${article}`, error);
-      }
+      await Promise.all([false, true].map(async sheet => {
+        try {
+          const canvas = await loadPreparedTexture(`./textures/warehouse/ready/${article}${sheet ? '-sheet' : ''}.webp`);
+          (sheet ? sheets : photos).set(key, canvas);
+        } catch (error) {
+          progress.failed++;
+          console.warn(`Не удалось загрузить ${sheet ? 'лист' : 'фото'} текстуры ${article}`, error);
+        } finally {
+          progress.completed++;
+          for (const listener of progressListeners) listener({ ...progress });
+        }
+      }));
     }
   })();
+  return loading.finally(() => {
+    if (onProgress) progressListeners.delete(onProgress);
+  });
 }
 
 type Point = { x: number; y: number };

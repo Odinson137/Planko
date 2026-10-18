@@ -10,7 +10,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: 'Planko - Стеновые Панели & Раскрой',
-    backgroundColor: '#1a1b1e',
+    backgroundColor: '#f5f7fb',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

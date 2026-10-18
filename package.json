@@ -11,6 +11,7 @@
     "dev": "vite",
     "test": "node tests/run.mjs",
     "test:types": "tsc -p tests/tsconfig.json",
+    "textures:prepare": "node scripts/prepare-textures.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
@@ -81,6 +82,7 @@
     "postcss": "^8.4.45",
     "postcss-preset-mantine": "^1.17.0",
     "postcss-simple-vars": "^7.0.1",
+    "sharp": "^0.35.5",
     "typescript": "^5.5.4",
     "vite": "^5.4.3",
     "wait-on": "^9.1.0"
