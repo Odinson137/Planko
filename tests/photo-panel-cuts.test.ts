@@ -15,6 +15,17 @@ const nesting = (wall: ReturnType<typeof wallWithPanel>, material = photoMateria
     material.width, material.height, [material]);
 };
 
+test('cutting an automatic photo panel retains visual continuity without fixing the cutting layout', () => {
+  const wall = wallWithPanel(1200, 2000);
+  const cut = cutPanelOnWall(wall, [photoMaterial], 'panel-1', { x: 0, y: 1000 }, { x: 1200, y: 1000 })!;
+  const pieces = LayoutEngine.calculateWallLayout(cut, photoMaterial, [photoMaterial]).panels;
+  assert.ok(pieces.every(p => p.textureMapping?.enabled === false));
+  assert.deepEqual(pieces.map(p => resolveTextureMapping(p).offsetY).sort((a, b) => a - b), [0, 1000]);
+  const result = nesting(cut);
+  assert.equal(result.totalSheetsCount, 1);
+  assert.ok(result.allSheets[0].placedParts.every(p => p.textureAngleDeg === undefined));
+});
+
 for (const scenario of [
   { name: '3600 × 2750 wall', width: 3600, height: 2750, angle: 0, axis: 'x', cuts: [1200, 2400], material: photoMaterial },
   { name: 'rotated tall wall', width: 2750, height: 3600, angle: 90, axis: 'y', cuts: [1200, 2400], material: photoMaterial },

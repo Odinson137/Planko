@@ -1,4 +1,4 @@
-import { TextureMapping, hasPhotoTexture, resolveTextureMapping, textureMappingError, textureFootprint, pointOnSheet } from '../textures/TextureMapping';
+import { TextureMapping, resolveTextureMapping, textureMappingError, textureFootprint, pointOnSheet } from '../textures/TextureMapping';
 import { Point2D } from '../geometry/PolygonSlicingEngine';
 import { subtractRectangles } from '../geometry/Rect2D';
 import { polygonsSeparated } from '../geometry/PolygonCollision';
@@ -342,7 +342,7 @@ export class NestingEngine {
     sheetW: number,
     sheetH: number
   ): MaterialNestingResult {
-    const fixed = parts.filter(p => p.textureMapping || hasPhotoTexture(p.textureCategory, p.decorCode));
+    const fixed = parts.filter(p => p.textureMapping && p.textureMapping.enabled !== false);
     if (fixed.length && fixed.length < parts.length) {
       // Unconfigured parts remain freely optimizable; do not silently fix them at the origin.
       const a = this.packTextureParts(fixed, materialId, materialName, sheetW, sheetH);
@@ -355,6 +355,12 @@ export class NestingEngine {
     }
     if (fixed.length) {
       return this.packTextureParts(parts, materialId, materialName, sheetW, sheetH);
+    }
+    for (const part of parts) {
+      if (!Number.isFinite(part.width) || !Number.isFinite(part.height) ||
+        !this.fitsStock(part.width, part.height, sheetW, sheetH, part.materialType)) {
+        throw new Error(`Деталь ${part.partLabel}: Участок выходит за границы листа. Разделите деталь или выберите другой формат листа.`);
+      }
     }
     if (parts.length === 0) {
       return {

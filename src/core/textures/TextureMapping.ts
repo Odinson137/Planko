@@ -8,6 +8,8 @@ export interface TextureMapping {
   offsetX: number;
   offsetY: number;
   angleDeg: number;
+  /** False allows free nesting; true fixes the source-sheet position manually. */
+  enabled?: boolean;
   /** Original wall-space bounds, retained when a polygon is split. */
   anchor?: { x: number; y: number; width: number; height: number };
 }
@@ -68,7 +70,7 @@ export function sourceTextureMapping(piece: TexturedPiece): TextureMapping | und
 
 export function resolveTextureMapping(piece: TexturedPiece): TextureMapping {
   const mapping = sourceTextureMapping(piece) ?? { offsetX: 0, offsetY: 0,
-    angleDeg: piece.textureMapping?.angleDeg ?? piece.patternAngleDeg ?? 0 };
+    angleDeg: piece.textureMapping?.angleDeg ?? piece.patternAngleDeg ?? 0, enabled: piece.textureMapping?.enabled };
   const a = mapping.anchor;
   if (!a || piece.x === undefined || piece.y === undefined) return { ...mapping, anchor: undefined };
   const dx = piece.x - a.x;
@@ -76,7 +78,7 @@ export function resolveTextureMapping(piece: TexturedPiece): TextureMapping {
   const corners = [[dx, dy], [dx + piece.width, dy], [dx, dy + piece.height], [dx + piece.width, dy + piece.height]]
     .map(([x, y]) => pointOnSheet(x, y, a.width, a.height, mapping.angleDeg));
   return { offsetX: mapping.offsetX + Math.min(...corners.map(p => p.x)),
-    offsetY: mapping.offsetY + Math.min(...corners.map(p => p.y)), angleDeg: mapping.angleDeg };
+    offsetY: mapping.offsetY + Math.min(...corners.map(p => p.y)), angleDeg: mapping.angleDeg, enabled: mapping.enabled };
 }
 
 /** Actual part outline in local image coordinates: origin at top left, Y points down. */

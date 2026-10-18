@@ -77,7 +77,7 @@ export function cutPanelOnWall(wall: Wall, materials: Material[], panelId: strin
     textureStockHeight: material?.height ?? panel.textureStockHeight,
     materialType: material?.type,
   };
-  const defaultMapping: TextureMapping = { offsetX: 0, offsetY: 0, angleDeg: panel.textureMapping?.angleDeg ?? panel.patternAngleDeg ?? 0 };
+  const defaultMapping: TextureMapping = { offsetX: 0, offsetY: 0, angleDeg: panel.textureMapping?.angleDeg ?? panel.patternAngleDeg ?? 0, enabled: false };
   // Only an actual source sheet can supply a continuous crop to its children.
   // An oversized wall surface needs an independent sheet origin for each part.
   const mapping = sourceTextureMapping(piece) ?? (hasPhotoTexture(piece.textureCategory, piece.decorCode) &&

@@ -20,6 +20,48 @@ test('photo lookup distinguishes category and exact article suffix', () => {
   assert.ok(!hasPhotoTexture('WOOD', '5007-1'));
 });
 
+test('photo decor 5189 packs three automatic upper panels on two sheets and the full wall on five', () => {
+  const upper = [1, 2, 3].map(id => ({ ...part(`upper-${id}`, origin, 1220, 999), decorCode: '5189', textureMapping: undefined }));
+  const before = structuredClone(upper);
+  const result = NestingEngine.optimizeProjectNesting(upper);
+  assert.equal(result.totalSheetsCount, 2);
+  assert.equal(Math.max(...result.allSheets.map(s => s.placedParts.length)), 2);
+  assert.deepEqual(upper, before);
+  const lower = [1, 2, 3].map(id => ({ ...upper[0], id: `lower-${id}`, width: 1200, height: 2800 }));
+  assert.equal(NestingEngine.optimizeProjectNesting([...lower, ...upper]).totalSheetsCount, 5);
+});
+
+test('disabled mappings ignore their old offsets and freely pack photo and schematic decor', () => {
+  for (const decorCode of ['5189', '5134']) {
+    const inputs = [1, 2, 3].map(id => ({ ...part(String(id), { ...origin, offsetY: 9999, enabled: false }, 1220, 999), decorCode }));
+    assert.equal(NestingEngine.optimizeProjectNesting(inputs).totalSheetsCount, 2);
+  }
+});
+
+test('explicitly fixed upper panels retain individual positions, and overlapping ones need separate sheets', () => {
+  const first = part('1.3', { ...origin, enabled: true }, 1220, 999);
+  const second = part('1.4', { ...origin, offsetY: 1000, enabled: true }, 1220, 999);
+  const result = NestingEngine.optimizeProjectNesting([first, second]);
+  assert.equal(result.totalSheetsCount, 1);
+  assert.deepEqual(result.allSheets[0].placedParts.map(p => p.y), [1801, 801]);
+  assert.equal(NestingEngine.optimizeProjectNesting([first, { ...second, textureMapping: first.textureMapping }]).totalSheetsCount, 2);
+});
+
+test('automatic parts exceeding stock report a labeled error while permitted rotations still fit', () => {
+  const plain = { ...part('oversized', origin, 1300, 2900), textureMapping: undefined };
+  assert.throws(() => NestingEngine.optimizeProjectNesting([plain]), /Деталь oversized: Участок выходит за границы листа/);
+  assert.equal(NestingEngine.optimizeProjectNesting([{ ...plain, width: 2000, height: 1000 }]).totalSheetsCount, 1);
+  assert.throws(() => NestingEngine.optimizeProjectNesting([{ ...plain, width: 2000, height: 1000, materialType: 'SLAT' }]), /границы листа/);
+});
+
+test('inherited source crops preserve the explicit fixation flag', () => {
+  for (const enabled of [true, false]) {
+    const child = { x: 100, y: 200, width: 200, height: 300, textureMapping: { ...origin, enabled,
+      anchor: { x: 0, y: 0, width: 600, height: 800 } } };
+    assert.equal(resolveTextureMapping(child).enabled, enabled);
+  }
+});
+
 test('fixed regions can touch but cannot overlap on a sheet', () => {
   const first = part('1', origin);
   for (const [offsetX, count] of [[0, 2], [399.9, 2], [400, 1], [400.5, 1]]) {
@@ -99,6 +141,8 @@ test('panel and slope settings survive normalization and project JSON roundtrip'
     assert.equal(useProjectStore.getState().isDirty,true);
     const project = JSON.parse(JSON.stringify(useProjectStore.getState().project));
     const saved = project.walls[0];
+    assert.equal(saved.panels[0].textureMapping.enabled,true);
+    assert.equal(ensureOpeningSlopes(saved.openings[0]).left.textureMapping?.enabled,true);
     assert.equal(ensureOpeningSlopes(saved.openings[0]).left.textureMapping?.offsetY,120);
     const layout = LayoutEngine.calculateWallLayout(saved,mat,[mat]);
     assert.equal(resolveTextureMapping(layout.panels[0]).offsetX,50);
@@ -125,5 +169,27 @@ test('panel and slope settings survive normalization and project JSON roundtrip'
       assert.equal(crop.offsetX,50);
       assert.equal(crop.offsetY,70 + 800 - child.y - child.height);
     }
+  } finally { useProjectStore.setState(previous); }
+});
+
+test('store saves individual panel drafts and immediately clears panel and slope fixation even for invalid old crops', () => {
+  const wall = createDefaultWall('unfix-wall');
+  const mat = { ...DEFAULT_MATERIALS.find(m => m.textureCategory === 'WOOD')!, decorCode: '5189', width: 1220, height: 2800 };
+  wall.zone.materialId = mat.id;
+  wall.panels = [0, 1].map(i => ({ id: `panel-${i}`, materialId: mat.id, partLabel: `1.${i + 3}`,
+    points: [{x: i * 400,y: 0},{x: i * 400 + 400,y: 0},{x: i * 400 + 400,y: 800},{x: i * 400,y: 800}] }));
+  const opening = createDefaultOpening('WINDOW', wall.width, wall.height);
+  wall.openings = [opening];
+  const previous = useProjectStore.getState();
+  try {
+    useProjectStore.setState({ project: { ...previous.project, walls: [wall], materials: [mat] } });
+    const ids = ['panel-0', 'panel-1', `slope-${opening.id}-left`];
+    useProjectStore.getState().setTextureMappings(wall.id, ids.map((id, i) => ({ id, mapping: { ...origin, offsetY: i < 2 ? i * 850 : 120, enabled: true } })));
+    const fixedWall = useProjectStore.getState().project.walls[0];
+    assert.deepEqual(fixedWall.panels!.map(p => p.textureMapping?.offsetY), [0, 850]);
+    useProjectStore.getState().setTextureMappings(wall.id, ids.map(id => ({ id, mapping: { ...origin, offsetX: 9999, enabled: false } })));
+    const released = useProjectStore.getState().project.walls[0];
+    assert.ok(released.panels!.every(p => p.textureMapping === undefined));
+    assert.equal(ensureOpeningSlopes(released.openings[0]).left.textureMapping, undefined);
   } finally { useProjectStore.setState(previous); }
 });

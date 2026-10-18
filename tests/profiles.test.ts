@@ -14,12 +14,17 @@ import { localCatalogRepository } from '../src/infrastructure/repositories/Local
 
 const material = DEFAULT_MATERIALS.find((m) => !m.isVoid && m.type === 'SHEET')!;
 
-test('PDF rejects oversized parts but allows rotated and exact-size parts', () => {
+test('nesting rejects oversized parts before PDF, and PDF allows rotated and exact-size parts', () => {
   for (const [width, height, invalid] of [[3450, 300, true], [2870, 310, true], [1300, 1300, true], [2800, 300, false], [1220, 2800, false]] as const) {
-    const result = NestingEngine.optimizeProjectNesting([{
+    const parts = [{
       id: 'slope', wallId: 'wall', wallName: 'Стена 1', partLabel: '1.36',
       materialId: material.id, width, height, note: 'Окно (Подоконник)',
-    }]);
+    }];
+    if (invalid) {
+      assert.throws(() => NestingEngine.optimizeProjectNesting(parts), /Деталь 1.36: Участок выходит за границы листа/);
+      continue;
+    }
+    const result = NestingEngine.optimizeProjectNesting(parts);
     const texts: string[] = [];
     const ctx = new Proxy({} as Record<string, unknown>, {
       get: (_, key) => key === 'fillText' ? (text: string) => texts.push(text)
@@ -28,11 +33,6 @@ test('PDF rejects oversized parts but allows rotated and exact-size parts', () =
     });
     (PdfExportService as any).drawNestingSheetsOnCanvas(ctx, result.allSheets.map((sheet) => ({ sheet, otherWallNames: [] })), [], 'wall', 0, 0, 600, 600);
     assert.equal(texts.includes('Нельзя разместить'), invalid, `${width} × ${height}`);
-    if (invalid) {
-      assert.ok(texts.includes('! Элемент 1.36'));
-      assert.ok(texts.includes(`Деталь: ${width} × ${height} мм`));
-      assert.ok(!texts.some((text) => text.includes('Исп:')));
-    }
   }
 });
 function panel(width = 2500): WallPanelPiece {
@@ -182,11 +182,16 @@ test('different stock formats and slat models never share stock despite matching
   assert.deepEqual(result.allSheets.map((s) => [s.sheetWidth, s.sheetHeight]), stocks.map((s) => [s.width, s.height]));
 });
 
-test('PDF accepts full slats and custom sheets, flags true oversize against actual stock', () => {
+test('PDF accepts full slats and custom sheets, nesting rejects true oversize against actual stock', () => {
   for (const type of ['SLAT', 'SHEET'] as const) {
     const stock = { ...material, id: `stock-${type}`, type, width: type === 'SLAT' ? 145 : 900, height: 3500 };
     for (const extra of [0, 100]) {
-      const result = NestingEngine.optimizeProjectNesting(stockParts(stock.id, [[stock.width, stock.height + extra]]), undefined, undefined, [stock]);
+      const parts = stockParts(stock.id, [[stock.width, stock.height + extra]]);
+      if (extra > 0) {
+        assert.throws(() => NestingEngine.optimizeProjectNesting(parts, undefined, undefined, [stock]), /Участок выходит за границы листа/);
+        continue;
+      }
+      const result = NestingEngine.optimizeProjectNesting(parts, undefined, undefined, [stock]);
       const texts: string[] = [];
       const ctx = new Proxy({} as Record<string, unknown>, {
         get: (_, key) => key === 'fillText' ? (text: string) => texts.push(text)
@@ -196,9 +201,8 @@ test('PDF accepts full slats and custom sheets, flags true oversize against actu
       (PdfExportService as any).drawNestingSheetsOnCanvas(ctx, result.allSheets.map((sheet) => ({ sheet, otherWallNames: [] })), [], 'wall', 0, 0, 900, 900);
       assert.equal(texts.includes('Нельзя разместить'), extra > 0);
       assert.equal(result.allSheets[0].sheetHeight, 3500);
-      if (extra > 0) assert.ok(texts.includes(`на заготовке ${stock.width} × 3500 мм`));
       // The overview now places the stock dimensions on the drawing, without a description line.
-      else assert.ok(texts.includes(String(stock.width)) && texts.includes('3500'));
+      assert.ok(texts.includes(String(stock.width)) && texts.includes('3500'));
     }
   }
 });

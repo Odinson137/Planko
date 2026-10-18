@@ -5208,6 +5208,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     for (const update of updates) {
       const target = targets.find(t => t.id === update.id);
       if (!target) throw new Error('Деталь была изменена. Выберите её заново.');
+      if (update.mapping.enabled === false) continue;
       const error = textureMappingError({ ...target, textureMapping: { ...update.mapping, anchor: undefined }, patternFlipX: false });
       if (error) throw new Error(`${target.partLabel}: ${error}`);
     }
@@ -5215,18 +5216,23 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
     const nextPanels = converted.panels.map(p => {
       const update = updates.find(u => u.id === p.id);
       if (!update) return p;
+      if (update.mapping.enabled === false) return { ...p, textureMapping: undefined };
       const xs = p.points.map(pt => pt.x), ys = p.points.map(pt => pt.y);
       const bounds = layout.panels.find(t => t.id === p.id);
       const anchor = bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
         : { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs)-Math.min(...xs), height: Math.max(...ys)-Math.min(...ys) };
-      return { ...p, textureMapping: { ...update.mapping, anchor }, patternAngleDeg: update.mapping.angleDeg, patternFlipX: false };
+      return { ...p, textureMapping: { ...update.mapping, anchor, enabled: true }, patternAngleDeg: update.mapping.angleDeg, patternFlipX: false };
     });
     const openings = wall.openings.map(op => {
       const slopes = ensureOpeningSlopes(op);
       let changed = false;
       for (const side of ['top', 'bottom', 'left', 'right'] as const) {
         const update = updates.find(u => u.id === `slope-${op.id}-${side}`);
-        if (update) { slopes[side] = { ...slopes[side], textureMapping: { ...update.mapping, anchor: undefined } }; changed = true; }
+        if (update) {
+          slopes[side] = { ...slopes[side], textureMapping: update.mapping.enabled === false
+            ? undefined : { ...update.mapping, anchor: undefined, enabled: true } };
+          changed = true;
+        }
       }
       return changed ? { ...op, slopes } : op;
     });
