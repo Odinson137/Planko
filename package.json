@@ -17,6 +17,9 @@
     "start:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
     "electron:preview": "npm run build && cross-env NODE_ENV=production electron .",
+    "build:mac": "npm run build && node scripts/prepare-macos-icon.mjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --universal --publish never",
+    "build:mac:arm64": "npm run build && node scripts/prepare-macos-icon.mjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never",
+    "build:mac:x64": "npm run build && node scripts/prepare-macos-icon.mjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --x64 --publish never",
     "package": "npm run build && electron-packager . Planko --platform=win32 --arch=x64 --out=release --overwrite --ignore=\"^/src$\" --ignore=\"^/tsconfig\"",
     "build:exe": "npm run build && electron-packager . Planko --platform=win32 --arch=x64 --out=release --overwrite --ignore=\"^/src$\" --ignore=\"^/tsconfig\""
   },
@@ -31,6 +34,17 @@
       "electron/**/*",
       "package.json"
     ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "icon": "build/Planko.icns",
+      "identity": "-",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "target": ["dmg", "zip"]
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "sign": false
+    },
     "win": {
       "target": [
         {

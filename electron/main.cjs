@@ -1,7 +1,8 @@
 const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('path');
 
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const isMac = process.platform === 'darwin';
+const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -16,8 +17,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
-      webSecurity: false,
+      sandbox: true,
     },
   });
 
@@ -38,6 +38,7 @@ function createWindow() {
 
   // Настройка меню приложения
   const template = [
+    ...(isMac ? [{ role: 'appMenu' }] : []),
     {
       label: 'Файл',
       submenu: [
@@ -52,6 +53,16 @@ function createWindow() {
           accelerator: 'CmdOrCtrl+Q',
           click: () => app.quit(),
         },
+      ],
+    },
+    {
+      label: 'Правка',
+      submenu: [
+        { role: 'cut', label: 'Вырезать' },
+        { role: 'copy', label: 'Копировать' },
+        { role: 'paste', label: 'Вставить' },
+        { type: 'separator' },
+        { role: 'selectAll', label: 'Выделить всё' },
       ],
     },
     {
@@ -85,6 +96,7 @@ function createWindow() {
         },
       ],
     },
+    ...(isMac ? [{ role: 'windowMenu' }] : []),
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -110,7 +122,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (!isMac) {
     app.quit();
   }
 });
