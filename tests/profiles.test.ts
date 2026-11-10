@@ -83,13 +83,15 @@ test('project order separates variants and colors and combines matching products
 });
 
 test('stock lengths are taken from the selected product', () => {
-  const wall = wallWithProfile('stock', 'MC-01', 1.5);
+  const wall = wallWithProfile('stock', 'MC-04', 1.5);
   wall.panels![0].points[2].y = 2800;
   wall.panels![0].points[3].y = 2800;
   wall.height = 3000;
-  const item = ProfileSpecificationEngine.calculateWallProfiles(wall, material, DEFAULT_MATERIALS).items.find((i) => i.article === 'MC-01')!;
-  assert.equal(item.stockLengthMm, 2700);
-  assert.equal(item.stockBarsCount, 2);
+  const item = ProfileSpecificationEngine.calculateWallProfiles(wall, material, DEFAULT_MATERIALS).items.find((i) => i.article === 'MC-04')!;
+  assert.equal(item.stockLengthMm, 3000);
+  assert.equal(item.stockBarsCount, 1);
+  assert.equal(item.category, 'END_CAP');
+  assert.equal(findProfileByArticle('DL-09')!.stockLength, 2500);
 });
 
 test('sheet slicing returns joints and subtracts the specified gap, not 8 mm', () => {
@@ -144,6 +146,24 @@ test('PDF table prints actual face width and metal thickness in separate values'
   assert.ok(texts.includes('7 мм / 0,8 мм'));
   assert.ok(texts.includes('Лист 2 / 4 (Сводный)'));
   assert.ok(texts.some((text) => text.includes('MC-06-7')));
+});
+
+test('installer cover does not label mixed-length stock as three-meter bars', () => {
+  const walls = [wallWithProfile('end', 'MC-04', 0), wallWithProfile('baseboard', 'DL-09', 0)];
+  const project = { ...useProjectStore.getState().project, walls };
+  const report = ProfileSpecificationEngine.calculateProjectProfiles(walls, DEFAULT_MATERIALS);
+  const texts: string[] = [];
+  const ctx = new Proxy({} as Record<string, unknown>, {
+    get: (_, key) => key === 'fillText' ? (text: string) => texts.push(text) : () => undefined,
+    set: () => true,
+  });
+  (PdfExportService as any).renderInstallerCoverPage(ctx, 2970, 2100, project, {
+    materialResults: [], totalSheetsCount: 0, totalPartsCount: 0, allSheets: [],
+  }, report, 1, 1);
+  assert.ok(texts.includes('Хлыстов: 2 шт.'));
+  assert.ok(!texts.some(text => text.includes('Хлыстов 3м')));
+  assert.ok(texts.includes('1 × 3 м'));
+  assert.ok(texts.includes('1 × 2.5 м'));
 });
 
 function stockParts(materialId: string, sizes: Array<[number, number]>) {

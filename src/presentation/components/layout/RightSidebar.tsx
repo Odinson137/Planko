@@ -88,7 +88,6 @@ export const RightSidebar: React.FC = () => {
     setPanelEdgeWidth,
     setPanelEdgeProfile,
     setPanelEdgeColor,
-    setPanelEdgeJoint,
     selectWall,
     selectOpening,
     selectPanel,
@@ -242,7 +241,7 @@ export const RightSidebar: React.FC = () => {
                   .map((s) => {
                     const sInf = sideLabels[s];
                     const sConf = framing[s];
-                    const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED;
+                    const hasS = (sConf?.width ?? 0) > 0 || sConf?.isLED || sConf?.profileArticle;
                     const isCur = side === s;
                     return (
                       <Button
@@ -292,7 +291,7 @@ export const RightSidebar: React.FC = () => {
                       searchable
                       clearable
                       value={profileArticle || null}
-                      data={getProfilesByType(selectedProfileType).map((p) => ({
+                      data={getProfilesByType(selectedProfileType, [profileArticle ?? '']).map((p) => ({
                         value: p.article,
                         label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
                       }))}
@@ -303,7 +302,7 @@ export const RightSidebar: React.FC = () => {
                       }
                     />
 
-                    {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм</Text>}
+                    {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм; хлыст: {findProfileByArticle(profileArticle)?.stockLength ?? 'не указан'} мм</Text>}
                     <div>
                       <Text size="xs" fw={500} mb={4}>
                         Цвет профиля AllWall:
@@ -483,12 +482,6 @@ export const RightSidebar: React.FC = () => {
                   onChange={(val) => {
                     const newType = val || 'ALL';
                     setSelectedProfileType(newType);
-                    if (profileArticle) {
-                      const prof = findProfileByArticle(profileArticle);
-                      if (prof && newType !== 'ALL' && prof.functionalRole !== newType) {
-                        setPanelEdgeJoint(currentWall.id, targetPanelId, side, { profileArticle: undefined });
-                      }
-                    }
                   }}
                   allowDeselect={false}
                 />
@@ -501,7 +494,7 @@ export const RightSidebar: React.FC = () => {
                   searchable
                   clearable
                   value={profileArticle || null}
-                  data={getProfilesByType(selectedProfileType).map((p) => ({
+                  data={getProfilesByType(selectedProfileType, [profileArticle ?? '']).map((p) => ({
                     value: p.article,
                     label: p.article + ' • ' + p.name + ' (' + p.visibleWidth + ' мм)',
                   }))}
@@ -510,7 +503,7 @@ export const RightSidebar: React.FC = () => {
                   }}
                 />
 
-                {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм</Text>}
+                {profileArticle && <Text size="xs" c="dimmed">Видимая часть: {findProfileByArticle(profileArticle)?.visibleWidth} мм; металл: {findProfileByArticle(profileArticle)?.metalThickness?.toLocaleString('ru-RU') ?? 'не указан'} мм; хлыст: {findProfileByArticle(profileArticle)?.stockLength ?? 'не указан'} мм</Text>}
                 {/* Выбор цвета профиля AllWall */}
                 <div>
                   <Text size="xs" fw={500} mb={4}>
@@ -751,15 +744,6 @@ export const RightSidebar: React.FC = () => {
                   onChange={(val) => {
                     const newType = val || 'ALL';
                     setSelectedProfileType(newType);
-                    useProjectStore.getState().withHistoryGroup(() => selectedJointIds.forEach((id) => {
-                      const custom = currentWall.customJoints[id];
-                      if (custom?.profileArticle) {
-                        const prof = findProfileByArticle(custom.profileArticle);
-                        if (prof && newType !== 'ALL' && prof.functionalRole !== newType) {
-                          setJointProfile(currentWall.id, id, '', custom.profileColor || '#212529');
-                        }
-                      }
-                    }));
                   }}
                   allowDeselect={false}
                 />

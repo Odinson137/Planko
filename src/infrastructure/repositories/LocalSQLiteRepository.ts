@@ -1,4 +1,5 @@
 import { Project, ProjectMetadata, getProjectMetadata } from '../../core/models/Project';
+import { migrateProjectProfiles } from '../../core/models/ProfileMigration';
 
 export interface IProjectRepository {
   getProject(id: string): Promise<Project | null>;
@@ -22,7 +23,7 @@ export class LocalSQLiteRepository implements IProjectRepository {
     const data = localStorage.getItem(`${this.storageKey}_${id}`);
     if (!data) return null;
     try {
-      return JSON.parse(data) as Project;
+      return migrateProjectProfiles(JSON.parse(data) as Project);
     } catch {
       return null;
     }
@@ -120,13 +121,13 @@ export class LocalSQLiteRepository implements IProjectRepository {
       throw new Error('Некорректный формат файла проекта AllWall CAD');
     }
 
-    const imported: Project = {
+    const imported: Project = migrateProjectProfiles({
       ...parsed,
       id: `proj-${Date.now()}`,
       name: parsed.name ? `${parsed.name} (Импорт)` : 'Импортированный проект',
       updatedAt: new Date().toISOString(),
       createdAt: parsed.createdAt || new Date().toISOString(),
-    };
+    });
 
     await this.saveProject(imported);
     return imported;

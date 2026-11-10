@@ -119,7 +119,7 @@ export interface AllWallProfileItem {
   name: string;                       // Понятное наименование
   category: AllWallProfileCategory;   // Категория каталога
   functionalRole: ProfileFunctionalRole; // Функциональная роль для монтажа
-  stockLength: number;                // Длина хлыста в мм (стандарт 3000 мм, 2700 мм, 2500 мм)
+  stockLength: number;                // Длина хлыста в мм (обычно 3000 мм, для DL-09 — 2500 мм)
   visibleWidth: number;               // Видимая ширина на стене в мм (3.0 мм, 7.0 мм, 10 мм, 15 мм и т.д.)
   mountingGap?: number;               // Монтажный зазор по сечению; не толщина металла
   metalThickness?: number;            // Толщина стенки металла в мм (например 0.8 мм)
@@ -263,18 +263,6 @@ export const ALLWALL_PROFILES_CATALOG: AllWallProfileItem[] = [
   // 2. МЕТАЛЛИЧЕСКИЕ КОННЕКТОРЫ И СОЕДИНИТЕЛИ (СЕРИЯ MC — Metal Connector)
   // ---------------------------------------------------------------------------
   {
-    article: 'MC-01',
-    name: 'Г-образный стартовый/переходной MC-01 (2.7 м)',
-    category: 'CONNECTOR',
-    functionalRole: 'END',
-    stockLength: 2700,
-    visibleWidth: 1.5,
-    allowedThicknesses: [5, 8],
-    availableColors: [ALLWALL_PROFILE_COLORS.BLACK, ALLWALL_PROFILE_COLORS.GOLD, ALLWALL_PROFILE_COLORS.ROSE_GOLD],
-    defaultColorHex: ALLWALL_PROFILE_COLORS.BLACK.hex,
-    description: 'Стартовый и завершающий профиль длиной 2700 мм для торцов и откосов.',
-  },
-  {
     article: 'MC-02',
     name: 'V-образный угловой коннектор MC-02',
     category: 'CONNECTOR',
@@ -300,15 +288,15 @@ export const ALLWALL_PROFILES_CATALOG: AllWallProfileItem[] = [
   },
   {
     article: 'MC-04',
-    name: 'Скошенный разделительный профиль MC-04',
+    name: 'Г-образный торцевой/стартовый профиль MC-04',
     category: 'CONNECTOR',
-    functionalRole: 'JOINT',
+    functionalRole: 'END',
     stockLength: 3000,
     visibleWidth: 2.0,
     allowedThicknesses: [5, 8],
     availableColors: [ALLWALL_PROFILE_COLORS.BLACK, ALLWALL_PROFILE_COLORS.GOLD, ALLWALL_PROFILE_COLORS.ROSE_GOLD],
     defaultColorHex: ALLWALL_PROFILE_COLORS.BLACK.hex,
-    description: 'Декоративный разделительный шов с акцентной геометрией.',
+    description: 'Стартовый и завершающий профиль длиной 3000 мм для торцов и откосов.',
   },
   {
     article: 'MC-05',
@@ -581,9 +569,15 @@ export const ALLWALL_PROFILES_CATALOG: AllWallProfileItem[] = [
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ СПРАВОЧНИКА
 // =============================================================================
 
+/** The working catalog uses MC-04 in place of the formerly assigned MC-01. */
+export function normalizeProfileArticle(article: string): string {
+  const clean = article.trim().toUpperCase().replace(/М/g, 'M').replace(/С/g, 'C');
+  return clean === 'MC-01' ? 'MC-04' : clean;
+}
+
 export function findProfileByArticle(article: string): AllWallProfileItem | undefined {
   if (!article) return undefined;
-  const clean = article.trim().toUpperCase();
+  const clean = normalizeProfileArticle(article);
   return ALLWALL_PROFILES_CATALOG.find((p) => p.article.toUpperCase() === clean);
 }
 

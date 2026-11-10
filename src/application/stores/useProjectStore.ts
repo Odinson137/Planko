@@ -7,6 +7,7 @@ import { Project, createDefaultProject } from '../../core/models/Project';
 import { Wall, createDefaultWall, CustomPanelConfig, PanelSegmentConfig, JointEdgeConfig, RadiusConfig, RadiusType, WallBend, WallPanelPiece, WallJointLine, PanelEdgeJointConfig, PanelEdgeSide } from '../../core/models/Wall';
 import { Opening, createDefaultOpening, OpeningType, OpeningEdgeConfig, OpeningFramingConfig, ensureOpeningFraming, getOpeningTypeLabel, isDoorOrPortal, isPortalOpening } from '../../core/models/Opening';
 import { ProfileType, findProfileByArticle, DEFAULT_PROFILES, DEFAULT_JOINT_GAP_MM, DEFAULT_SHEET_CUT_GAP_MM } from '../../core/models/Profile';
+import { migrateProjectProfiles } from '../../core/models/ProfileMigration';
 import { Material, MATERIAL_NONE_ID, DEFAULT_MATERIALS, materialSheetFormat, type PanelMaterialSelection } from '../../core/models/Material';
 import { SlatProfileShape, AllWallDecor } from '../../core/models/AllWallCatalog';
 import { LayoutEngine } from '../../core/layout/LayoutEngine';
@@ -681,7 +682,7 @@ export const useProjectStore = create<ProjectState>((setRaw, get) => {
 
   function replaceProjectState(next: Partial<ProjectState> & { project: Project }) {
     group = undefined;
-    const project = renumberProjectWalls(next.project);
+    const project = renumberProjectWalls(migrateProjectProfiles(next.project));
     setRaw(state => ({ ...next, project, savedProject: project, ...historyState(),
       historyRevision: state.historyRevision + 1, projectSession: state.projectSession + 1,
       historyError: null, isDirty: false, selectedOpeningIds: [], selectedPanelEdge: null, isSlicingModalOpen: false, slicingTarget: null }));

@@ -12,7 +12,8 @@ export const PROFILE_TYPE_OPTIONS = [
   { value: 'BASEBOARD', label: '🔲 Плинтусы' },
   { value: 'SHADOW', label: '🌑 Теневые' },
 ];
-export const getProfilesByType = (type: string) => ALLWALL_PROFILES_CATALOG.filter(p => type === 'ALL' || p.functionalRole === type);
+export const getProfilesByType = (type: string, assignedArticles: string[] = []) =>
+  ALLWALL_PROFILES_CATALOG.filter(p => type === 'ALL' || p.functionalRole === type || assignedArticles.includes(p.article));
 const COLORS = [
   { name: 'Чёрный', hex: '#212529' }, { name: 'Золото', hex: '#c9a25b' },
   { name: 'Розовое золото', hex: '#b76e79' }, { name: 'Серебро', hex: '#adb5bd' },

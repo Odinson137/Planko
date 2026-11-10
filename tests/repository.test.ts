@@ -75,6 +75,24 @@ test('malformed JSON and projects without a walls array are rejected before savi
   assert.equal(localStorage.length, 0);
 });
 
+test('opening old profile assignments does not rewrite storage; saving and importing persist MC-04', async () => {
+  const wall = wallWithPanel();
+  wall.panels![0].edges = { left: { width: 0.8, profileArticle: 'MC-01', profileColor: '#c9a25b' } };
+  const original = { ...createDefaultProject('Old profiles'), id: 'old-profiles', walls: [wall] };
+  const key = `planko_projects_db_${original.id}`;
+  const raw = JSON.stringify(original);
+  localStorage.setItem(key, raw);
+  const loaded = (await repository.getProject(original.id))!;
+  assert.equal(loaded.walls[0].panels![0].edges!.left!.profileArticle, 'MC-04');
+  assert.equal(localStorage.getItem(key), raw);
+  await repository.saveProject(loaded);
+  assert.equal(JSON.parse(localStorage.getItem(key)!).walls[0].panels[0].edges.left.profileArticle, 'MC-04');
+  const imported = await repository.importProjectFromJson(raw);
+  assert.equal(imported.walls[0].panels![0].edges!.left!.profileArticle, 'MC-04');
+  assert.equal((await repository.getProject(imported.id))!.walls[0].panels![0].edges!.left!.profileArticle, 'MC-04');
+  assert.equal(wall.panels![0].edges!.left!.width, 0.8);
+});
+
 test('duplicate is independent of the original and deleting it preserves the original', async () => {
   const project = { ...createDefaultProject('Original'), id: 'original' };
   await repository.saveProject(project);
