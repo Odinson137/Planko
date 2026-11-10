@@ -1,0 +1,37 @@
+name: Build macOS application
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --registry=https://registry.npmjs.org
+      - run: npm test
+      - run: npm run test:types
+      - run: npm run build:mac
+      - name: Check universal application and installer
+        run: |
+          lipo -archs release/mac-universal/Planko.app/Contents/MacOS/Planko
+          codesign --verify --deep --strict --verbose=2 release/mac-universal/Planko.app
+          hdiutil verify release/Planko-1.0.0-universal.dmg
+          shasum -a 256 release/Planko-1.0.0-universal.dmg > release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Planko-macOS-universal
+          path: |
+            release/Planko-1.0.0-universal.dmg
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
